@@ -172,9 +172,9 @@ describe('TavilySearchProvider request mapping', () => {
 
 describe('TavilySearchProvider settings changes mid-search', () => {
   it('serves one search from one section even when settings land during credential resolution', async () => {
-    const before = { ...options, apiKey: '', baseURL: 'https://before.test', searchDepth: 'basic' as const }
-    const after = { ...options, apiKey: '', baseURL: 'https://after.test', searchDepth: 'advanced' as const }
-    let current = before
+    const before: TavilySearchProviderOptions = { ...options, apiKey: '', baseURL: 'https://before.test', searchDepth: 'basic' }
+    const after: TavilySearchProviderOptions = { ...options, apiKey: '', baseURL: 'https://after.test', searchDepth: 'advanced' }
+    let current: TavilySearchProviderOptions = before
     let commitSettings = (): void => {}
     const resolveApiKey = () => new Promise<string>((resolve) => {
       commitSettings = () => { current = after; resolve('key-from-before') }
