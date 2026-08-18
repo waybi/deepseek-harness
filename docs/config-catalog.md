@@ -2991,6 +2991,33 @@ export interface Config {
 
 Source: [`packages/web/web-search-perplexity/src/index.ts:32`](../packages/web/web-search-perplexity/src/index.ts)
 
+<a id="deepseek-aidsh-web-search-tavily"></a>
+
+## `@deepseek-ai/dsh-web-search-tavily`
+
+Requires: `web`
+
+```ts config-catalog
+/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
+export interface Config {
+  /** Literal Tavily API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
+  apiKey?: string
+  /** Credential reference resolved for each search; defaults to `TAVILY_API_KEY`. */
+  apiKeyEnv?: string
+  /** Search endpoint base; `/search` is appended. */
+  baseURL?: string
+  /** Retrieval depth sent as Tavily `search_depth`. Defaults to `basic`. */
+  searchDepth?: TavilySearchDepth
+  /** Default result count when a request carries no `maxResults`. */
+  maxResults?: number
+}
+
+/** Retrieval depth Tavily accepts on `search_depth`. */
+export type TavilySearchDepth = 'basic' | 'advanced'
+```
+
+Source: [`packages/web/web-search-tavily/src/index.ts:39`](../packages/web/web-search-tavily/src/index.ts)
+
 <a id="deepseek-aidsh-workflow-worker-thread"></a>
 
 ## `@deepseek-ai/dsh-workflow-worker-thread`
