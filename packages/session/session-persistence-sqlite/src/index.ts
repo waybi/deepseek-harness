@@ -198,6 +198,10 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
     return this.coordinator.readFrom(id, fromSeq, signal)
   }
 
+  delete(id: SessionId): Promise<void> {
+    return this.coordinator.delete(id)
+  }
+
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
@@ -334,6 +338,25 @@ export class SqliteSessionPersistence extends SessionPersistence implements Pers
       this.db.exec('ROLLBACK')
       throw error
       /* v8 ignore stop */
+    }
+  }
+
+  /**
+   * Delete one session row. Events cascade through the foreign key. Returns
+   * false when the id has no sessions row (the coordinator then treats that
+   * as an unknown session unless it already holds an un-materialized create
+   * intent).
+   */
+  async deleteStored(id: SessionId): Promise<boolean> {
+    await this.ready
+    this.db.exec('BEGIN')
+    try {
+      const result = this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
+      this.db.exec('COMMIT')
+      return result.changes > 0
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
     }
   }
 

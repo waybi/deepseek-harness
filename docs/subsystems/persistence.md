@@ -4,7 +4,7 @@ English | [中文](persistence.zh.md)
 
 The **durability seam** for the event log. [session.md](session.md) describes the in-memory `Session` — the append-only `SessionEvent` log that is the source of truth. This page describes how that log is made durable: the abstract `SessionPersistence` service, its backends, the flush checkpoint, crash recovery, and the metadata header that travels alongside the log. The event vocabulary the log carries is enumerated, member by member, in the generated [persistence log event catalog](../persistence-catalog.md).
 
-The seam is a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session/session-persistence), `ctx.sessionPersistence`) defining locate/create/append, reusable Session preparation, logical load/inspect, physical suffix reads, and lightweight list/snapshot observation over the existing `SessionEvent` — **no parallel persisted event type** — and two interchangeable backends implementing the same contract. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md).
+The seam is a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md): one abstract service ([dsh-session-persistence](../../packages/session/session-persistence), `ctx.sessionPersistence`) defining locate/create/append/delete, reusable Session preparation, logical load/inspect, physical suffix reads, and lightweight list/snapshot observation over the existing `SessionEvent` — **no parallel persisted event type** — and two interchangeable backends implementing the same contract. See the [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md). Permanent destroy sits on `delete` ([session delete](../../.agents/notes/implemented/feature/2026-08-18-session-delete.md)).
 
 ## The flush checkpoint
 
@@ -377,9 +377,44 @@ abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
  * @returns one header and opaque revision per materialized session without loading full logs.
  */
 abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
+
+/**
+ * Permanently delete one session's stored log. Queued on the per-id write
+ * chain and serialized with in-flight appends. An unknown id rejects. An
+ * un-materialized create intent is cancelled and resolves. After deletion
+ * the id behaves as unknown for every subsequent operation. Emits
+ * `session-persistence/deleted` after a successful delete.
+ * @param id - the session to delete.
+ */
+abstract delete(id: SessionId): Promise<void>
 ```
 
 Types: [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:84`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:95`](../../packages/session/session-persistence/src/index.ts)
+
+<a id="session-persistence-events"></a>
+
+### `session-persistence/*` events
+
+<a id="session-persistencedeleted--emit"></a>
+
+#### `session-persistence/deleted` — emit
+
+A session's stored log was permanently deleted. Derived indexes subscribe and clean themselves; the persistence layer never reaches into them.
+
+```ts cordis-catalog
+/**
+ * A session's stored log was permanently deleted. Derived indexes
+ * subscribe and clean themselves; the persistence layer never reaches
+ * into them.
+ * @param id - the deleted session id.
+ * @mode emit
+ */
+'session-persistence/deleted'(id: SessionId): void
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/session/session-persistence/src/index.ts:73`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

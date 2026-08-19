@@ -185,7 +185,7 @@ export class TestSessions implements ISessions {
   /** Calls observed on the service-level face, newest last. */
   readonly calls: {
     method: 'open' | 'openSubagent' | 'setSubagentCatalogOpen' | 'refreshSubagents'
-      | 'clear' | 'search' | 'fork'
+      | 'clear' | 'search' | 'fork' | 'delete'
     args: unknown[]
   }[] = []
 
@@ -487,6 +487,16 @@ export class TestSessions implements ISessions {
   fork(opts: { sessionId: SessionId; atSeq?: number; increaseTitle?: boolean }): Promise<SessionId> {
     this.calls.push({ method: 'fork', args: [opts] })
     return Promise.resolve(opts.sessionId)
+  }
+
+  /**
+   * Recorded delete stub: no record is removed (benches asserting the full
+   * delete flow drive the production service; this face only proves the call).
+   * @param sessionId - the session to delete.
+   */
+  delete(sessionId: SessionId): Promise<void> {
+    this.calls.push({ method: 'delete', args: [sessionId] })
+    return Promise.resolve()
   }
 
   /**

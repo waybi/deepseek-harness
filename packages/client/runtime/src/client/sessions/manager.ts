@@ -603,6 +603,22 @@ export class SessionManager {
   }
 
   /**
+   * Contract session.delete; on success drop the row immediately so the
+   * sidebar does not wait for the host/session-removed frame.
+   * @param sessionId - the session to delete.
+   * @returns the delete result.
+   */
+  async delete(sessionId: SessionId): Promise<RpcResult<{ deleted: true }>> {
+    try {
+      const { result } = await this.api.sessions.delete({ sessionId, recursive: true })
+      if (result.ok) this.recordMutation({ kind: 'remove', sessionId })
+      return result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
    * Insert-or-enrich a locally synthesized summary: a new id prepends; an
    * existing entry only gains fields it lacks (the session-added frame and the
    * create() echo race — whichever lands second must fill the placeholder's

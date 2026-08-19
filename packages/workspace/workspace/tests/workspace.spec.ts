@@ -941,4 +941,18 @@ describe('registry-global session archive', () => {
     const upgraded = await harness({ pool: legacy })
     expect(upgraded.registry.archivedSessionIds).toEqual([])
   })
+
+  it('drops a deleted session from the header index, account, and archive set', async () => {
+    const dir = await makeDir('archive-forget')
+    const result = await harness({ sessions: [header('kept', dir, 100), header('gone', dir, 200)] })
+    const workspace = result.registry.list()[0]!
+    await result.registry.archiveSession(SessionId('gone'))
+    expect(workspace.sessionIds).toContain('gone')
+    expect(result.registry.archivedSessionIds).toEqual(['gone'])
+
+    result.ctx.emit('session-persistence/deleted', SessionId('gone'))
+    await expect.poll(() => workspace.sessionIds.includes(SessionId('gone'))).toBe(false)
+    expect(result.registry.archivedSessionIds).toEqual([])
+    expect(workspace.sessionIds).toEqual(['kept'])
+  })
 })

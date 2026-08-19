@@ -10,7 +10,7 @@ English | [中文](2026-06-18-shared-persistence-write-coordinator.zh.md)
 
 ## Decision
 
-Extract a backend-agnostic `PersistenceCoordinator` into `dsh-session-persistence`. The coordinator owns the orchestration once; each first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements a small `PersistenceBackend` hook interface, and delegates its stateful public methods (`create`/`append`/`prepare`/`load`/`inspect`/`readFrom`) to it. Backend-owned metadata and revision listing bypass the coordinator.
+Extract a backend-agnostic `PersistenceCoordinator` into `dsh-session-persistence`. The coordinator owns the orchestration once; each first-party backend composes one (`new PersistenceCoordinator(ctx, this)`), implements a small `PersistenceBackend` hook interface, and delegates its stateful public methods (`create`/`append`/`prepare`/`load`/`inspect`/`readFrom`/`delete`) to it. Backend-owned metadata and revision listing bypass the coordinator.
 
 Composition, not inheritance. The coordinator is a concrete class the backend holds, not a base class the backend extends. The risk that a coordinator makes unusual backends fight an inheritance hierarchy is avoided: a backend exposes only the hooks and cannot reach the coordinator's private orchestration state. A third-party backend MAY still implement the abstract service directly without the coordinator, including immutable logical inspection and the default preparation fallback through `load`.
 

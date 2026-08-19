@@ -1080,6 +1080,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'signal', description: 'optional cancellation for backend snapshot-listing work.' }],
         returns: 'one header and opaque revision per materialized session without loading full logs.',
       },
+      {
+        signature: 'abstract delete(id: SessionId): Promise<void>',
+        description: 'Permanently delete one session\'s stored log. Queued on the per-id write chain and serialized with in-flight appends. An unknown id rejects. An un-materialized create intent is cancelled and resolves. After deletion the id behaves as unknown for every subsequent operation. Emits `session-persistence/deleted` after a successful delete.',
+        parameters: [{ name: 'id', description: 'the session to delete.' }],
+      },
     ],
   },
   {
@@ -2402,6 +2407,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Waterfall around every streaming model call (retry, replay, routing).',
     description: 'Waterfall around every streaming model call (retry, replay, routing). Bound to the LlmRuntime; call `next()` to reach the resolved adapter\'s stream, or yield your own chunks to short-circuit.',
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; their messages already obey the immutable creation contract.' }],
+  },
+  {
+    name: 'session-persistence/deleted',
+    mode: 'emit',
+    signature: '\'session-persistence/deleted\'(id: SessionId): void',
+    summary: 'A session\'s stored log was permanently deleted.',
+    description: 'A session\'s stored log was permanently deleted. Derived indexes subscribe and clean themselves; the persistence layer never reaches into them.',
+    parameters: [{ name: 'id', description: 'the deleted session id.' }],
   },
   {
     name: 'session-telemetry/record',

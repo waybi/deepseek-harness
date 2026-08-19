@@ -197,6 +197,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['when the fork fails, or when a requested child-title rename fails after creation.'],
       },
       {
+        signature: 'delete(sessionId: SessionId): Promise<void>',
+        description: 'Permanently delete a session and its descendant conversations.',
+        parameters: [{ name: 'sessionId', description: 'the session to delete.' }],
+        throws: ['{SessionDeleteError} when the Host refuses or the transport fails.'],
+      },
+      {
         signature: 'scope(id: SessionId): AgentContext | undefined',
         description: 'Resolve an Agent-scoped context view (use-and-discard).',
         parameters: [{ name: 'id', description: 'session id.' }],

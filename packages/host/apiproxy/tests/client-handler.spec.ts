@@ -54,6 +54,7 @@ function scriptedApi(overrides: {
       }),
       rename: r => ok(r, { title: 'renamed', seq: 0 }),
       fork: r => ok(r, { sessionId: sid('s-fork') }),
+      delete: r => ok(r, { deleted: true as const }),
       prompt: r => ok(r, { accepted: true as const }),
       attachment: r => ok(r, {
         attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
@@ -217,6 +218,21 @@ describe('unary round trip', () => {
     const response = await client(api).sessions.fork({ sessionId: sid('s-parent'), atSeq: 7 })
     expect(seen?.payload).toEqual({ sessionId: 's-parent', atSeq: 7 })
     expect(response.result).toEqual({ ok: true, value: { sessionId: 's-child' } })
+  })
+
+  it('routes session delete with its recursive flag through the wire', async () => {
+    let seen: RpcRequest<{ sessionId: SessionId; recursive?: boolean }> | undefined
+    const api = scriptedApi({
+      sessions: {
+        delete: (request) => {
+          seen = request
+          return ok(request, { deleted: true as const })
+        },
+      },
+    })
+    const response = await client(api).sessions.delete({ sessionId: sid('s-gone'), recursive: true })
+    expect(seen?.payload).toEqual({ sessionId: 's-gone', recursive: true })
+    expect(response.result).toEqual({ ok: true, value: { deleted: true } })
   })
 
   it('routes workspace rename, delete, and ordering through the wire', async () => {

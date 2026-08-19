@@ -19,7 +19,7 @@ group-by 菜单提供 WorkSpace / In one list 两种模式。WorkSpace 模式按
 ### 行交互
 
 - session 行悬停 500ms 出详情卡（完整标题、相对时间、状态行；在 wire 增加 status 字段前，状态行只有 running/idle 两态）。卡片与行菜单互斥：菜单开启或拖拽进行中不出卡。
-- session 行 … 菜单：Rename / Fork session / Delete session，其中 Rename 与 Fork 已接线，Delete 仍为纯视觉；workspace 组头 … 菜单的 Rename / Delete workspace 均已接线。菜单鼠标移出即关。
+- session 行 … 菜单：Rename / Fork session / Archive session / Delete session。Rename、Fork、Archive 与 Delete 均已接线；Delete 是需确认的销毁路径（[会话删除](2026-08-18-session-delete.md)）。workspace 组头 … 菜单的 Rename / Delete workspace 均已接线。菜单鼠标移出即关。
 - 支撑件：`Menu` 新增 label 条目、danger 行、`closeOnPointerLeave`；新增 `HoverCard`（portal 定位、开启延时、disabled 守卫）。
 
 ### workspace.rename

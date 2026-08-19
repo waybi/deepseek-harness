@@ -592,6 +592,25 @@ describe('fork', () => {
       .rejects.toThrow('fork child rename failed: title-invalid: rejected')
     expect(b.svc.binding(sid('child'))).toBeDefined()
   })
+
+  it('deletes a session and drops it from the list immediately', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'kept' }, { id: 'gone' }])
+    b.api.onDelete = () => Promise.resolve(ok({ deleted: true as const }))
+    await expect(b.svc.delete(sid('gone'))).resolves.toBeUndefined()
+    expect(b.api.callsOf('session.delete')).toEqual([{ sessionId: 'gone', recursive: true }])
+    expect(b.svc.list.getSnapshot().ids).toEqual([sid('kept')])
+  })
+
+  it('rejects a failed delete without dropping the row', async () => {
+    const b = bench()
+    await feedList(b, [{ id: 'kept' }])
+    b.api.onDelete = () => Promise.resolve(err({
+      code: 'session-not-found', message: 'gone', details: { sessionId: sid('kept') },
+    }))
+    await expect(b.svc.delete(sid('kept'))).rejects.toThrow('session delete failed: session-not-found: gone')
+    expect(b.svc.list.getSnapshot().ids).toEqual([sid('kept')])
+  })
 })
 
 describe('scope lifecycle rides the list mirror (entity parity: no client-side pre-birth)', () => {

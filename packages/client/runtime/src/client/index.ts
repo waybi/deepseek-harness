@@ -36,7 +36,7 @@ export type {
 } from './contract/conversation.ts'
 export type { ConversationRuntime } from './sessions/conversation-assembler.ts'
 export type { RootOwnerProps } from './slots.ts'
-export { SessionCreateError, SessionRuntime, scopeOf, workspaceTitleOf } from './sessions/service.ts'
+export { SessionCreateError, SessionDeleteError, SessionRuntime, scopeOf, workspaceTitleOf } from './sessions/service.ts'
 export { indexSubagentDescendants } from './sessions/subagent-lineage.ts'
 export type { SubagentDescendantSummary } from './sessions/subagent-lineage.ts'
 // The provide channel is shared with the client test runtime (one

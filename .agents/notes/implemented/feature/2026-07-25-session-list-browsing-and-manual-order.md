@@ -19,7 +19,7 @@ The group-by menu offers two modes, WorkSpace / In one list. WorkSpace mode rend
 ### Row interactions
 
 - Session rows show a detail card after a 500ms hover dwell (full title / relative time / status line; the status line has only running/idle until the wire grows a status field). The card and the row menu are mutually exclusive: no card while a menu is open or a drag is in flight.
-- Session-row … menu: Rename / Fork session / Delete session; Rename and Fork are wired, while Delete remains visual-only. The workspace-header … menu's Rename / Delete workspace actions are both wired. Menus close when the pointer leaves them.
+- Session-row … menu: Rename / Fork session / Archive session / Delete session. Rename, Fork, Archive, and Delete are wired; Delete is the confirmed destroy path ([session delete](2026-08-18-session-delete.md)). The workspace-header … menu's Rename / Delete workspace actions are both wired. Menus close when the pointer leaves them.
 - Supporting primitives: `Menu` gains label entries, danger rows, and `closeOnPointerLeave`; a new `HoverCard` (portaled placement, open delay, disabled guard).
 
 ### workspace.rename

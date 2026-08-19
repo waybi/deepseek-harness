@@ -5,12 +5,15 @@
 // trip over the real wire (workspace.rename RPC + durable registry), the
 // duplicate-name pre-check, the
 // flat "In one list" view with its persisted group-by preference, the session
-// hover card and row action menu, and the session archive round trip (row
+// hover card and row action menu, the session archive round trip (row
 // menu → workspace.archiveSession RPC → durable global set → row hidden
-// across reload). Zero model calls: workspace.create/rename/archiveSession
-// are host RPCs with no model involvement, and the one session row the
-// flat/hover/menu/archive scenarios need comes from a seeded fixture (the
-// seeded-history seed reused verbatim — no new recording).
+// across reload), and the session delete round trip (row menu → confirm →
+// session.delete RPC → log gone). Zero model calls: workspace.create/rename/
+// archiveSession and session.delete are host RPCs with no model involvement,
+// and the session rows the flat/hover/menu/archive/delete scenarios need come
+// from a seeded fixture (the seeded-history seed reused verbatim — no new
+// recording). The delete scenario seeds a second copy after archive so the
+// earlier single-stray archive assertion stays intact.
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join, sep } from 'node:path'
@@ -31,6 +34,7 @@ const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', impo
 const MODE = webSnapshotMode()
 const BROWSER_EXPECTED = join(SNAPSHOT_DIR, 'directory-browser.expected.md')
 const SEED_ID = 'workspace-management-web-e2e'
+const DELETE_SEED_ID = 'workspace-management-web-e2e-delete'
 // Both waits exceed ui-primitives' 200ms POINTER_GRACE_MS. Keep them above
 // that value if the shared setting changes.
 const POINTER_TRANSIT_MS = 300
@@ -593,6 +597,39 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
     // reappear if selection restore lands on another stray — not this test's
     // concern).
     expect(await page.getByText(rowTitle, { exact: true }).count()).toBe(0)
+    expect(tripwire.pageErrors).toEqual([])
+  }, 90_000)
+
+  it('deletes a seeded session from its row menu after confirmation', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-ws-delete'))
+    await seedSession(scaffold, await readFile(SEED, 'utf8'), DELETE_SEED_ID)
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await expect.poll(() => page.getByText('Workspaces', { exact: true }).count(), { timeout: 15_000 }).toBe(1)
+    const ungroupedRow = page.getByText('Ungrouped', { exact: true }).locator('..').locator('..')
+    const ungroupedSection = ungroupedRow.locator('..')
+    await expect.poll(async () => {
+      if (await ungroupedRow.getAttribute('aria-expanded') !== 'true') {
+        await page.getByText('Ungrouped', { exact: true }).click()
+        await page.waitForTimeout(50)
+      }
+      return await ungroupedRow.getAttribute('aria-expanded')
+    }, { timeout: 5_000 }).toBe('true')
+    const sessionRows = ungroupedSection.locator('[role="treeitem"]')
+      .filter({ has: page.locator('button[aria-label^="Session actions for "]') })
+    await expect.poll(() => sessionRows.count(), { timeout: 10_000 }).toBe(1)
+    const sessionRow = sessionRows.first()
+    const rowTitle = await sessionRow.locator('[class*="title"]').innerText()
+    await clickHoverAction(sessionRow, `Session actions for ${rowTitle}`)
+    await page.getByRole('menuitem', { name: 'Delete session' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Delete session' })
+    await dialog.waitFor({ timeout: 5_000 })
+    await dialog.getByRole('button', { name: 'Delete session' }).click()
+    await expect.poll(() => page.getByText(rowTitle, { exact: true }).count(), { timeout: 10_000 }).toBe(0)
+    expect((await scaffold.ctx.sessionPersistence.list()).map(header => header.id))
+      .not.toContain(SessionId(DELETE_SEED_ID))
     expect(tripwire.pageErrors).toEqual([])
   }, 90_000)
 

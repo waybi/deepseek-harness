@@ -4,7 +4,7 @@
 
 事件日志的**持久性 seam**。[session.md](session.md) 描述了内存中的 `Session`：仅追加的 `SessionEvent` 日志即为真源。本页描述如何使该日志持久化：抽象的 `SessionPersistence` 服务、它的后端、flush 检查点、崩溃恢复，以及随日志一同存储的元数据头。日志承载的事件词汇在生成的[持久化日志事件目录](../persistence-catalog.md)中逐项列举。
 
-该 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：一个抽象服务（[dsh-session-persistence](../../packages/session/session-persistence)，`ctx.sessionPersistence`）在现有 `SessionEvent` 上定义 locate/create/append、可复用的 Session 准备流程、逻辑 load/inspect、物理后缀读取，以及轻量的 list/snapshot 观察——**没有平行的持久化事件类型**——以及两个实现同一约定的可互换后端。见 [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)。
+该 seam 是一个[能力 seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md)：一个抽象服务（[dsh-session-persistence](../../packages/session/session-persistence)，`ctx.sessionPersistence`）在现有 `SessionEvent` 上定义 locate/create/append/delete、可复用的 Session 准备流程、逻辑 load/inspect、物理后缀读取，以及轻量的 list/snapshot 观察——**没有平行的持久化事件类型**——以及两个实现同一约定的可互换后端。见 [session-persistence Agent Note](../../.agents/notes/implemented/architecture/2026-06-14-session-persistence.md)。永久销毁建立在 `delete` 上（[会话删除](../../.agents/notes/implemented/feature/2026-08-18-session-delete.md)）。
 
 ## flush 检查点
 
@@ -377,9 +377,44 @@ abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
  * @returns one header and opaque revision per materialized session without loading full logs.
  */
 abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
+
+/**
+ * Permanently delete one session's stored log. Queued on the per-id write
+ * chain and serialized with in-flight appends. An unknown id rejects. An
+ * un-materialized create intent is cancelled and resolves. After deletion
+ * the id behaves as unknown for every subsequent operation. Emits
+ * `session-persistence/deleted` after a successful delete.
+ * @param id - the session to delete.
+ */
+abstract delete(id: SessionId): Promise<void>
 ```
 
 Types: [SessionEvent](session.md) · [SessionId](core.md)
 
-Source: [`packages/session/session-persistence/src/index.ts:84`](../../packages/session/session-persistence/src/index.ts)
+Source: [`packages/session/session-persistence/src/index.ts:95`](../../packages/session/session-persistence/src/index.ts)
+
+<a id="session-persistence-events"></a>
+
+### `session-persistence/*` events
+
+<a id="session-persistencedeleted--emit"></a>
+
+#### `session-persistence/deleted` — emit
+
+A session's stored log was permanently deleted. Derived indexes subscribe and clean themselves; the persistence layer never reaches into them.
+
+```ts cordis-catalog
+/**
+ * A session's stored log was permanently deleted. Derived indexes
+ * subscribe and clean themselves; the persistence layer never reaches
+ * into them.
+ * @param id - the deleted session id.
+ * @mode emit
+ */
+'session-persistence/deleted'(id: SessionId): void
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/session/session-persistence/src/index.ts:73`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->

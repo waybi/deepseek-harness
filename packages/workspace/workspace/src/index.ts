@@ -137,6 +137,14 @@ export class WorkspaceRegistry extends Service {
     this.validateStoredState(this.requireState())
     this.rebuildEntities()
     this.reportFilteredCandidates()
+    this.ctx.effect(
+      () => this.ctx.on('session-persistence/deleted', (id: SessionId) => {
+        void this.forgetDeletedSession(id).catch((error: unknown) => {
+          this.ctx.logger.warn(`workspace forgot deleted session '${id}' failed: ${String(error)}`)
+        })
+      }),
+      'workspace.forgetDeletedSession',
+    )
   }
 
   /**
@@ -251,6 +259,29 @@ export class WorkspaceRegistry extends Service {
       }
       const state = this.requireState()
       await this.setState({ ...state, archivedSessionIds: [...state.archivedSessionIds, sessionId] })
+    })
+  }
+
+  /**
+   * Drop one deleted session from the header index, every workspace account,
+   * and the archive set. Serialized with create/archive so a concurrent
+   * archive cannot re-add an id whose log is already gone.
+   * @param sessionId - the session persistence just deleted.
+   */
+  private forgetDeletedSession(sessionId: SessionId): Promise<void> {
+    return this.enqueueOperation(async () => {
+      this.headers.delete(sessionId)
+      this.sessionPaths.delete(sessionId)
+      this.invalidSessionPaths.delete(sessionId)
+      for (const entity of this.entities.values()) {
+        await entity.detachSession(sessionId)
+      }
+      const state = this.requireState()
+      if (!state.archivedSessionIds.includes(sessionId)) return
+      await this.setState({
+        ...state,
+        archivedSessionIds: state.archivedSessionIds.filter(id => id !== sessionId),
+      })
     })
   }
 

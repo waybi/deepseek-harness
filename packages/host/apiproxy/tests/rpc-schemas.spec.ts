@@ -10,6 +10,7 @@ import {
   sessionCreateValueSchema, sessionEventSchema, sessionHistoryRequestSchema, sessionHistoryValueSchema,
   sessionIdSchema, sessionListRequestSchema, sessionListValueSchema, sessionModelsRequestSchema,
   sessionModelsValueSchema, sessionPromptRequestSchema, sessionPromptValueSchema,
+  sessionDeleteRequestSchema, sessionDeleteValueSchema,
   sessionSearchRequestSchema, sessionSearchValueSchema, sessionSelectModelRequestSchema,
   sessionSelectModelValueSchema, sessionSummarySchema,
   sessionUpdateQueueRequestSchema, sessionUpdateQueueValueSchema,
@@ -60,6 +61,9 @@ describe('rpcErrorSchema', () => {
     expect(rpcErrorSchema.parse({ code: 'bad-request', message: 'm', details: { issues: [] } }).code).toBe('bad-request')
     expect(rpcErrorSchema.parse({ code: 'cancelled', message: 'm', details: {} }).code).toBe('cancelled')
     expect(rpcErrorSchema.parse({ code: 'session-not-found', message: 'm', details: { sessionId: 's' } }).code).toBe('session-not-found')
+    expect(rpcErrorSchema.parse({
+      code: 'session-has-descendants', message: 'm', details: { sessionId: 's', descendantIds: ['c'] },
+    }).code).toBe('session-has-descendants')
     expect(rpcErrorSchema.parse({ code: 'session-conflict', message: 'm', details: { sessionId: 's', requestedCwd: '/a', existingCwd: '/b' } }).code).toBe('session-conflict')
     expect(rpcErrorSchema.parse({ code: 'invalid-time-zone', message: 'm', details: { value: 'CST' } }).code).toBe('invalid-time-zone')
     expect(rpcErrorSchema.parse({ code: 'workspace-attach-failed', message: 'm', details: { sessionId: 's', workspaceId: 'w' } }).code).toBe('workspace-attach-failed')
@@ -273,6 +277,13 @@ describe('sessions domain schemas', () => {
     expect(sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'success' } }).command).toEqual({ kind: 'success' })
     expect(() => sessionPromptValueSchema.parse({ accepted: true, command: { kind: 'failure' } })).toThrow()
     expect(sessionCancelRequestSchema.parse({ sessionId: 's1' }).sessionId).toBe('s1')
+    expect(sessionDeleteRequestSchema.parse({ sessionId: 's1', recursive: true })).toEqual({
+      sessionId: 's1', recursive: true,
+    })
+    expect(sessionDeleteRequestSchema.parse({ sessionId: 's1' }).recursive).toBeUndefined()
+    expect(() => sessionDeleteRequestSchema.parse({})).toThrow()
+    expect(sessionDeleteValueSchema.parse({ deleted: true }).deleted).toBe(true)
+    expect(() => sessionDeleteValueSchema.parse({ deleted: false })).toThrow()
     expect(sessionUpdateQueueRequestSchema.parse({
       sessionId: 's1',
       itemId: 'i1',

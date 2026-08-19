@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-将一个后端无关的 `PersistenceCoordinator` 提取到 `dsh-session-persistence` 中。协调器统一拥有编排逻辑；每个第一方后端组合一个协调器实例（`new PersistenceCoordinator(ctx, this)`），实现一个小型 `PersistenceBackend` 钩子接口，并将其有状态的公开方法（`create`/`append`/`prepare`/`load`/`inspect`/`readFrom`）委托给协调器。由后端拥有的元数据与修订版本列举会绕过协调器。
+将一个后端无关的 `PersistenceCoordinator` 提取到 `dsh-session-persistence` 中。协调器统一拥有编排逻辑；每个第一方后端组合一个协调器实例（`new PersistenceCoordinator(ctx, this)`），实现一个小型 `PersistenceBackend` 钩子接口，并将其有状态的公开方法（`create`/`append`/`prepare`/`load`/`inspect`/`readFrom`/`delete`）委托给协调器。由后端拥有的元数据与修订版本列举会绕过协调器。
 
 组合，而非继承。协调器是后端持有的具体类，不是后端继承的基类。协调器让非常规后端与继承层级作斗争的风险由此规避：后端只暴露钩子，无法触及协调器的私有编排状态。第三方后端仍然可以完全不使用协调器、直接实现抽象服务，包括不可变逻辑检查，以及通过 `load` 实现的默认准备回退。
 

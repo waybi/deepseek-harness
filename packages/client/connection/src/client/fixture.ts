@@ -2358,6 +2358,23 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         }
         return ok(request, { sessionId: child.sessionId })
       },
+      delete: (request) => {
+        const { sessionId } = request.payload
+        const source = summaryOf(sessionId)
+        if (source === undefined) {
+          return err(request, {
+            code: 'session-not-found',
+            message: `no session ${sessionId}`,
+            details: { sessionId },
+          })
+        }
+        const remaining = sessions.filter(session => session.sessionId !== sessionId)
+        sessions.length = 0
+        sessions.push(...remaining)
+        logs.delete(sessionId)
+        emitHost({ type: 'host/session-removed', sessionId })
+        return ok(request, { deleted: true as const })
+      },
       history: async (request) => {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
@@ -3085,6 +3102,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.selectModel': return this.api.sessions.selectModel(request)
       case 'session.rename': return this.api.sessions.rename(request)
       case 'session.fork': return this.api.sessions.fork(request)
+      case 'session.delete': return this.api.sessions.delete(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.attachment': return this.api.sessions.attachment(request)
       case 'session.updateQueue': return this.api.sessions.updateQueue(request)

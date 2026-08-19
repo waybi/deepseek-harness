@@ -207,6 +207,15 @@ export interface PersistenceBackend<TornMarker = unknown> {
   locate?(meta: SessionHeader): SessionLocation | undefined
 
   /**
+   * Permanently remove one stored session. Returns true when a materialized
+   * artifact was removed. Returns false when neither file nor row existed.
+   * Unknown-id rejection is the coordinator's job: an un-materialized create
+   * intent also has no artifact.
+   * @param id - persisted session id to remove.
+   */
+  deleteStored(id: SessionId): Promise<boolean>
+
+  /**
    * Optional lifecycle teardown (e.g. close a database handle). Awaited by the
    * coordinator's dispose effect AFTER the quiescence drain. A stateless file
    * backend omits it.
@@ -655,6 +664,36 @@ export class PersistenceCoordinator<TornMarker = unknown> {
     }
     // Pure lazy: record intent only. No artifact until the first append.
     this.states.set(meta.id, { meta, cursor: 0, materialized: false })
+  }
+
+  /**
+   * Permanently delete one session's stored log. Serialized with in-flight
+   * appends on the same id. A live persistence owner rejects; an
+   * un-materialized create intent is cancelled without a backend write.
+   * @param id - the session to delete.
+   */
+  async delete(id: SessionId): Promise<void> {
+    await this.waitForRetirement(id)
+    return this.serialize(id, () => this.deleteCore(id))
+  }
+
+  private async deleteCore(id: SessionId): Promise<void> {
+    const tracked = this.states.get(id)
+    if (tracked?.owner !== undefined) {
+      throw new Error(`cannot delete session "${id}" while it has a live persistence owner`)
+    }
+    this.preparations.invalidate(id)
+    if (tracked !== undefined && !tracked.materialized) {
+      this.states.delete(id)
+      this.ctx.emit('session-persistence/deleted', id)
+      return
+    }
+    const removed = await this.backend.deleteStored(id)
+    if (!removed && tracked === undefined) {
+      throw new Error(`session "${id}" not found`)
+    }
+    this.states.delete(id)
+    this.ctx.emit('session-persistence/deleted', id)
   }
 
   // `async` so synchronous materialization failures below reject (not throw) per

@@ -61,6 +61,17 @@ declare module '@deepseek-ai/cordis' {
   interface Context {
     sessionPersistence: SessionPersistence
   }
+
+  interface Events {
+    /**
+     * A session's stored log was permanently deleted. Derived indexes
+     * subscribe and clean themselves; the persistence layer never reaches
+     * into them.
+     * @param id - the deleted session id.
+     * @mode emit
+     */
+    'session-persistence/deleted'(id: SessionId): void
+  }
 }
 
 /**
@@ -238,6 +249,16 @@ export abstract class SessionPersistence extends Service {
    * @returns one header and opaque revision per materialized session without loading full logs.
    */
   abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
+
+  /**
+   * Permanently delete one session's stored log. Queued on the per-id write
+   * chain and serialized with in-flight appends. An unknown id rejects. An
+   * un-materialized create intent is cancelled and resolves. After deletion
+   * the id behaves as unknown for every subsequent operation. Emits
+   * `session-persistence/deleted` after a successful delete.
+   * @param id - the session to delete.
+   */
+  abstract delete(id: SessionId): Promise<void>
 }
 
 export default SessionPersistence

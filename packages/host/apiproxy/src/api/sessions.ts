@@ -370,4 +370,15 @@ export interface SessionsApi {
    */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
 
+  /**
+   * Permanently deletes a session and, when `recursive` is true, every
+   * descendant reached through `parentSession`. The GUI always sends
+   * `recursive: true` because sidebar rows hide subagent children. A
+   * non-recursive request that still has descendants fails with
+   * `session-has-descendants`. An unknown id fails with `session-not-found`.
+   * A live session this host cannot dispose fails with `agent-busy`.
+   */
+  delete(request: RpcRequest<{ sessionId: SessionId; recursive?: boolean }>):
+  Promise<RpcResponse<{ deleted: true }>>
+
 }

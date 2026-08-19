@@ -277,6 +277,39 @@ export function runPersistenceContract(name: string, make: () => Promise<Contrac
       }
     })
 
+    it('delete removes a materialized session and reuses the id as unknown', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('gone', '/work')
+        const log = oneTurnLog()
+        await persistence.create(m)
+        await persistence.append(m.id, log)
+        await persistence.delete(m.id)
+        expect((await persistence.list()).map(header => header.id)).not.toContain(m.id)
+        await expect(persistence.load(m.id)).rejects.toThrow('not found')
+        await persistence.create(m)
+        await persistence.append(m.id, log)
+        expect((await persistence.load(m.id)).events).toEqual(log)
+      } finally {
+        await dispose()
+      }
+    })
+
+    it('delete cancels an un-materialized create intent and rejects an unknown id', async () => {
+      const { persistence, dispose } = await make()
+      try {
+        const m = meta('intent-only')
+        await persistence.create(m)
+        await persistence.delete(m.id)
+        await persistence.create(m)
+        await persistence.append(m.id, oneTurnLog())
+        expect((await persistence.list()).map(header => header.id)).toContain(m.id)
+        await expect(persistence.delete(SessionId('never-existed'))).rejects.toThrow('not found')
+      } finally {
+        await dispose()
+      }
+    })
+
     it('rejects pre-aborted observation reads with the exact cancellation reason', async () => {
       const { persistence, dispose } = await make()
       try {

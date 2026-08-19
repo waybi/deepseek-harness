@@ -199,6 +199,10 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     return this.coordinator.readFrom(id, fromSeq, signal)
   }
 
+  delete(id: SessionId): Promise<void> {
+    return this.coordinator.delete(id)
+  }
+
   // One method serves both public `list` and the backend hook; delegating it to
   // the coordinator would call this hook recursively.
 
@@ -441,6 +445,19 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     if (tornMarker !== undefined) await this.repair(meta, tornMarker.truncateTo)
     const repairedEvents = [...(tornMarker?.recoveredEvents ?? []), ...closers]
     if (repairedEvents.length > 0) await this.appendLines(meta, repairedEvents)
+  }
+
+  /**
+   * Unlink one session's artifact directory. Returns false when no log exists
+   * for the id (the coordinator then treats that as an unknown session unless
+   * it already holds an un-materialized create intent).
+   */
+  async deleteStored(id: SessionId): Promise<boolean> {
+    await this.ensureRootEncoding()
+    const path = await this.findLog(id)
+    if (path === undefined) return false
+    await rm(dirname(path), { recursive: true, force: true })
+    return true
   }
 
   /** List valid unique stored sessions' metadata (header line only — no full-log parse). */

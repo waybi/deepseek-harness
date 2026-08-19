@@ -118,6 +118,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     return this.coordinator.readFrom(id, fromSeq, signal)
   }
 
+  delete(id: SessionId): Promise<void> {
+    return this.coordinator.delete(id)
+  }
+
   // --- PersistenceBackend hooks (the Map storage primitives) ---
 
   // A Map-backed store has no torn tails, so `tornMarker` is never set.
@@ -159,6 +163,10 @@ class MemoryPersistence extends SessionPersistence implements PersistenceBackend
     /* v8 ignore next -- commitRepair only runs for a materialized (stored) session */
     if (!entry) return
     if (closers.length > 0) entry.events.push(...structuredClone(closers) as SessionEvent[])
+  }
+
+  async deleteStored(id: SessionId): Promise<boolean> {
+    return this.store.delete(id)
   }
 
   async list(signal?: AbortSignal): Promise<SessionHeader[]> {
@@ -228,6 +236,10 @@ class ControlledBackend implements PersistenceBackend<never> {
     if (entry !== undefined) entry.events.push(...structuredClone(closers) as SessionEvent[])
   }
 
+  async deleteStored(id: SessionId): Promise<boolean> {
+    return this.store.delete(id)
+  }
+
   async list(): Promise<SessionHeader[]> {
     return [...this.store.values()].map(entry => structuredClone(entry.meta))
   }
@@ -246,6 +258,38 @@ runPersistenceContract('memory', async () => {
     persistence: ctx.sessionPersistence,
     dispose: async () => { await fiber.dispose() },
   }
+})
+
+describe('coordinator delete', () => {
+  it('rejects delete while a live persistence owner still holds the id', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(MemoryPersistence)
+    const session = ctx.sessions.create(SessionId('live-owner'))
+    session.append('turn/start', { turn: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    await ctx.sessions.flush(session)
+    await expect(ctx.sessionPersistence.delete(session.id))
+      .rejects.toThrow(/live persistence owner/)
+    expect((await ctx.sessionPersistence.list()).map(header => header.id)).toContain(session.id)
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
+
+  it('emits session-persistence/deleted after a successful delete', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const fiber = await ctx.plugin(MemoryPersistence)
+    const deleted: SessionId[] = []
+    ctx.on('session-persistence/deleted', (id: SessionId) => { deleted.push(id) })
+    const m = meta('emit-deleted')
+    await ctx.sessionPersistence.create(m)
+    await ctx.sessionPersistence.append(m.id, oneTurnLog())
+    await ctx.sessionPersistence.delete(m.id)
+    expect(deleted).toEqual([m.id])
+    await fiber.dispose()
+    await ctx.fiber.dispose()
+  })
 })
 
 describe('the inherited readRaw default', () => {
