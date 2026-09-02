@@ -430,9 +430,44 @@ abstract list(signal?: AbortSignal): Promise<SessionHeader[]>
  * @returns one header and opaque revision per materialized session without loading full logs.
  */
 abstract listSnapshots(signal?: AbortSignal): Promise<SessionPersistenceSnapshot[]>
+
+/**
+ * Permanently delete one session's stored log. Queued on the per-id write
+ * chain and serialized with in-flight appends. An unknown id rejects. An
+ * un-materialized create intent is cancelled and resolves. After deletion
+ * the id behaves as unknown for every subsequent operation. Emits
+ * `session-persistence/deleted` after a successful delete.
+ * @param id - the session to delete.
+ */
+abstract delete(id: SessionId): Promise<void>
 ```
 
 Types: [Session](session.zh.md) · [SessionEvent](session.zh.md) · [SessionId](core.zh.md) · [SessionLogOffset](session.zh.md)
+
+Source: [`packages/session/session-persistence/src/index.ts`](../../packages/session/session-persistence/src/index.ts)
+
+<a id="session-persistence-events"></a>
+
+### `session-persistence/*` events
+
+<a id="session-persistencedeleted--emit"></a>
+
+#### `session-persistence/deleted` — emit
+
+A session's stored log was permanently deleted. Derived indexes subscribe and clean themselves; the persistence layer never reaches into them.
+
+```ts cordis-catalog
+/**
+ * A session's stored log was permanently deleted. Derived indexes
+ * subscribe and clean themselves; the persistence layer never reaches
+ * into them.
+ * @param id - the deleted session id.
+ * @mode emit
+ */
+'session-persistence/deleted'(id: SessionId): void
+```
+
+Types: [SessionId](core.zh.md)
 
 Source: [`packages/session/session-persistence/src/index.ts`](../../packages/session/session-persistence/src/index.ts)
 <!-- END GENERATED cordis-surface -->
