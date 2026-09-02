@@ -452,7 +452,6 @@ export class ClientSessions implements ISessions {
     return childId
   }
 
-
   /**
    * Resolve an Agent-scoped context view (use-and-discard).
    * @param id - session id (the agent identity — 1:1 same axis).

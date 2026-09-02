@@ -518,16 +518,6 @@ export class TestSessions implements ISessions {
   }
 
   /**
-   * Recorded delete stub: no record is removed (benches asserting the full
-   * delete flow drive the production service; this face only proves the call).
-   * @param sessionId - the session to delete.
-   */
-  delete(sessionId: SessionId): Promise<void> {
-    this.calls.push({ method: 'delete', args: [sessionId] })
-    return Promise.resolve()
-  }
-
-  /**
    * The session face of a fixture (typed view for assertions; fixture
    * behavior methods are grafted onto it).
    * @param id - session id.
