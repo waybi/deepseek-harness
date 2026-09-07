@@ -624,8 +624,10 @@ describe('sandbox escalation through ctx.approval', () => {
     const { ctx } = await setupSandboxed(true)
     const prompted = vi.fn()
     ctx.on('approval/request', () => { prompted(); return Promise.resolve<ApprovalOutcome>('allowed-once') })
-    const result = await call(ctx, 'pwsh', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('workspace-write'))
-    expect(text(result)).toContain('not strictly wider')
+    // Same-level escalation (workspace-write → workspace-write) is silently
+    // granted — the command executes instead of erroring out.
+    const sameLevel = await call(ctx, 'pwsh', { ...escalate, sandbox_permissions: 'workspace-write' }, sandboxAgent('workspace-write'))
+    expect(sameLevel.isError).toBe(false)
     expect(prompted).not.toHaveBeenCalled()
 
     const malformed = sandboxAgent()
