@@ -19,6 +19,7 @@ import { Inbox, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
   BlockAssembler,
+  EMPTY_RESPONSE_CODE,
   LlmError,
   createAssistantMessage,
   errorChain,
@@ -387,7 +388,19 @@ export class ReactLoopAgent implements Agent {
         }
         throw error
       }
-      const finish = assembler.finish
+      // An empty completion on a follow-up step (step ≥ 2, i.e. right after
+      // a tool result) is the model closing the turn with nothing to add —
+      // the preceding step already carried its final text alongside the tool
+      // calls. Anthropic emits exactly this (end_turn, zero content blocks),
+      // and the identical retry reproduces the identical empty answer, so
+      // downgrade the error to a normal stop and let it flow through the
+      // standard message-append path (preserving usage and session log
+      // invariants). A first-step empty reply stays an error.
+      const finish = assembler.finish.kind === 'error'
+        && assembler.finish.failure.code === EMPTY_RESPONSE_CODE
+        && step > 1
+        ? { kind: 'stop' as const }
+        : assembler.finish
       if (finish.kind === 'error' || finish.kind === 'aborted') {
         const action = await this.dispatch.waterfall(
           'agent/request-error', {

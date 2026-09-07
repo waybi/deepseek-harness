@@ -529,4 +529,57 @@ describe('driver bookkeeping edges', () => {
     const end = agent.session.snapshotEvents().findLast(e => e.type === 'turn/end')
     expect(end?.type === 'turn/end' && end.data.reason.kind).toBe('error')
   })
+
+  it('an EMPTY_RESPONSE right after a tool result completes the turn instead of retrying or failing', async () => {
+    // Step 1: final text + a tool call in one message. Step 2: the model
+    // closes with zero content (Anthropic's end_turn-with-nothing-to-add).
+    const adapter = new MockAdapter([
+      [
+        { type: 'block-start' as const, index: 0, blockType: 'text' as const },
+        { type: 'block-end' as const, index: 0, block: { type: 'text' as const, text: 'all done, saving a note' } },
+        { type: 'block-start' as const, index: 1, blockType: 'tool-call' as const },
+        { type: 'block-end' as const, index: 1, block: { type: 'tool-call' as const, id: ToolCallId('c1'), name: 'note', arguments: '{}' } },
+        { type: 'finish' as const, reason: { kind: 'tool-calls' as const } },
+      ] satisfies StreamChunk[],
+      [
+        { type: 'usage' as const, usage: { inputTokens: 1, outputTokens: 2 } },
+        { type: 'finish' as const, reason: { kind: 'error' as const, failure: { message: 'model returned a completed response with no content', code: 'EMPTY_RESPONSE' } } },
+      ] satisfies StreamChunk[],
+    ])
+    const ctx = await harness(adapter)
+    ctx.tools.register(defineContentToolFixture({
+      name: 'note',
+      description: 'note tool',
+      parameters: {},
+      async execute() { return [{ type: 'text', text: 'saved' }] },
+    }))
+    const agent = ctx.agentLoop.create(SessionId('empty-after-tool'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    // Exactly two model requests: no retry of the empty follow-up.
+    expect(adapter.requests).toHaveLength(2)
+    const events = agent.session.snapshotEvents()
+    expect(events.some(e => e.type === 'llm/retry')).toBe(false)
+    const end = events.findLast(e => e.type === 'turn/end')
+    expect(end?.type === 'turn/end' && end.data.reason).toEqual({ kind: 'completed' })
+  })
+
+  it('an EMPTY_RESPONSE on the first step still fails the turn', async () => {
+    const adapter = new MockAdapter([
+      [
+        { type: 'usage' as const, usage: { inputTokens: 1, outputTokens: 0 } },
+        { type: 'finish' as const, reason: { kind: 'error' as const, failure: { message: 'empty', code: 'EMPTY_RESPONSE' } } },
+      ] satisfies StreamChunk[],
+    ])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('empty-first-step'), { provider: 'mock', model: 'mock' })
+
+    send(agent, 'go')
+    await agent.whenIdle()
+
+    const end = agent.session.snapshotEvents().findLast(e => e.type === 'turn/end')
+    expect(end?.type === 'turn/end' && end.data.reason.kind).toBe('error')
+  })
 })
