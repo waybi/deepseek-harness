@@ -88,10 +88,22 @@ function closingAnchor(context: ConversationNodeContext<TurnTailState>): number 
     ?? context.start?.event.seq
     ?? context.matches[0]?.event.seq
     ?? 0
+  let closingStep: number | undefined
   const steps = new Map<number, StepEvidence>()
   for (const match of context.matches) {
     const event = match.event
     if (event.type === 'turn/end') continue
+    // Same-step tool events dispatched from the closing Assistant have
+    // higher seqs than the finalizedFollowup offset; keep the anchor above
+    // them so the tail stays the turn's last visible node and the
+    // hasLaterChatNode guard in TurnTailNodeView does not disable branching.
+    if (closingStep !== undefined
+      && (event.type === 'tool/call' || event.type === 'tool/result')
+      && event.data.step === closingStep
+      && event.seq >= anchor) {
+      anchor = event.seq + CHAT_SYNTHETIC_SEQ_OFFSETS.finalizedFollowup
+      continue
+    }
     const coordinates = turnCoordinates(event)
     if (coordinates?.step === undefined) continue
     const previous = steps.get(coordinates.step) ?? { streamedText: false, finalized: false }
@@ -109,6 +121,7 @@ function closingAnchor(context: ConversationNodeContext<TurnTailState>): number 
       steps.set(coordinates.step, { streamedText: false, finalized: true })
       if (hasTextAssistant(event)) {
         anchor = event.seq + CHAT_SYNTHETIC_SEQ_OFFSETS.finalizedFollowup
+        closingStep = coordinates.step
       }
       continue
     }
@@ -147,9 +160,16 @@ function tailData(context: ConversationNodeContext<TurnTailState>): TurnTailChat
     .filter((candidate): candidate is Readonly<FinalAssistantChatData> => candidate.finalNode !== undefined)
     .sort((left, right) => left.finalNode.seq - right.finalNode.seq)
   const closing = finalized.findLast(hasText) ?? null
-  let latestTranscriptSeq = finalized.at(-1)?.finalNode.seq
+  // Start from the last finalized assistant that has visible content, not from
+  // empty tail responses (e.g. EMPTY_RESPONSE after end-of-turn tool calls).
+  let latestTranscriptSeq = finalized.findLast(a => a.blocks.length > 0)?.finalNode.seq
   for (const match of context.matches) {
     const event = match.event
+    // Tool events from the same step as the closing text are part of its
+    // response and should not push the transcript boundary past it.
+    if (closing !== null
+      && (event.type === 'tool/call' || event.type === 'tool/result')
+      && event.data.step === closing.step) continue
     const candidate = event.type === 'tool/call'
       || (event.type === 'tool/result' && isAppendSurfaceEvent(event))
       || (event.type === 'turn/end' && event.data.reason.kind === 'error')

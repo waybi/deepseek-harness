@@ -440,6 +440,11 @@ export const assistantDefinition: ConversationNodeDefinition<AssistantState> = {
     if (data === undefined) return null
     const settled = data.finalNode
     const visible = settled === undefined ? state.visibleBlocks > 0 : hasVisibleContent(data.blocks)
+    // A settled, non-interrupted assistant with completely empty content (e.g.
+    // EMPTY_RESPONSE after end-of-turn tool calls) produces no chat node.
+    // Without this, the empty node appears after turn-tail in the location
+    // list and blocks branching via the hasLaterChatNode guard.
+    if (settled !== undefined && settled.interrupted !== true && data.blocks.length === 0) return null
     if (settled === undefined && !visible) {
       const current = context.current.get('chat')
       if (!state.hidden || current === undefined || current === null) return null

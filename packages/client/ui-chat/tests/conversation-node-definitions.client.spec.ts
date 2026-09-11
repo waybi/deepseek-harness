@@ -1190,7 +1190,7 @@ describe('built-in conversation node Definitions', () => {
     ])
   })
 
-  it('keeps branching unavailable when a tool result follows the closing Assistant', () => {
+  it('allows branching when same-step tool results follow the closing Assistant', () => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'step/start', { turn: 1, step: 1 }),
@@ -1207,6 +1207,80 @@ describe('built-in conversation node Definitions', () => {
       }, { surfaceOp: 'append' }),
       at(6, 'step/end', { turn: 1, step: 1 }),
       at(7, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ])
+
+    const current = snapshot(value)
+    const tailNode = node(current, 'turn-tail')
+    const tail = tailNode?.data as TurnTailChatData
+    expect(tail.closing?.finalNode.seq).toBe(3)
+    // Same-step tool events are part of the closing Assistant's response and
+    // should not block branching (fixes end-of-turn memory/dtodo pattern).
+    expect(tail.branchUnavailable).toBe(false)
+    // The turn-tail must sort after same-step tool-call chat nodes so the
+    // hasLaterChatNode guard in TurnTailNodeView stays false.
+    expect(current.locations.getTurn(1).at(-1)).toBe(tailNode?.key)
+  })
+
+  it('allows branching when an empty response follows same-step tool results', () => {
+    // Reproduces the memory-evolve + Opus pattern: text → tool calls →
+    // tool results → empty assistant (EMPTY_RESPONSE) → turn end.
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: assistantMessage('text-answer', 'the real answer'),
+      }, { surfaceOp: 'append' }),
+      at(4, 'tool/call', { turn: 1, step: 1, callId: 'mem-tool', name: 'memory', arguments: '{}' }),
+      at(5, 'tool/result', {
+        turn: 1,
+        step: 1,
+        message: toolResult('mem-tool', 'ok'),
+      }, { surfaceOp: 'append' }),
+      at(6, 'step/end', { turn: 1, step: 1 }),
+      at(7, 'step/start', { turn: 1, step: 2 }),
+      at(8, 'assistant/message', {
+        turn: 1,
+        step: 2,
+        message: { id: 'empty-tail', role: 'assistant', content: [], source: { kind: 'model', provider: 'fake', model: 'fake' } },
+      }, { surfaceOp: 'append' }),
+      at(9, 'step/end', { turn: 1, step: 2 }),
+      at(10, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
+    ])
+
+    const current = snapshot(value)
+    const tailNode = node(current, 'turn-tail')
+    const tail = tailNode?.data as TurnTailChatData
+    expect(tail.closing?.finalNode.seq).toBe(3)
+    // The empty step-2 assistant (EMPTY_RESPONSE) is invisible and should not
+    // block branching from the closing text in step 1.
+    expect(tail.branchUnavailable).toBe(false)
+    // Same-step tool-call nodes must not sort after the turn-tail.
+    expect(current.locations.getTurn(1).at(-1)).toBe(tailNode?.key)
+  })
+
+  it('keeps branching unavailable when a later step has tool results', () => {
+    // Tool results from a DIFFERENT step (not the closing text's step) should
+    // still block branching — they represent later model actions.
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'assistant/message', {
+        turn: 1,
+        step: 1,
+        message: assistantMessage('early-answer', 'checking something'),
+      }, { surfaceOp: 'append' }),
+      at(4, 'step/end', { turn: 1, step: 1 }),
+      at(5, 'step/start', { turn: 1, step: 2 }),
+      at(6, 'tool/call', { turn: 1, step: 2, callId: 'later-tool', name: 'bash', arguments: '{}' }),
+      at(7, 'tool/result', {
+        turn: 1,
+        step: 2,
+        message: toolResult('later-tool', 'output'),
+      }, { surfaceOp: 'append' }),
+      at(8, 'step/end', { turn: 1, step: 2 }),
+      at(9, 'turn/end', { turn: 1, reason: { kind: 'completed' } }),
     ])
 
     const tail = node(snapshot(value), 'turn-tail')?.data as TurnTailChatData
