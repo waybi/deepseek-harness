@@ -78,36 +78,68 @@ async function listSubagentModels(
   return `${modelLine(provider.id, model)}\nReasoning efforts:\n${efforts}`
 }
 
+/** One shared `list_subagent_models` registration and the count of live owning instances. */
+interface SharedDiscovery {
+  count: number
+  dispose: () => void
+}
+
+const sharedDiscoveries = new WeakMap<Context, SharedDiscovery>()
+
 /**
  * Register `list_subagent_models` for one owning delegation-tool instance.
- * @param ctx - Context whose tool registry owns the fixed discovery definition.
+ * Enabled instances in one agent scope (e.g. spawn + fork in one preset group)
+ * share a single reference-counted registration keyed by the agent context:
+ * the first caller's policy defines the shared definition, and the tool
+ * survives until the last owning instance is disposed, so disposing one
+ * instance cannot strand another's selection schema without its discovery
+ * path.
+ * @param ctx - Context of the owning instance; its disposal releases one reference.
  * @param policy - Route policy captured for this Session.
  */
 export function registerListSubagentModels(ctx: Context, policy: ModelSelectionPolicy): void {
-  ctx.tools.register(defineTool({
-    name: 'list_subagent_models',
-    description:
-      'Discover LLM routes for subagents without changing the current Agent. Call with no arguments to list '
-      + 'registered providers, with `provider` to list its advertised models, or with `provider` and `model` '
-      + 'to inspect that exact model and its reasoning efforts. Catalog membership is advisory: an adapter may '
-      + 'accept an unlisted model id. Use the returned ids with a delegation tool\'s `provider`, `model`, and '
-      + '`reasoning_effort` fields.',
-    parameters: {
-      provider: {
-        type: 'string',
-        description: 'Registered LLM provider id. Omit to list providers.',
-      },
-      model: {
-        type: 'string',
-        description: 'Exact model id to inspect. Requires provider; omit to list that provider\'s advertised models.',
-      },
-    },
-    output: {
-      schema: { type: 'string' },
-      render: (_args, result) => [{ type: 'text', text: result }],
-    },
-    execute(args, exec) {
-      return listSubagentModels(ctx, policy, args, exec.signal)
-    },
-  }))
+  const owner = ctx.agent?.ctx ?? ctx
+  let shared = sharedDiscoveries.get(owner)
+  if (shared === undefined) {
+    const created: SharedDiscovery = {
+      count: 0,
+      dispose: owner.tools.register(defineTool({
+        name: 'list_subagent_models',
+        description:
+          'Discover LLM routes for subagents without changing the current Agent. Call with no arguments to list '
+          + 'registered providers, with `provider` to list its advertised models, or with `provider` and `model` '
+          + 'to inspect that exact model and its reasoning efforts. Catalog membership is advisory: an adapter may '
+          + 'accept an unlisted model id. Use the returned ids with a delegation tool\'s `provider`, `model`, and '
+          + '`reasoning_effort` fields.',
+        parameters: {
+          provider: {
+            type: 'string',
+            description: 'Registered LLM provider id. Omit to list providers.',
+          },
+          model: {
+            type: 'string',
+            description: 'Exact model id to inspect. Requires provider; omit to list that provider\'s advertised models.',
+          },
+        },
+        output: {
+          schema: { type: 'string' },
+          render: (_args, result) => [{ type: 'text', text: result }],
+        },
+        execute(args, exec) {
+          return listSubagentModels(owner, policy, args, exec.signal)
+        },
+      })),
+    }
+    sharedDiscoveries.set(owner, created)
+    shared = created
+  }
+  const registration = shared
+  registration.count += 1
+  ctx.effect(() => () => {
+    registration.count -= 1
+    if (registration.count === 0) {
+      sharedDiscoveries.delete(owner)
+      registration.dispose()
+    }
+  })
 }

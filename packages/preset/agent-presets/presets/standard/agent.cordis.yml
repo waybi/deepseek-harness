@@ -185,15 +185,18 @@
         modelSelectionSettings: true
         backgroundMode: continuable
 
-    # Fork omits model selection so provider/model stay equal to the parent and
-    # the inherited history remains eligible for KV Cache reuse. This preset
-    # keeps fork continuable; parent and child inherit the same messaging tool,
-    # while the parent id and return guidance follow the inherited history.
+    # Fork inherits the parent's completed-turn prefix and stays continuable:
+    # parent and child inherit the same messaging tool, while the parent id and
+    # return guidance follow the inherited history. Model selection is enabled
+    # so a caller can dispatch context-aware work to a different model, trading
+    # KV Cache reuse of the inherited prefix for route flexibility; the shared
+    # list_subagent_models registration is reference-counted across instances.
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: fork
         toolName: subagent_fork
+        modelSelectionSettings: true
         backgroundMode: continuable
 
     # Production dsh does not install these optional providers. Install the

@@ -168,6 +168,40 @@ describe('SubagentModelSelectionConfig', () => {
     await ctx.fiber.dispose()
   })
 
+  it('keeps shared discovery registered until the last enabled instance is disposed', async () => {
+    const ctx = await boot()
+    await ctx.settings.update(SUBAGENT_MODEL_SELECTION_SETTINGS_NAMESPACE, {
+      enabled: true,
+      allowedModels: ALLOWED_MODELS,
+    })
+    let spawnFiber!: Awaited<ReturnType<Context['plugin']>>
+    let forkFiber!: Awaited<ReturnType<Context['plugin']>>
+    const handle = await ctx.agents.create({
+      sessionId: SessionId('shared-discovery'),
+      setup: async (agentCtx) => {
+        spawnFiber = await agentCtx.plugin(tool, {
+          provider: 'spawn',
+          modelSelectionSettings: true,
+          backgroundMode: 'continuable',
+        })
+        forkFiber = await agentCtx.plugin(tool, {
+          provider: 'spawn',
+          toolName: 'subagent_fork',
+          modelSelectionSettings: true,
+          backgroundMode: 'continuable',
+        })
+      },
+    })
+    const discovery = () => ctx.tools.schemas(handle.agent)
+      .some(candidate => candidate.name === 'list_subagent_models')
+    expect(discovery()).toBe(true)
+    await spawnFiber.dispose()
+    expect(discovery()).toBe(true)
+    await forkFiber.dispose()
+    expect(discovery()).toBe(false)
+    await ctx.fiber.dispose()
+  })
+
   it('rejects a forced route outside the Session policy before child creation', async () => {
     const ctx = await boot()
     await ctx.settings.update(SUBAGENT_MODEL_SELECTION_SETTINGS_NAMESPACE, {
