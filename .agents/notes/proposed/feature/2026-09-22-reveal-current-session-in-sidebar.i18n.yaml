@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-09-22-reveal-current-session-in-sidebar.md
-2026-09-22-reveal-current-session-in-sidebar.md: 9d26b7cfd38788444e0177fc90650aa4a1d90766
-2026-09-22-reveal-current-session-in-sidebar.zh.md: e11aef6dea2622e4ab34ffac12f78be650ce014e
