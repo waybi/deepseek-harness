@@ -40,15 +40,26 @@ const SEARCH_QUERY_MAX_CODE_UNITS = 500
 /** Session rows visible per Workspace before the local overflow control. */
 const COLLAPSED_SESSION_LIMIT = 5
 
-/** Fold one Workspace without charging its provisional New Session against the ordinary-row limit. */
-function collapsedSessionRows(sessions: readonly SessionNode[]): {
+/**
+ * Fold one Workspace without charging its provisional New Session against the
+ * ordinary-row limit. The current session always stays in `rows`: when it sits
+ * past the limit it takes the last visible seat, so a selection made from
+ * outside the tree (toast, inbox, search) is never hidden behind the overflow
+ * button and the visible row count does not change.
+ */
+function collapsedSessionRows(sessions: readonly SessionNode[], current: SessionId | undefined): {
   rows: readonly SessionNode[]
   hiddenCount: number
 } {
+  const ordinary = sessions.filter(session => !session.blank)
+  const currentIndex = current === undefined ? -1 : ordinary.findIndex(session => session.id === current)
+  const currentBeyondLimit = currentIndex >= COLLAPSED_SESSION_LIMIT
+  const ordinaryLimit = currentBeyondLimit ? COLLAPSED_SESSION_LIMIT - 1 : COLLAPSED_SESSION_LIMIT
   let ordinaryCount = 0
   const rows = sessions.filter((session) => {
     if (session.blank) return true
-    if (ordinaryCount >= COLLAPSED_SESSION_LIMIT) return false
+    if (currentBeyondLimit && session.id === current) return true
+    if (ordinaryCount >= ordinaryLimit) return false
     ordinaryCount += 1
     return true
   })
@@ -288,10 +299,35 @@ function SessionTree({
     ? undefined
     : (workspaces.find(w => w.sessionIds.includes(current))?.workspaceId as string | undefined)
       ?? UNGROUPED_KEY
+  /*
+   * Reveal on selection change, not on render: when `current` moves into a
+   * group, expand that group even if the user once collapsed it. The list
+   * deliberately excludes `groupExpansion`, so collapsing the current group
+   * afterwards is honored until the next selection change.
+   */
   useEffect(() => {
-    if (current === undefined || currentGroup === undefined || Object.hasOwn(groupExpansion, currentGroup)) return
+    if (current === undefined || currentGroup === undefined) return
     setGroupExpanded(currentGroup, true)
-  }, [current, currentGroup, setGroupExpanded, groupExpansion])
+  }, [current, currentGroup, setGroupExpanded])
+  /*
+   * Scroll the selected row into view once it exists in the DOM. The group
+   * expansion above lands one render later than the selection change, so this
+   * arms on `current` and retries on every render until the row is found.
+   */
+  const treeList = useRef<HTMLDivElement>(null)
+  const scrollPending = useRef<SessionId | undefined>(undefined)
+  useEffect(() => { scrollPending.current = current }, [current])
+  useEffect(() => {
+    const target = scrollPending.current
+    if (target === undefined) return
+    const row = treeList.current?.querySelector<HTMLElement>('[role="treeitem"][aria-selected="true"]')
+    if (row === null || row === undefined) return
+    scrollPending.current = undefined
+    /* v8 ignore next 3 -- jsdom lacks scrollIntoView; browsers always have it. */
+    if (typeof row.scrollIntoView === 'function') {
+      row.scrollIntoView({ block: 'nearest' })
+    }
+  })
   const expandedGroups = useMemo(
     () => Object.entries(groupExpansion).filter(([, expanded]) => expanded).map(([key]) => key),
     [groupExpansion],
@@ -355,7 +391,7 @@ function SessionTree({
     const group = groups.find(candidate => candidate.key === activeDrag.accountKey)
     if (group === undefined) return
     const sessionsExpanded = expandedSessionGroups.includes(group.key)
-    const renderedSessions = sessionsExpanded ? group.sessions : collapsedSessionRows(group.sessions).rows
+    const renderedSessions = sessionsExpanded ? group.sessions : collapsedSessionRows(group.sessions, current).rows
     const targetIndex = renderedSessions.findIndex(session => session.id === over.id)
     if (targetIndex === -1) return
     const sourceIndex = renderedSessions.findIndex(session => session.id === activeDrag.sessionId)
@@ -393,7 +429,7 @@ function SessionTree({
         const node = nodes.get(id)
         return node === undefined ? [] : [node]
       })
-      if (!collapsedSessionRows(nextGroup).rows.some(node => node.id === activeDrag.sessionId)) return
+      if (!collapsedSessionRows(nextGroup, current).rows.some(node => node.id === activeDrag.sessionId)) return
     }
     setSessionOrder(activeDrag.accountKey, nextOrder.map(id => id as string))
     if (orderBy === 'updated' || activeDrag.accountKey === UNGROUPED_KEY) return
@@ -429,6 +465,7 @@ function SessionTree({
     <div className={clsx(css.treeBody, css.wide)}>
       {workspaceDropAtListStart && <span className={css.listTopDropIndicator} aria-hidden="true" />}
       <div
+        ref={treeList}
         className={clsx(css.list, workspaceDropAtListStart && css.listTopDropActive)}
         role="tree"
         aria-label={t('section.sessions')}
@@ -438,7 +475,7 @@ function SessionTree({
         )}
         {groups.map((group) => {
           const workspaceId = group.workspaceId
-          const collapsed = collapsedSessionRows(group.sessions)
+          const collapsed = collapsedSessionRows(group.sessions, current)
           const sessionsExpanded = expandedSessionGroups.includes(group.key)
           const workspaceMarker = workspaceId !== undefined && workspaceDrag?.over?.id === workspaceId
             ? workspaceDrag.over.half

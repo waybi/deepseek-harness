@@ -299,6 +299,80 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
   })
 
+  it('keeps the current session visible past the fold by giving it the last seat', () => {
+    const items = Array.from({ length: 8 }, (_, index) => summary(`session-${index + 1}`, 8 - index))
+    const b = mount({
+      useSessions: hook(sessionState(items, { current: sid('session-3') })),
+      useWorkspaces: hook(workspaceState([workspace('alpha', items.map(item => item.id))])),
+    })
+    // Current inside the first five: the fold is untouched.
+    for (const item of items.slice(0, 5)) expect(screen.getByText(item.displayTitle)).toBeTruthy()
+    expect(screen.queryByText('session-8')).toBeNull()
+    expect(screen.getByRole('button', { name: '展开其余 3 个会话' })).toBeTruthy()
+
+    // Selection jumps to the eighth (e.g. from a toast): it takes the fifth
+    // seat, session-5 yields, the visible count and the hidden count both hold.
+    rerender(b, { useSessions: hook(sessionState(items, { current: sid('session-8') })) })
+    for (const item of items.slice(0, 4)) expect(screen.getByText(item.displayTitle)).toBeTruthy()
+    expect(screen.queryByText('session-5')).toBeNull()
+    expect(screen.getByText('session-8')).toBeTruthy()
+    expect(screen.getByRole('treeitem', { name: /session-8/ }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByRole('button', { name: '展开其余 3 个会话' })).toBeTruthy()
+  })
+
+  it('re-expands a manually collapsed group when the selection moves into it, and stays collapsible afterwards', () => {
+    const items = [summary('a', 3), summary('b', 2), summary('c', 1)]
+    const b = mount({
+      useSessions: hook(sessionState(items, { current: sid('c') })),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['a', 'b']), workspace('beta', ['c'])])),
+    })
+    // alpha starts collapsed (no recorded state); open it, then collapse it by
+    // hand while beta holds the current session, so it now has a recorded false.
+    fireEvent.click(screen.getByText('alpha'))
+    expect(b.store.getSnapshot().groupExpansion.alpha).toBe(true)
+    fireEvent.click(screen.getByText('alpha'))
+    expect(b.store.getSnapshot().groupExpansion.alpha).toBe(false)
+    expect(screen.queryByText('a')).toBeNull()
+
+    // Selection moves into alpha from outside the tree: the group reveals it.
+    rerender(b, { useSessions: hook(sessionState(items, { current: sid('a') })) })
+    expect(b.store.getSnapshot().groupExpansion.alpha).toBe(true)
+    expect(screen.getByText('a')).toBeTruthy()
+
+    // The user may still collapse the current session's group; the reveal
+    // effect keys on the selection change, not on render.
+    fireEvent.click(screen.getByText('alpha'))
+    expect(b.store.getSnapshot().groupExpansion.alpha).toBe(false)
+    expect(screen.queryByText('a')).toBeNull()
+  })
+
+  it('scrolls the selected row into view once it renders (armed on selection change)', () => {
+    const items = [summary('a', 2), summary('b', 1)]
+    const scrolled: string[] = []
+    // jsdom has no scrollIntoView at all; install a recording one for this test only.
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value(this: HTMLElement) { scrolled.push(this.textContent ?? '') },
+    })
+    try {
+      const b = mount({
+        useSessions: hook(sessionState(items, { current: sid('a') })),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['a', 'b'])])),
+      })
+      expect(scrolled.length).toBe(1)
+      expect(scrolled[0]).toContain('a')
+      // Unrelated re-render: no new scroll.
+      rerender(b, {})
+      expect(scrolled.length).toBe(1)
+      // Selection change: exactly one more scroll, targeting the new row.
+      rerender(b, { useSessions: hook(sessionState(items, { current: sid('b') })) })
+      expect(scrolled.length).toBe(2)
+      expect(scrolled[1]).toContain('b')
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+    }
+  })
+
   it('anchors collapsed drags before hidden rows so the source stays visible', async () => {
     const ordinary = Array.from({ length: 6 }, (_, index) => summary(`session-${index + 1}`, 6 - index))
     const blank = summary('blank', 7, { blank: true })
