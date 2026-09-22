@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-09-22-runai-mechanism-port.md
-2026-09-22-runai-mechanism-port.md: 2896d128b0cfa9304bc0ded377dbf41a07ad0427
-2026-09-22-runai-mechanism-port.zh.md: e8ad67204a803b660a3dafcbccb9986a51c4e65d
+2026-09-22-runai-mechanism-port.md: bf8e856d9bc363981d69141c7b85244a4657e765
+2026-09-22-runai-mechanism-port.zh.md: 2c43596304c7e94beb8ee8a428789635afbc1a28

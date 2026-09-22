@@ -68,6 +68,17 @@ PostToolUse       → calls += 1
 
 **C2. 工具目录延迟加载（机制 F）。** ≤ 2 小时内核查：工具注册表与 `agent-loop` 的目录渲染是否允许插件在不动 `packages/core` 的前提下打「deferred」标记，以 `tool-cordis` 的目录（[api-catalog.ts](../../../../packages/extensions/tool-cordis/src/api-catalog.ts)）为懒暴露参考。`read_output_chunk` 已由 `spill` 定位符加 `read --offset/--limit` 覆盖，只有目录延迟在范围内。决策：插件设计 note，或放弃。
 
+## 现状（2026-09-22）
+
+**A 批已落地并验证。** 用户 preset `~/.dsh/.agent-presets/standard-tiered`（`standard` 的副本加三行）已是 settings 默认。通过 `session/create` 不传 `agentPreset` 新建的会话解析为 `standard-tiered`；其工具目录列出 `subagent, subagent_awaiter, subagent_explorer, subagent_fork, subagent_judge`。一个 `subagent_judge` 子会话的 `request/header.config` 为 `{provider: local-7357, model: agnes-3.0-flash, reasoningEffort: off}`，工具目录为 `bash, glob, grep, list_subagent_models, read, subagent, subagent_fork`（无 `write`/`edit`），系统提示词以 judge persona 开头。相对 plan 原文有两处修正：`maxDepth` 是子代理的绝对深度，所以三行用 `1`（写 `0` 会以 `subagent depth 1 exceeds maxDepth 0` 拒绝所有派发）；钉住的模型是 `agnes-3.0-flash`（effort 只有 `off`/`high`），因为当天 `deepseek-v4-pro-0813` 返回 `pool_exhausted`、重试要等 3.3 小时。AGENTS.md 的路由规则、报告契约、记忆格式已生效。备份：`local-tools/tools/dsh-agent-presets`、`tools/dsh-agents-md`。
+
+**B 批已落地；真实接线测试等重启。** `~/.dsh/hooks/cadence-audit.py`（软链到 `local-tools/tools/dsh-cadence-audit`）通过 9 个单测；`hooks-claude-code.json` 在 `UserPromptSubmit` 与 `PostToolUse` 上登记了它，插件自己的 `parseClaudeCodeConfig` 解析该文件 0 条跳过。插件启动时只读一次配置，所以注入只会出现在下次 `dsh web` 重启之后新开的会话里；那次重启和「连跑九次 `bash`」检查是剩下的验收步骤。`Stop` 待定项保持待定：goal 驱动器的轮末裁判已对 goal 会话生效，尚无证据表明存在 `Stop` hook 才能补的缺口。
+
+**C 批决策。**
+
+- *C1（机制 B）：不 fork 内核。* RunAI 的 `update_plan` 每步带 `id`、`blocked_by: [{kind, label, ref}]`、`estimated_minutes`、`agents`，其督察比对的是 `in_progress` 步骤与真实派发（「1 ready step(s) but only 0 launch call(s) dispatched this round」）。在 DSH 落地意味着改 `tool-todo` 的 schema、给 subagent 插件加它现在没有的步骤→子代理账本、再写一个读两边的 `PostToolUse`——三处贴着内核的改动都要对着 `upstream` 维护。用户会话的委派频率不高，A1 的分级加 AGENTS.md「独立委派同一条消息里一起发」的规则已覆盖观察到的失败模式。只有真实 DSH 记录里出现假并行时再重开。
+- *C2（机制 F）：已经有了，不用做。* DSH 的 `tools` 注册表有 `mode: ptc` 呈现（[index.ts](../../../../packages/core/tools/src/index.ts)），只发 `run_code` 加一段生成的 SDK 提示词，与 `tool_search` 用另一条路达到同样的上下文节省；当前 Web 主机在 `native`。每 scope 的 `ToolRestriction` 已能对子代理隐藏工具。`read_output_chunk` 由 `spill` 定位符加 `read --offset/--limit` 覆盖。要做 `tool_search` 形态的 deferred 标记，得改注册表的 `ToolView` 和 loop 的目录渲染——是内核不是插件，而且相对 `ptc` 的收益未证实。放弃；若目录体积成为可测的问题，先切 `DSH_TOOLS_MODE=ptc`。
+
 ## 备选方案
 
 - **六套全部作为本 fork 的内核改动。** 否决：fork 跟踪 `upstream`（`deepseek-ai/deepseek-harness`），每处内核改动都是 rebase 负债，而六套里四套根本不需要。
