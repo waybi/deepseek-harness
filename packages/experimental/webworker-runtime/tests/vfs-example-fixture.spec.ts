@@ -1,9 +1,14 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
-import { scanLog } from '@deepseek-ai/dsh-session-persistence-jsonl/src/format.ts'
+import { SESSION_FORMAT_VERSION, Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { createSessionFormatCatalogWithChildren } from '@deepseek-ai/dsh-session-format-catalog'
+import {
+  generationLogFilename,
+  scanLog,
+} from '@deepseek-ai/dsh-session-persistence-jsonl/src/format.ts'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import { projectionCacheDomainSpec } from '@deepseek-ai/dsh-session-projection-cache'
 import {
   buildVfsExampleFiles,
   VFS_EXAMPLE_OLDEST_MESSAGE,
@@ -27,9 +32,18 @@ function filesUnder(root: string): string[] {
 }
 
 function readSession(id: string): ReturnType<typeof scanLog> {
-  return scanLog(readFileSync(
-    join(VFS_EXAMPLE_ROOT, 'home/sessions/--dsh-workspace--', id, 'session.jsonl'),
-  ))
+  const path = `home/sessions/--dsh-workspace--/${id}/${generationLogFilename(SESSION_FORMAT_VERSION, 'none')}`
+  const generated = buildVfsExampleFiles().get(path)
+  if (generated === undefined) throw new Error(`missing generated VFS example Session ${path}`)
+  return scanLog(Buffer.from(generated))
+}
+
+function restoreSession(content: string, version: number) {
+  const [header, ...events] = content.trimEnd().split('\n').map(line => JSON.parse(line) as unknown)
+  expect(header).toMatchObject({ type: 'session', version })
+  const restore = createSessionFormatCatalogWithChildren([]).createRestore(header, { recovery: 'strict', validation: 'current' })
+  for (const event of events) restore.decodeRow(event)
+  return restore.finish()
 }
 
 function textOf(event: SessionEvent): string {
@@ -43,30 +57,61 @@ function textOf(event: SessionEvent): string {
 }
 
 describe('WebWorker preview VFS example', () => {
-  it('matches its deterministic source byte for byte', () => {
+  it('retains V3 inputs that strictly restore to the deterministic current output', () => {
     const expected = buildVfsExampleFiles()
-    expect(filesUnder(VFS_EXAMPLE_ROOT)).toEqual([...expected.keys()].sort())
+    const currentName = generationLogFilename(SESSION_FORMAT_VERSION, 'none')
+    const committedPath = (path: string): string => path.endsWith(`/${currentName}`)
+      ? `${path.slice(0, -currentName.length)}session.v3.jsonl`
+      : path
+    const predecessors = Object.values(VFS_EXAMPLE_SESSION_IDS)
+      .map(id => `home/sessions/--dsh-workspace--/${id}/session.v2.jsonl`)
+    expect(filesUnder(VFS_EXAMPLE_ROOT)).toEqual([...expected.keys()].map(committedPath).concat(predecessors).sort())
     for (const [path, content] of expected) {
-      expect(readFileSync(join(VFS_EXAMPLE_ROOT, path), 'utf8'), path).toBe(content)
+      if (path === 'home/storages/session_projcache.json') continue
+      const committed = readFileSync(join(VFS_EXAMPLE_ROOT, committedPath(path)), 'utf8')
+      if (path.endsWith(`/${currentName}`)) {
+        expect(restoreSession(committed, 3), path).toEqual(restoreSession(content, SESSION_FORMAT_VERSION))
+      } else {
+        expect(committed, path).toBe(content)
+      }
     }
   })
 
-  it('seeds the cold-list title cache against the main log identity', () => {
-    const cache = JSON.parse(readFileSync(
+  it('retains V3 cache identity while the generated cache uses the current writer', () => {
+    const committed = JSON.parse(readFileSync(
       join(VFS_EXAMPLE_ROOT, 'home/storages/session_projcache.json'),
       'utf8',
     )) as {
       unit: { name: string; version: number }
       tables: {
         sessions: Record<string, {
-          identity: { createdAt: number; cwd: string; isSeeded: boolean; inheritedEventCount: number }
+          identity: {
+            formatVersion: number
+            createdAt: number
+            cwd: string
+            isSeeded: boolean
+            inheritedEventCount: number
+          }
           rows: { title: unknown }
         }>
       }
     }
-    expect(cache.unit).toEqual({ name: 'session_projcache', version: 5 })
-    expect(cache.tables.sessions[VFS_EXAMPLE_SESSION_IDS.main]).toMatchObject({
+    const generatedText = buildVfsExampleFiles().get('home/storages/session_projcache.json')
+    if (generatedText === undefined) throw new Error('missing generated VFS example projection cache')
+    const generated = JSON.parse(generatedText) as typeof committed
+    const expectedCurrent = structuredClone(committed)
+    for (const session of Object.values(expectedCurrent.tables.sessions)) {
+      expect(session.identity.formatVersion).toBe(3)
+      session.identity.formatVersion = SESSION_FORMAT_VERSION
+    }
+    expect(generated).toEqual(expectedCurrent)
+    expect(generated.unit).toEqual({
+      name: projectionCacheDomainSpec.name,
+      version: projectionCacheDomainSpec.version,
+    })
+    expect(generated.tables.sessions[VFS_EXAMPLE_SESSION_IDS.main]).toMatchObject({
       identity: {
+        formatVersion: SESSION_FORMAT_VERSION,
         createdAt: 1_787_472_000_000,
         cwd: '/dsh/workspace',
         isSeeded: false,
@@ -96,6 +141,7 @@ describe('WebWorker preview VFS example', () => {
       events,
       meta,
       inheritedEventCount,
+      'detached',
     )).not.toThrow()
 
     const messages = events.filter(event =>
@@ -111,7 +157,7 @@ describe('WebWorker preview VFS example', () => {
       'read', 'write', 'bash', 'glob', 'grep', 'web_search', 'todo_write', 'subagent', 'subagent_fork',
     ]))
     expect(events.some(event => event.type === 'todo/write')).toBe(true)
-    expect(events.some(event => event.type === 'tool/result' && event.data.message.content[0].isError === true)).toBe(true)
+    expect(events.some(event => event.type === 'tool/result' && event.data.message.isError === true)).toBe(true)
   })
 
   it('restores one-shot and continuable child Sessions with durable descriptors', () => {
@@ -137,6 +183,7 @@ describe('WebWorker preview VFS example', () => {
         events,
         meta,
         inheritedEventCount,
+        'detached',
       )).not.toThrow()
     }
   })

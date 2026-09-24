@@ -5,10 +5,9 @@
  * @module @deepseek-ai/dsh-web-search-tavily
  */
 
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import type {} from '@deepseek-ai/dsh-settings'
 import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import type {} from '@deepseek-ai/dsh-web'
 import {
@@ -35,29 +34,32 @@ export const inject = ['web']
 
 const DEFAULT_API_KEY_ENV = 'TAVILY_API_KEY'
 
-/** Plugin config (all optional — `apply` fills env-var and constant defaults). */
+/** Plugin config; every field is volatile, so profile edits apply to the next search without a remount. */
 export interface Config {
   /** Literal Tavily API key; prefer {@link apiKeyEnv} so no secret enters configuration files. */
-  apiKey?: string
+  apiKey: Volatile<string | undefined>
   /** Credential reference resolved for each search; defaults to `TAVILY_API_KEY`. */
-  apiKeyEnv?: string
+  apiKeyEnv: Volatile<string>
   /** Search endpoint base; `/search` is appended. */
-  baseURL?: string
+  baseURL: Volatile<string | undefined>
   /** Retrieval depth sent as Tavily `search_depth`. Defaults to `basic`. */
-  searchDepth?: TavilySearchDepth
+  searchDepth: Volatile<TavilySearchDepth>
   /** Default result count when a request carries no `maxResults`. */
-  maxResults?: number
+  maxResults: Volatile<number | undefined>
 }
 
-export const Config: z<Config> = z.object({
-  apiKey: z.string().role('secret'),
-  apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV),
-  baseURL: z.string(),
-  searchDepth: z.union(['basic', 'advanced'] as const).default(TAVILY_DEFAULT_SEARCH_DEPTH),
-  maxResults: z.number().step(1).min(1),
+export const Config = z.object({
+  apiKey: z.string().role('secret').volatile(),
+  apiKeyEnv: z.string().role('credential-ref').default(DEFAULT_API_KEY_ENV).volatile(),
+  baseURL: z.string().volatile(),
+  searchDepth: z.union(['basic', 'advanced'] as const).default(TAVILY_DEFAULT_SEARCH_DEPTH).volatile(),
+  maxResults: z.number().step(1).min(1).volatile(),
 })
 
-/** Settings namespace carrying this provider's endpoint, depth, and key reference. */
+/** One snapshot of every volatile field, read at the start of a search. */
+type ResolvedConfig = { [K in keyof Config]: ReturnType<Config[K]['get']> }
+
+/** Profile entry id and settings namespace for this provider's endpoint, depth, and key reference. */
 export const WEB_SEARCH_TAVILY_SETTINGS_NAMESPACE = 'web-search-tavily'
 
 /**
@@ -68,8 +70,8 @@ export const WEB_SEARCH_TAVILY_SETTINGS_NAMESPACE = 'web-search-tavily'
  * @param config - the currently authoritative section.
  * @returns options for one search.
  */
-function resolveOptions(ctx: Context, config: Config): TavilySearchProviderOptions {
-  const apiKeyEnv = credentialRef(config.apiKeyEnv ?? DEFAULT_API_KEY_ENV)
+function resolveOptions(ctx: Context, config: ResolvedConfig): TavilySearchProviderOptions {
+  const apiKeyEnv = credentialRef(config.apiKeyEnv)
   const literalApiKey = config.apiKey !== undefined && config.apiKey.length > 0
     ? config.apiKey
     : undefined
@@ -83,27 +85,15 @@ function resolveOptions(ctx: Context, config: Config): TavilySearchProviderOptio
     },
     apiKeyEnv,
     baseURL: config.baseURL ?? TAVILY_DEFAULT_BASE_URL,
-    searchDepth: config.searchDepth ?? TAVILY_DEFAULT_SEARCH_DEPTH,
+    searchDepth: config.searchDepth,
     ...config.maxResults !== undefined ? { maxResults: config.maxResults } : {},
   }
 }
 
 /** Register the Tavily search provider with `ctx.web`. */
 export function apply(ctx: Context, config: Config): void {
-  let current: () => Config = () => config
-  ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(
-      ctx,
-      WEB_SEARCH_TAVILY_SETTINGS_NAMESPACE,
-      Config,
-      config,
-      {
-        setSource: (source: () => Config) => {
-          current = source
-        },
-        onChange: () => {},
-      },
-    )
-  })
-  ctx.web.registerSearchProvider(new TavilySearchProvider(() => resolveOptions(ctx, current())))
+  ctx.web.registerSearchProvider(new TavilySearchProvider(() => resolveOptions(ctx, {
+    apiKey: config.apiKey.get(), apiKeyEnv: config.apiKeyEnv.get(), baseURL: config.baseURL.get(),
+    searchDepth: config.searchDepth.get(), maxResults: config.maxResults.get(),
+  })))
 }

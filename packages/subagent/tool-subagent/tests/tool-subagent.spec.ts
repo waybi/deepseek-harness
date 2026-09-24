@@ -17,8 +17,9 @@ import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as SubagentSpawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
-import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
+import * as ToolJobs from '@deepseek-ai/dsh-tool-jobs'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { loadStoredSession } from '../../subagent/tests/persistence-helpers.ts'
 import * as mock from './scripted-provider.ts'
 import * as tool from '../src/index.ts'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -322,7 +323,7 @@ describe('dsh-tool-subagent', () => {
       },
     })
     // Direct apply with only `provider` — no toolName, no agentOptions.
-    tool.apply(ctx, { provider: 'bare' })
+    tool.apply(ctx, { maxDepth: 'provider-managed', provider: 'bare' })
     await new Promise(r => setTimeout(r, 10))
 
     expect(ctx.tools.schemas().some(s => s.name === 'subagent')).toBe(true)
@@ -800,7 +801,7 @@ describe('dsh-tool-subagent', () => {
 
 describe('dsh-tool-subagent background mode', () => {
   /** A live parent with a dedicated scope fiber for structural task cleanup. */
-  function ownerAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Agent {
+  async function ownerAgent(ctx: Context, sessionId: string, inject: (...args: unknown[]) => void = () => {}): Promise<Agent> {
     const scopeFiber = ctx.plugin(() => {})
     const id = SessionId(sessionId)
     const agent = {
@@ -810,7 +811,7 @@ describe('dsh-tool-subagent background mode', () => {
       options: {},
       session: Session.create(id),
     } as unknown as Agent
-    ctx.agents.register(agent)
+    await ctx.agents.register(agent)
     return agent
   }
 
@@ -818,13 +819,13 @@ describe('dsh-tool-subagent background mode', () => {
     const ctx = await setup(toolConfig, mockConfig)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LocalJobRegistry)
-    await ctx.plugin(ToolTasks, {})
+    await ctx.plugin(ToolJobs, {})
     return ctx
   }
 
   it('keeps a continuable-capable provider one-shot when backgroundMode selects one-shot', async () => {
     const ctx = await backgroundSetup({ provider: 'mock' })
-    const parent = ownerAgent(ctx, 'sess-parent')
+    const parent = await ownerAgent(ctx, 'sess-parent')
     let prepareCalls = 0
     ctx.subagents.registerProvider({
       name: 'resumable',
@@ -865,7 +866,7 @@ describe('dsh-tool-subagent background mode', () => {
 
   it('returns a job id immediately and the answer is collected through job_output', async () => {
     const ctx = await backgroundSetup({ provider: 'mock' }, { reply: 'background answer' })
-    const parent = ownerAgent(ctx, 'sess-parent')
+    const parent = await ownerAgent(ctx, 'sess-parent')
 
     const start = await callSubagent(ctx, { description: 'deep research', prompt: 'dig in', run_in_background: true }, { agent: parent })
     expect(start.isError).toBe(false)
@@ -882,7 +883,7 @@ describe('dsh-tool-subagent background mode', () => {
     })
     expect(text(collected)).toBe('background answer\n[status: completed]')
 
-    // Final-output reads are idempotent (not consumed).
+    // The result rides the first read after settlement; a later read carries only the status.
     const again = await ctx.tools.execute({
       signal: testToolSignal,
       callId: ToolCallId('collect-2'),
@@ -890,7 +891,7 @@ describe('dsh-tool-subagent background mode', () => {
       arguments: { job_id: 'subagent-1' },
       agent: parent,
     })
-    expect(text(again)).toBe('background answer\n[status: completed]')
+    expect(text(again)).toBe('(no new output)\n[status: completed]')
   })
 
   it('preserves provider diagnostics in one-shot background failure detail', async () => {
@@ -899,7 +900,7 @@ describe('dsh-tool-subagent background mode', () => {
       diagnostic: 'Claude Code cancelled an unattended dialog',
       stopReason: 'error',
     })
-    const parent = ownerAgent(ctx, 'sess-parent')
+    const parent = await ownerAgent(ctx, 'sess-parent')
 
     const started = await ctx.tools.execute({
       signal: testToolSignal,
@@ -932,7 +933,7 @@ describe('dsh-tool-subagent background mode', () => {
 
   it('skips background startup when the tool signal is already aborted', async () => {
     const ctx = await backgroundSetup({ provider: 'mock' })
-    const parent = ownerAgent(ctx, 'sess-parent')
+    const parent = await ownerAgent(ctx, 'sess-parent')
     const controller = new AbortController()
     controller.abort()
     const result = await callSubagent(ctx, { description: 'd', prompt: 'p', run_in_background: true }, { agent: parent, signal: controller.signal })
@@ -949,7 +950,7 @@ describe('dsh-tool-subagent background mode', () => {
       provider: 'mock',
       agentOptions: { provider: 'alpha', model: 'selected-model' },
     })
-    const parent = ownerAgent(ctx, 'sess-parent')
+    const parent = await ownerAgent(ctx, 'sess-parent')
     const adapter = new MockAdapter([])
     let releasePreflight!: () => void
     const preflightGate = new Promise<void>((resolve) => { releasePreflight = resolve })
@@ -971,7 +972,7 @@ describe('dsh-tool-subagent background mode', () => {
     const result = await resultPromise
 
     expect(result.isError).toBe(true)
-    expect(ctx.jobs.list(parent)).toEqual([])
+    expect(ctx.jobs.list(parent.id)).toEqual([])
   })
 
   it('rejects startup when the provider changes during asynchronous route preflight', async () => {
@@ -1020,14 +1021,14 @@ describe('dsh-tool-subagent background mode', () => {
 
   it('settles an asynchronous provider-start failure as a failed task', async () => {
     const ctx = await backgroundSetup({ provider: 'mock' })
-    const parent = ownerAgent(ctx, 'sess-parent')
+    const parent = await ownerAgent(ctx, 'sess-parent')
     ctx.subagents.registerProvider({
       name: 'broken-start',
       capabilities: { agentOptions: false, outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
       inheritsParentContext: false,
       start: async () => { throw new Error('setup failed') },
     })
-    tool.apply(ctx, { provider: 'broken-start', toolName: 'subagent_broken' })
+    tool.apply(ctx, { maxDepth: 'provider-managed', provider: 'broken-start', toolName: 'subagent_broken' })
 
     const started = await ctx.tools.execute({
       signal: testToolSignal,
@@ -1049,7 +1050,7 @@ describe('dsh-tool-subagent background mode', () => {
 
   it('kills a subagent task while provider readiness is still pending', async () => {
     const ctx = await backgroundSetup({ provider: 'mock' })
-    const parent = ownerAgent(ctx, 'sess-parent')
+    const parent = await ownerAgent(ctx, 'sess-parent')
     ctx.subagents.registerProvider({
       name: 'pending-start',
       capabilities: { agentOptions: false, outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
@@ -1058,7 +1059,7 @@ describe('dsh-tool-subagent background mode', () => {
         request.signal.addEventListener('abort', () => { reject(new Error('startup aborted')) }, { once: true })
       }),
     })
-    tool.apply(ctx, { provider: 'pending-start', toolName: 'subagent_pending' })
+    tool.apply(ctx, { maxDepth: 'provider-managed', provider: 'pending-start', toolName: 'subagent_pending' })
 
     await ctx.tools.execute({
       signal: testToolSignal,
@@ -1081,12 +1082,13 @@ describe('dsh-tool-subagent background mode', () => {
       arguments: { job_id: 'subagent-1', wait: true },
       agent: parent,
     })
-    expect(text(output)).toBe('(no new output)\n[status: killed]')
+    // The registry records the model's kill reason as the terminal detail.
+    expect(text(output)).toBe('(no new output)\n[status: killed, no longer needed]')
   })
 
   it('reports startup rollback failure after cancellation as a failed job', async () => {
     const ctx = await backgroundSetup({ provider: 'mock' })
-    const parent = ownerAgent(ctx, 'sess-parent')
+    const parent = await ownerAgent(ctx, 'sess-parent')
     ctx.subagents.registerProvider({
       name: 'broken-start-rollback',
       capabilities: { agentOptions: false, outputSchema: false, depthLimit: false, toolFilter: false, persona: false },
@@ -1100,7 +1102,7 @@ describe('dsh-tool-subagent background mode', () => {
         }, { once: true })
       }),
     })
-    tool.apply(ctx, { provider: 'broken-start-rollback', toolName: 'subagent_broken_rollback' })
+    tool.apply(ctx, { maxDepth: 'provider-managed', provider: 'broken-start-rollback', toolName: 'subagent_broken_rollback' })
 
     await ctx.tools.execute({
       signal: testToolSignal,
@@ -1129,7 +1131,7 @@ describe('dsh-tool-subagent background mode', () => {
   it('forwards job_kill reasons through the run signal (and defaults one when absent)', async () => {
     // Use a provider that remains live until its signal is aborted.
     const ctx = await backgroundSetup({ provider: 'mock', agentOptions: { model: 'child-model' } })
-    const parent = ownerAgent(ctx, 'sess-parent')
+    const parent = await ownerAgent(ctx, 'sess-parent')
     const cancels: (string | undefined)[] = []
     let starts = 0
     ctx.subagents.registerProvider({
@@ -1153,7 +1155,7 @@ describe('dsh-tool-subagent background mode', () => {
       },
     })
     // Direct apply preserves omitted agentOptions instead of applying schema defaults.
-    tool.apply(ctx, { provider: 'hanging', toolName: 'subagent_hang' })
+    tool.apply(ctx, { maxDepth: 'provider-managed', provider: 'hanging', toolName: 'subagent_hang' })
 
     const startOne = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('h1'), name: 'subagent_hang', arguments: { description: 'one', prompt: 'p', run_in_background: true }, agent: parent })
     const startTwo = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('h2'), name: 'subagent_hang', arguments: { description: 'two', prompt: 'p', run_in_background: true }, agent: parent })
@@ -1168,7 +1170,7 @@ describe('dsh-tool-subagent background mode', () => {
 
     // The aborted children settle as killed tasks.
     const killed = await ctx.tools.execute({ signal: testToolSignal, callId: ToolCallId('w1'), name: 'job_output', arguments: { job_id: 'subagent-1', wait: true }, agent: parent })
-    expect(text(killed)).toBe('(no new output)\n[status: killed]')
+    expect(text(killed)).toBe('(no new output)\n[status: killed, superseded]')
   })
 
 })
@@ -1181,7 +1183,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
 
   /** Boot the real continuable stack without any model-facing follow-up adapter. */
   async function continuableSetup() {
-    const ctx = await projectedContext()
+    const ctx = new Context()
     await mountAgentLoopTestDependencies(ctx)
     const root = mkdtempSync(path.join(tmpdir(), 'dsh-tool-subagent-continuable-'))
     roots.push(root)
@@ -1190,12 +1192,12 @@ describe('dsh-tool-subagent continuable background mode', () => {
     await ctx.plugin(SubagentRuntime)
     await ctx.plugin(SubagentSpawn, { providerName: 'spawn' })
     await ctx.plugin(LocalJobRegistry)
-    await ctx.plugin(ToolTasks, {})
+    await ctx.plugin(ToolJobs, {})
     await ctx.plugin(tool, { provider: 'spawn', backgroundMode: 'continuable' })
     ctx.llm.registerAdapter(['mock'], new MockAdapter([
       textResponse('continuable answer'),
     ]))
-    const parent = ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
+    const parent = await ctx.agentLoop.create(SessionId('parent'), { provider: 'mock', model: 'mock' })
     return { ctx, parent }
   }
 
@@ -1239,13 +1241,13 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(match).not.toBeNull()
     const [, childId] = match!
     // No Task was created for the continuable child.
-    expect(ctx.jobs.list(parent)).toEqual([])
+    expect(ctx.jobs.list(parent.id)).toEqual([])
 
     await vi.waitFor(() => {
       expect(ctx.agents.get(SessionId(childId!))).toBeUndefined()
     }, { timeout: 5_000 })
     // The child id names a durable session carrying its continuation descriptor.
-    const loaded = await ctx.sessionPersistence.load(SessionId(childId!))
+    const loaded = await loadStoredSession(ctx.sessionPersistence, SessionId(childId!))
     expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
     expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
   })
@@ -1270,7 +1272,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
     if (result.isError) throw new Error('expected foreground subagent success')
     expect(result.value).toMatchObject({ kind: 'foreground' })
     expect(text(result)).toBe('continuable answer')
-    expect(ctx.jobs.list(parent)).toEqual([])
+    expect(ctx.jobs.list(parent.id)).toEqual([])
   })
 
   it('isolates a cancelled continuable preparation from a concurrent sibling', async () => {
@@ -1322,7 +1324,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
     expect(cancelledChildId).toBeDefined()
     expect(survivingChildId).toBeDefined()
     expect(ctx.agents.get(cancelledChildId!)).toBeUndefined()
-    await expect(ctx.sessionPersistence.load(cancelledChildId!)).rejects.toThrow(/not found/)
+    await expect(loadStoredSession(ctx.sessionPersistence, cancelledChildId!)).rejects.toThrow(/not found/)
 
     expect(succeeded.isError ? undefined : succeeded.value).toEqual({
       kind: 'continuable',
@@ -1331,7 +1333,7 @@ describe('dsh-tool-subagent continuable background mode', () => {
     await vi.waitFor(() => {
       expect(ctx.agents.get(survivingChildId!)).toBeUndefined()
     }, { timeout: 5_000 })
-    const loaded = await ctx.sessionPersistence.load(survivingChildId!)
+    const loaded = await loadStoredSession(ctx.sessionPersistence, survivingChildId!)
     expect(loaded.events.some(event => event.type === 'subagent/descriptor')).toBe(true)
     expect(loaded.events.some(event => event.type === 'assistant/message')).toBe(true)
   })
@@ -1353,7 +1355,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
       options: {},
       session: Session.create(id),
     } as unknown as Agent
-    ctx.agents.register(parent)
+    await ctx.agents.register(parent)
 
     let starts = 0
     ctx.subagents.registerProvider({
@@ -1370,7 +1372,7 @@ describe('background preflight failure (no orphaned child, by construction)', ()
         }
       },
     })
-    tool.apply(ctx, { provider: 'probe', toolName: 'subagent_probe' })
+    tool.apply(ctx, { maxDepth: 'provider-managed', provider: 'probe', toolName: 'subagent_probe' })
 
     const result = await ctx.tools.execute({
       signal: testToolSignal,
@@ -1412,11 +1414,11 @@ describe('depth budget configuration', () => {
     return { ctx, requests }
   }
 
-  it('defaults maxDepth to 3 and forwards it in the start request', async () => {
+  it('defaults maxDepth to 1 and forwards it in the start request', async () => {
     const { ctx, requests } = await captureSetup()
     await callSubagent(ctx, { description: 'd', prompt: 'p' })
     expect(requests[0]?.label).toBe('d')
-    expect(requests[0]?.maxDepth).toBe(3)
+    expect(requests[0]?.maxDepth).toBe(1)
     expect(requests[0]?.toolFilter).toBeUndefined()
   })
 

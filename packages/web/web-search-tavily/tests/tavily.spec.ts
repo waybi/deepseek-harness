@@ -347,7 +347,7 @@ describe('web-search-tavily plugin registration', () => {
       vi.stubGlobal('fetch', fetchMock)
       const ctx = new Context()
       await ctx.plugin(WebRuntime, { searchProvider: TAVILY_PROVIDER_ID })
-      tavilyPlugin.apply(ctx, {})
+      await ctx.plugin(tavilyPlugin, {})
       await ctx.web.search({ query: 'q' })
       const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
       expect(url).toBe('https://api.tavily.com/search')

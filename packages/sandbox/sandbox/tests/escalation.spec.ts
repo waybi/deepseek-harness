@@ -81,21 +81,24 @@ describe('approveEscalation', () => {
     expect(seen[0]?.reason).toBe('escalate sandbox to workspace-write: the user asked to write in the workspace')
   })
 
-  it('a same-level request silently returns the current mode without asking', async () => {
+  it.each(ESCALATION_TARGETS)('repeating %s succeeds without asking for approval', async (mode) => {
     const seen: unknown[] = []
-    const spy = ingredients({ approver: approver('allowed-once', r => seen.push(r)) })
-    // read-only → read-only: redundant, not an error
-    expect(await approveEscalation(req({ requestedMode: 'read-only' }), spy)).toBe('read-only')
-    // danger-full-access → danger-full-access: the case that tripped weaker models
-    expect(await approveEscalation(req({ requestedMode: 'danger-full-access', effectiveMode: 'danger-full-access' as never }), spy)).toBe('danger-full-access')
-    // Neither ask should have reached the approver
+    const request = req({ requestedMode: mode, effectiveMode: mode })
+    await expect(approveEscalation(request, ingredients({ approver: approver('rejected', r => seen.push(r)) })))
+      .resolves.toBe(mode)
     expect(seen).toEqual([])
+    await expect(approveEscalation(request, ingredients({ approver: undefined, agent: undefined })))
+      .resolves.toBe(mode)
   })
 
-  it('a narrowing request fails closed with its own text and never asks', async () => {
+  it('a narrower or unsupported target fails closed without asking', async () => {
     const seen: unknown[] = []
     const spy = ingredients({ approver: approver('allowed-once', r => seen.push(r)) })
+    await expect(approveEscalation(req({ requestedMode: 'read-only', effectiveMode: 'workspace-write' }), spy))
+      .rejects.toThrow(/not strictly wider than this call's current "workspace-write" mode/)
     await expect(approveEscalation(req({ requestedMode: 'workspace-write', effectiveMode: 'danger-full-access' as never }), spy))
+      .rejects.toThrow(/not strictly wider/)
+    await expect(approveEscalation(req({ requestedMode: 'unknown-mode' }), spy))
       .rejects.toThrow(/not strictly wider/)
     expect(seen).toEqual([])
   })

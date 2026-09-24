@@ -3,6 +3,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type LlmRuntime from '@deepseek-ai/dsh-llm'
 import type { LlmProviderInfo } from '@deepseek-ai/dsh-llm'
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ModelSelectionPolicy } from './model-selection.ts'
 
@@ -78,68 +79,92 @@ async function listSubagentModels(
   return `${modelLine(provider.id, model)}\nReasoning efforts:\n${efforts}`
 }
 
-/** One shared `list_subagent_models` registration and the count of live owning instances. */
+/** One live owning instance: its context owns the registration effect while it holds it. */
+interface DiscoveryOwner {
+  ctx: Context
+  policy: ModelSelectionPolicy
+}
+
+/** One shared `list_subagent_models` registration and its live owning instances in registration order. */
 interface SharedDiscovery {
-  count: number
+  owners: DiscoveryOwner[]
   dispose: () => void
 }
 
-const sharedDiscoveries = new WeakMap<Context, SharedDiscovery>()
+/**
+ * Shared registrations per Cordis app (`ctx.root`, stable across the
+ * per-context service proxies), keyed by the tool-registry scope layer they
+ * land in (`undefined` for the global layer).
+ */
+const sharedDiscoveries = new WeakMap<object, Map<object | undefined, SharedDiscovery>>()
+
+/** Build the discovery definition whose execution reads services through `ctx`. */
+function defineListSubagentModels(ctx: Context, policy: ModelSelectionPolicy) {
+  return defineTool({
+    name: 'list_subagent_models',
+    description:
+      'Discover LLM routes for subagents without changing the current Agent. Call with no arguments to list '
+      + 'registered providers, with `provider` to list its advertised models, or with `provider` and `model` '
+      + 'to inspect that exact model and its reasoning efforts. Catalog membership is advisory: an adapter may '
+      + 'accept an unlisted model id. Use the returned ids with a delegation tool\'s `provider`, `model`, and '
+      + '`reasoning_effort` fields.',
+    parameters: {
+      provider: {
+        type: 'string',
+        description: 'Registered LLM provider id. Omit to list providers.',
+      },
+      model: {
+        type: 'string',
+        description: 'Exact model id to inspect. Requires provider; omit to list that provider\'s advertised models.',
+      },
+    },
+    output: {
+      schema: { type: 'string' },
+      render: (_args, result) => [{ type: 'text', text: result }],
+    },
+    execute(args, exec) {
+      return listSubagentModels(ctx, policy, args, exec.signal)
+    },
+  })
+}
 
 /**
  * Register `list_subagent_models` for one owning delegation-tool instance.
- * Enabled instances in one agent scope (e.g. spawn + fork in one preset group)
- * share a single reference-counted registration keyed by the agent context:
- * the first caller's policy defines the shared definition, and the tool
- * survives until the last owning instance is disposed, so disposing one
- * instance cannot strand another's selection schema without its discovery
- * path.
- * @param ctx - Context of the owning instance; its disposal releases one reference.
+ * Enabled instances in one tool-registry scope (e.g. spawn + fork in one
+ * Agent) share a single registration keyed by that scope: the oldest live
+ * instance's context and policy own it. When that instance is disposed while
+ * others remain, the definition moves to the next live instance, so disposing
+ * one instance cannot strand another's selection schema without its discovery
+ * path. The tool disappears with the last owning instance.
+ * @param ctx - Context of the owning instance; its disposal releases its ownership.
  * @param policy - Route policy captured for this Session.
  */
 export function registerListSubagentModels(ctx: Context, policy: ModelSelectionPolicy): void {
-  const owner = ctx.agent?.ctx ?? ctx
-  let shared = sharedDiscoveries.get(owner)
+  const scope = scopeOf(ctx)
+  let byScope = sharedDiscoveries.get(ctx.root)
+  if (byScope === undefined) {
+    byScope = new Map()
+    sharedDiscoveries.set(ctx.root, byScope)
+  }
+  const discoveries = byScope
+  const owner: DiscoveryOwner = { ctx, policy }
+  let shared = discoveries.get(scope)
   if (shared === undefined) {
-    const created: SharedDiscovery = {
-      count: 0,
-      dispose: owner.tools.register(defineTool({
-        name: 'list_subagent_models',
-        description:
-          'Discover LLM routes for subagents without changing the current Agent. Call with no arguments to list '
-          + 'registered providers, with `provider` to list its advertised models, or with `provider` and `model` '
-          + 'to inspect that exact model and its reasoning efforts. Catalog membership is advisory: an adapter may '
-          + 'accept an unlisted model id. Use the returned ids with a delegation tool\'s `provider`, `model`, and '
-          + '`reasoning_effort` fields.',
-        parameters: {
-          provider: {
-            type: 'string',
-            description: 'Registered LLM provider id. Omit to list providers.',
-          },
-          model: {
-            type: 'string',
-            description: 'Exact model id to inspect. Requires provider; omit to list that provider\'s advertised models.',
-          },
-        },
-        output: {
-          schema: { type: 'string' },
-          render: (_args, result) => [{ type: 'text', text: result }],
-        },
-        execute(args, exec) {
-          return listSubagentModels(owner, policy, args, exec.signal)
-        },
-      })),
-    }
-    sharedDiscoveries.set(owner, created)
-    shared = created
+    shared = { owners: [], dispose: ctx.tools.register(defineListSubagentModels(ctx, policy)) }
+    discoveries.set(scope, shared)
   }
   const registration = shared
-  registration.count += 1
+  registration.owners.push(owner)
   ctx.effect(() => () => {
-    registration.count -= 1
-    if (registration.count === 0) {
-      sharedDiscoveries.delete(owner)
-      registration.dispose()
+    const index = registration.owners.indexOf(owner)
+    registration.owners.splice(index, 1)
+    if (index !== 0) return
+    registration.dispose()
+    const next = registration.owners[0]
+    if (next === undefined) {
+      discoveries.delete(scope)
+      return
     }
+    registration.dispose = next.ctx.tools.register(defineListSubagentModels(next.ctx, next.policy))
   })
 }

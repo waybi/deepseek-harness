@@ -55,7 +55,7 @@ Load the web service and the provider; the credential reference defaults to `TAV
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-web-search-tavily) is the exhaustive source for every accepted field and its JSDoc.
 
-The composition entry above is the base layer of the `web-search-tavily` Settings section: a user layer over it reaches the NEXT search, because the provider projects the section per call rather than capturing it at registration. `apiKey` carries `role('secret')`, so it never rides a `describe()` response in any layer.
+Every field is volatile: an edit to this entry in the active profile's `cordis.patch.yml`, including one made through the settings form, reaches the NEXT search without remounting the plugin, because the provider reads the current values for each call. `apiKey` carries `role('secret')`, so the settings form never returns its value.
 
 ### What a search returns
 
@@ -86,7 +86,7 @@ The provider is a thin adapter over Tavily's API with two deliberate rules:
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | Plugin entry: config schema, settings section, credential and environment fallback, provider registration |
+| [`src/index.ts`](src/index.ts) | Plugin entry: volatile config schema, credential and environment fallback, provider registration |
 | [`src/provider.ts`](src/provider.ts) | The `TavilySearchProvider`: request dispatch, abort classification, result mapping |
 | [`src/types.ts`](src/types.ts) | Tavily wire types: `TavilySearchResponse`, `TavilyResult`, `TavilySearchDepth` |
 | [`src/invariant.ts`](src/invariant.ts) | Runtime invariant companion for the provider's owned registration relation |
@@ -116,14 +116,15 @@ Read these pages when the package-level contract is not enough. They move from t
 <a id="model-experience"></a>
 ## Model Experience
 
-Indirectly, through [`dsh-tool-web`](../tool-web/README.md), which retains this provider's `maxResults`-bounded URLs, titles, snippets, and publication dates or its exact `Tavily search aborted`, `Tavily search request failed: <error>`, `Tavily search credential resolution failed: <error>`, `Tavily search has no API key for "<ref>"; store it through the credentials service, export it in the launching environment, or set a literal "apiKey" in the web-search-tavily config`, and `Tavily returned an unprocessable response body: <error>` failures under the consumer's error wrapper while generated answers and provider-private fields remain outside context.
+Indirectly, through `dsh-tool-web`, which retains this provider's `maxResults`-bounded URLs, titles, snippets, and publication dates or its exact `Tavily search aborted`, `Tavily search request failed: <error>`, `Tavily search credential resolution failed: <error>`, `Tavily search has no API key for "<ref>"; store it through the credentials service, export it in the launching environment, or set a literal "apiKey" in the web-search-tavily config`, and `Tavily returned an unprocessable response body: <error>` failures under the consumer's error wrapper while generated answers and provider-private fields remain outside context.
 
 #### KV Cache effect
 
 No direct invalidation; the named consumer owns any request-prefix changes.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 These limits define when the provider is a poor fit. They are current package constraints.
 
