@@ -1827,7 +1827,7 @@ export type SessionLogCompressionLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
 ## `@deepseek-ai/dsh-session-persistence-jsonl`
 
-需要：`sessions` · `sessionProjections`
+需要：`sessions`
 
 ```ts config-catalog
 /** Plugin config: where the JSONL backend keeps its session logs, and the packed-row write switch. */
@@ -1854,13 +1854,19 @@ export interface Config {
   preparedSessionCacheSize?: number
   /** Fixed live-event coalescing window; not a backend completion deadline. */
   writeBatchMaxDelayMs?: number
+  /**
+   * Maximum concurrent session-directory reads per discovery operation; defaults
+   * to 8. Separate listings have independent limits. Cancellation and failures
+   * wait for started reads to close before the operation settles.
+   */
+  listConcurrency?: number
 }
 
 /** Physical encoding selected for JSONL session artifacts. */
 export type JsonlCompression = 'zstd' | 'none'
 ```
 
-来源：[`packages/session/session-persistence-jsonl/src/index.ts:70`](../packages/session/session-persistence-jsonl/src/index.ts)
+来源：[`packages/session/session-persistence-jsonl/src/index.ts:72`](../packages/session/session-persistence-jsonl/src/index.ts)
 
 <a id="deepseek-aidsh-session-projection-cache"></a>
 
@@ -3280,28 +3286,6 @@ export interface Config {
 
 来源：[`packages/web/web-search-perplexity/src/index.ts:30`](../packages/web/web-search-perplexity/src/index.ts)
 
-<a id="deepseek-aidsh-webhook-github"></a>
-
-## `@deepseek-ai/dsh-webhook-github`
-
-需要：`webServer` · `webhookRuntime` · `credentials`
-
-```ts config-catalog
-/** Required GitHub ingress configuration. */
-export interface Config {
-  /** Adapter instance name carried to rules. */
-  readonly source: string
-  /** Exact absolute route path. */
-  readonly path: string
-  /** Credential reference containing the shared webhook secret. */
-  readonly secretEnv: string
-  /** Positive raw body ceiling in bytes. */
-  readonly maxBodyBytes: number
-}
-```
-
-来源：[`packages/webhook/webhook-github/src/index.ts:17`](../packages/webhook/webhook-github/src/index.ts)
-
 <a id="deepseek-aidsh-web-search-tavily"></a>
 
 ## `@deepseek-ai/dsh-web-search-tavily`
@@ -3328,6 +3312,28 @@ export type TavilySearchDepth = 'basic' | 'advanced'
 ```
 
 来源：[`packages/web/web-search-tavily/src/index.ts:39`](../packages/web/web-search-tavily/src/index.ts)
+
+<a id="deepseek-aidsh-webhook-github"></a>
+
+## `@deepseek-ai/dsh-webhook-github`
+
+需要：`webServer` · `webhookRuntime` · `credentials`
+
+```ts config-catalog
+/** Required GitHub ingress configuration. */
+export interface Config {
+  /** Adapter instance name carried to rules. */
+  readonly source: string
+  /** Exact absolute route path. */
+  readonly path: string
+  /** Credential reference containing the shared webhook secret. */
+  readonly secretEnv: string
+  /** Positive raw body ceiling in bytes. */
+  readonly maxBodyBytes: number
+}
+```
+
+来源：[`packages/webhook/webhook-github/src/index.ts:17`](../packages/webhook/webhook-github/src/index.ts)
 
 <a id="deepseek-aidsh-workflow-worker-thread"></a>
 

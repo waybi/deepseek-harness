@@ -66,6 +66,8 @@ export const JsonlCompressionSchema: z<JsonlCompression> = z.union([
   z.const('none'),
 ]).default(DEFAULT_COMPRESSION)
 
+const listConcurrencySchema = z.number().step(1).min(1).default(8)
+
 /** Plugin config: where the JSONL backend keeps its session logs, and the packed-row write switch. */
 export interface Config {
   /**
@@ -90,6 +92,12 @@ export interface Config {
   preparedSessionCacheSize?: number
   /** Fixed live-event coalescing window; not a backend completion deadline. */
   writeBatchMaxDelayMs?: number
+  /**
+   * Maximum concurrent session-directory reads per discovery operation; defaults
+   * to 8. Separate listings have independent limits. Cancellation and failures
+   * wait for started reads to close before the operation settles.
+   */
+  listConcurrency?: number
 }
 
 /** Opaque coordinator token for replacing bytes recovered from a torn frame. */
@@ -137,6 +145,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     root: z.string().required(),
     packChunks: z.boolean().default(DEFAULT_PACK_CHUNKS),
     compression: JsonlCompressionSchema,
+    listConcurrency: listConcurrencySchema,
     preparedSessionCacheSize: z.number().step(1).min(1).default(DEFAULT_PREPARED_SESSION_CACHE_SIZE),
     writeBatchMaxDelayMs: z.number().step(1).min(1).max(MAX_WRITE_BATCH_DELAY_MS)
       .default(DEFAULT_WRITE_BATCH_MAX_DELAY_MS),
@@ -152,6 +161,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
   private root: string
   private packChunks: boolean
   private compression: JsonlCompression
+  private listConcurrency: number
   private coordinator: PersistenceCoordinator<JsonlTornMarker>
   private rootEncodingCheck: Promise<void> | undefined
 
@@ -166,6 +176,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
       ?? DEFAULT_WRITE_BATCH_MAX_DELAY_MS
     this.packChunks = config.packChunks ?? DEFAULT_PACK_CHUNKS
     this.compression = config.compression ?? DEFAULT_COMPRESSION
+    this.listConcurrency = listConcurrencySchema(config.listConcurrency)
     this.assertUsableRoot()
     this.coordinator = new PersistenceCoordinator<JsonlTornMarker>(this.ctx, this, {
       preparedSessionCacheSize,
@@ -528,8 +539,7 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     const artifacts: Array<{ header: SessionHeader; path: string }> = []
     const ids = new Set<SessionId>()
     for (const project of await this.listProjectDirs(signal)) {
-      signal?.throwIfAborted()
-      for (const dir of await this.listSessionDirs(project, signal)) {
+      const discovered = await this.mapSessionDirs(project, async (dir) => {
         signal?.throwIfAborted()
         const opposite = join(dir, `session${logSuffix(this.oppositeCompression())}`)
         const oppositeExists = await this.exists(opposite)
@@ -538,22 +548,26 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
         const path = join(dir, `session${logSuffix(this.compression)}`)
         const pathExists = await this.exists(path)
         signal?.throwIfAborted()
-        if (!pathExists) continue
+        if (!pathExists) return undefined
         // Read only headers so listing scales with session count, not log size.
         const first = this.compression === 'zstd'
           ? await this.readFirstZstdLine(path, signal)
           : await this.readFirstLine(path, signal)
         signal?.throwIfAborted()
-        if (first === undefined) continue // empty/half-written file
+        if (first === undefined) return undefined // empty/half-written file
         const meta = parseHeaderMeta(first)
-        if (meta === undefined) continue // not a session header
+        if (meta === undefined) return undefined // not a session header
         await this.assertStoredIdentity(path, meta, undefined, signal)
         signal?.throwIfAborted()
-        if (ids.has(meta.id)) {
-          throw new Error(`duplicate JSONL session id "${meta.id}" appears in multiple project directories`)
+        return { header: meta, path }
+      }, signal)
+      for (const artifact of discovered) {
+        if (artifact === undefined) continue
+        if (ids.has(artifact.header.id)) {
+          throw new Error(`duplicate JSONL session id "${artifact.header.id}" appears in multiple project directories`)
         }
-        ids.add(meta.id)
-        artifacts.push({ header: meta, path })
+        ids.add(artifact.header.id)
+        artifacts.push(artifact)
       }
     }
     signal?.throwIfAborted()
@@ -931,6 +945,30 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
     return entries.filter(entry => entry.isDirectory()).map(entry => join(project, entry.name))
   }
 
+  /** Preserve directory order and drain each bounded batch before failure or cancellation settles. */
+  private async mapSessionDirs<Value>(
+    project: string,
+    read: (dir: string) => Promise<Value>,
+    signal?: AbortSignal,
+  ): Promise<Value[]> {
+    signal?.throwIfAborted()
+    const dirs = await this.listSessionDirs(project, signal)
+    const values: Value[] = []
+    for (let offset = 0; offset < dirs.length; offset += this.listConcurrency) {
+      signal?.throwIfAborted()
+      const settled = await Promise.allSettled(
+        dirs.slice(offset, offset + this.listConcurrency).map(read),
+      )
+      signal?.throwIfAborted()
+      for (const result of settled) {
+        if (result.status === 'rejected') throw result.reason
+        values.push(result.value)
+      }
+    }
+    signal?.throwIfAborted()
+    return values
+  }
+
   /** Reject a root that already belongs to the other physical encoding. */
   private ensureRootEncoding(): Promise<void> {
     this.rootEncodingCheck ??= this.checkRootEncoding()
@@ -939,10 +977,10 @@ export class JsonlSessionPersistence extends SessionPersistence implements Persi
 
   private async checkRootEncoding(): Promise<void> {
     for (const project of await this.listProjectDirs()) {
-      for (const dir of await this.listSessionDirs(project)) {
+      await this.mapSessionDirs(project, async (dir) => {
         const incompatible = join(dir, `session${logSuffix(this.oppositeCompression())}`)
         if (await this.exists(incompatible)) throw this.encodingMismatch(incompatible)
-      }
+      })
     }
   }
 

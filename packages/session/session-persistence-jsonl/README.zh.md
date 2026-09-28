@@ -49,6 +49,7 @@ kind: "package-reference"
 | `compression` | `'zstd'` | 物理编码：`'zstd'` 带校验和帧，或 `'none'` 换行分隔 UTF-8 文本 |
 | `preparedSessionCacheSize` | `5` | 为恢复复用而保留的冷会话准备结果数量 |
 | `writeBatchMaxDelayMs` | `200` | 实时事件的固定聚合窗口，单位为毫秒 |
+| `listConcurrency` | `8` | 正整数，限制每次发现操作内同时读取的会话目录数；`1` 表示串行扫描 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-persistence-jsonl)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
@@ -73,6 +74,8 @@ kind: "package-reference"
 ### 读取日志
 
 `inspect(id)` 返回带精确继承切点的不可变平衡视图，不提交恢复。`readFrom(id, fromOffset)` 接受 `SessionLogOffset`，返回该偏移及之后的已存储事件，并在后缀旁保留同一切点；JSONL 这类顺序介质解析整个产物并向前跳过。仅 header 的列表读取不读事件正文即可公开 `isSeeded`。选择 `compression: 'none'` 后，日志是外部读取方可直接消费的换行分隔文本；压缩默认值必须经后端读取。
+
+`list` 与 `listSnapshots` 按 `listConcurrency` 限制的批次发现 header，并保留目录枚举顺序。共享的根编码预检使用同一限制。取消或读取失败时，列表会等待已启动的读取结束并关闭句柄后才拒绝；调用方的取消不会中断共享预检。
 
 -----
 
@@ -115,6 +118,7 @@ kind: "package-reference"
 - [会话持久化 seam](../session-persistence/README.zh.md)——本后端实现的服务约定。
 - [项目会话目录决策](../../../.agents/notes/implemented/architecture/2026-07-24-project-session-directories.zh.md)——项目与会话目录布局背后的取舍。
 - [Zstandard JSONL 会话日志](../../../.agents/notes/implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.zh.md)——带校验和帧编码的理由。
+- [有界 JSONL header 发现](../../../.agents/notes/implemented/bug-fix/2026-09-29-bounded-jsonl-header-discovery.zh.md)——并发上限、测量范围与取消语义的取舍。
 
 -----
 
@@ -147,6 +151,7 @@ JSONL 存储不修改实时请求前缀。只有重建历史、当前 envelope �
 - **压缩文件不能直接按行读取**——使用后端加载；或在写入新根前选择 `compression: 'none'`，供外部行读取方使用。
 - **不删除会话文件**——日志在 `root` 下累积，直到外部移除；seam 无删除接口。
 - **每会话一个活动写入方**——append 与修复只在所属后端实例内协调；在该所有者达到完全停稳的 dispose 前，另一实例或进程不得写入同一会话。
+- **列表仍扫描完整语料库**——不通过 header 缓存跳过文件检查；不同列表调用的并发限制彼此独立，因此合计 I/O 并发可能超过 `listConcurrency`。
 - **POSIX 实体化需要硬链接支持**——第一次 append 使用 `link()`，使同 id 竞态失败而不覆盖已提交日志；Windows 使用无替换 write-through rename。
 
 <a id="dev-note"></a>

@@ -49,6 +49,7 @@ Choose this backend when consumers benefit from one artifact per session — nav
 | `compression` | `'zstd'` | Physical encoding: `'zstd'` checksummed frames, or `'none'` newline-delimited UTF-8 text |
 | `preparedSessionCacheSize` | `5` | Cold session preparations retained for resume reuse |
 | `writeBatchMaxDelayMs` | `200` | Fixed live-event coalescing window, in milliseconds |
+| `listConcurrency` | `8` | Positive integer limiting concurrent session-directory reads within each discovery operation; `1` scans serially |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-persistence-jsonl) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -73,6 +74,8 @@ A session is materialized lazily: `create(meta)` writes nothing, and the first `
 ### Reading the logs
 
 `inspect(id)` returns an immutable balanced view with its exact inherited cut without committing recovery. `readFrom(id, fromOffset)` accepts a `SessionLogOffset`, returns stored events at or past that offset, and retains the same cut beside the suffix; sequential media like JSONL parse the whole artifact and skip forward. Header-only listing exposes `isSeeded` without reading event bodies. With `compression: 'none'`, the log is newline-delimited text an external reader can consume directly; the compressed default must be read through the backend.
+
+`list` and `listSnapshots` discover headers in batches bounded by `listConcurrency`, preserving directory enumeration order. The shared root-encoding preflight uses the same limit. Cancellation or read failure waits for already-started reads to finish and close their handles before listing rejects; caller cancellation does not interrupt the shared preflight.
 
 -----
 
@@ -115,6 +118,7 @@ Read these pages when the package-level contract is not enough. They move from t
 - [Session persistence seam](../session-persistence/README.md) — the service contract this backend implements.
 - [Project-session directory decision](../../../.agents/notes/implemented/architecture/2026-07-24-project-session-directories.md) — the layout tradeoff behind project and session directories.
 - [Zstandard JSONL session logs](../../../.agents/notes/implemented/architecture/2026-07-19-zstandard-jsonl-session-logs.md) — the checksummed-frame encoding rationale.
+- [Bounded JSONL header discovery](../../../.agents/notes/implemented/bug-fix/2026-09-29-bounded-jsonl-header-discovery.md) — the concurrency limit, measurement scope, and cancellation tradeoffs.
 
 -----
 
@@ -147,6 +151,7 @@ These limits define when this backend is a poor fit or needs special operational
 - **Compressed files are not directly line-readable** — use the backend to load them, or select `compression: 'none'` before writing a fresh root when external line readers are required.
 - **Nothing deletes session files** — logs accumulate under `root` until removed externally; the seam has no deletion API.
 - **One live writer per session** — append and repair are coordinated only inside the owning backend instance; another instance or process must not write the same session until that owner reaches quiescent disposal.
+- **Listing still scans the full corpus** — no header cache skips file checks; separate listings have independent concurrency limits, so their combined I/O can exceed `listConcurrency`.
 - **POSIX materialization requires hard-link support** — first append uses `link()` so same-id races fail instead of overwriting a committed log; Windows uses write-through rename without replacement.
 
 <a id="dev-note"></a>
