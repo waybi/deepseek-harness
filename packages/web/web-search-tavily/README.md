@@ -89,7 +89,7 @@ The provider is a thin adapter over Tavily's API with two deliberate rules:
 | [`src/index.ts`](src/index.ts) | Plugin entry: volatile config schema, credential and environment fallback, provider registration |
 | [`src/provider.ts`](src/provider.ts) | The `TavilySearchProvider`: request dispatch, abort classification, result mapping |
 | [`src/types.ts`](src/types.ts) | Tavily wire types: `TavilySearchResponse`, `TavilyResult`, `TavilySearchDepth` |
-| [`src/invariant.ts`](src/invariant.ts) | Runtime invariant companion for the provider's owned registration relation |
+| — | No runtime invariant companion is published; this package exposes no independent event sequence or mutable data relation beyond contracts enforced at its owning seam. |
 
 ### Request and mapping flow
 

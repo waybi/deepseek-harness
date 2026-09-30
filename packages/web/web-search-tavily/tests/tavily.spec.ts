@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Mock } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,6 +27,35 @@ const options: TavilySearchProviderOptions = {
 
 function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' }, ...init })
+}
+
+/** Response whose body read rejects the way an aborted stream does. */
+class AbortedBodyResponse extends Response {
+  override json(): Promise<never> {
+    return Promise.reject(new DOMException('aborted', 'AbortError'))
+  }
+}
+
+/** One recorded `fetch` call, read through the standard request types. */
+interface RecordedFetch {
+  readonly url: string
+  readonly init: RequestInit
+  readonly headers: Headers
+  readonly body: unknown
+}
+
+/**
+ * Read one call the stubbed global `fetch` recorded.
+ * @param mock - the stubbed `fetch`.
+ * @param index - zero-based call index.
+ * @returns the call's URL, init, headers, and JSON-decoded body.
+ */
+function recordedFetch(mock: Mock<typeof fetch>, index = 0): RecordedFetch {
+  const call = mock.mock.calls[index]
+  if (call === undefined) throw new Error(`fetch call ${index} was not recorded`)
+  const [input, init = {}] = call
+  const body: unknown = typeof init.body === 'string' ? JSON.parse(init.body) : undefined
+  return { url: String(input), init, headers: new Headers(init.headers), body }
 }
 
 afterEach(() => {
@@ -118,17 +148,17 @@ describe('TavilySearchProvider availability', () => {
 
 describe('TavilySearchProvider request mapping', () => {
   it('sends query, search_depth, include_answer false, max_results and bearer auth', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ results: [{ url: 'https://a.test', content: 'hi' }] }))
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ results: [{ url: 'https://a.test', content: 'hi' }] }))
     vi.stubGlobal('fetch', fetchMock)
 
     await searchProvider({ ...options, searchDepth: 'advanced' }).search({ query: 'hello', maxResults: 5 })
 
     expect(fetchMock).toHaveBeenCalledOnce()
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const { url, init, headers, body } = recordedFetch(fetchMock)
     expect(url).toBe('https://api.tavily.test/search')
     expect(init).toMatchObject({ method: 'POST', redirect: 'error' })
-    expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer tvly-key')
-    expect(JSON.parse(init.body as string)).toEqual({
+    expect(headers.get('authorization')).toBe('Bearer tvly-key')
+    expect(body).toEqual({
       query: 'hello',
       search_depth: 'advanced',
       include_answer: false,
@@ -137,35 +167,35 @@ describe('TavilySearchProvider request mapping', () => {
   })
 
   it('falls back to the configured maxResults when a request omits it', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ results: [] }))
     vi.stubGlobal('fetch', fetchMock)
     await searchProvider({ ...options, maxResults: 7 }).search({ query: 'q' })
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(JSON.parse(init.body as string)).toMatchObject({ max_results: 7 })
+    const { body } = recordedFetch(fetchMock)
+    expect(body).toMatchObject({ max_results: 7 })
   })
 
   it('lets a request maxResults win over the configured default', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ results: [] }))
     vi.stubGlobal('fetch', fetchMock)
     await searchProvider({ ...options, maxResults: 7 }).search({ query: 'q', maxResults: 2 })
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(JSON.parse(init.body as string)).toMatchObject({ max_results: 2 })
+    const { body } = recordedFetch(fetchMock)
+    expect(body).toMatchObject({ max_results: 2 })
   })
 
   it('omits max_results when neither the request nor config names one', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ results: [] }))
     vi.stubGlobal('fetch', fetchMock)
     await searchProvider(options).search({ query: 'q' })
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(JSON.parse(init.body as string)).not.toHaveProperty('max_results')
+    const { body } = recordedFetch(fetchMock)
+    expect(body).not.toHaveProperty('max_results')
   })
 
   it('forwards the abort signal', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ results: [] }))
     vi.stubGlobal('fetch', fetchMock)
     const controller = new AbortController()
     await searchProvider(options).search({ query: 'q' }, controller.signal)
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    const { init } = recordedFetch(fetchMock)
     expect(init.signal).toBe(controller.signal)
   })
 })
@@ -179,7 +209,7 @@ describe('TavilySearchProvider settings changes mid-search', () => {
     const resolveApiKey = () => new Promise<string>((resolve) => {
       commitSettings = () => { current = after; resolve('key-from-before') }
     })
-    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ results: [] }))
     vi.stubGlobal('fetch', fetchMock)
 
     const provider = new TavilySearchProvider(() => ({ ...current, resolveApiKey }))
@@ -188,10 +218,10 @@ describe('TavilySearchProvider settings changes mid-search', () => {
     commitSettings()
     await search
 
-    const [endpoint, init] = fetchMock.mock.calls[0] as unknown as [string, { headers: Record<string, string>; body: string }]
+    const { url: endpoint, headers, body } = recordedFetch(fetchMock)
     expect(endpoint).toBe('https://before.test/search')
-    expect(init.headers['authorization']).toBe('Bearer key-from-before')
-    expect(JSON.parse(init.body)).toMatchObject({ search_depth: 'basic' })
+    expect(headers.get('authorization')).toBe('Bearer key-from-before')
+    expect(body).toMatchObject({ search_depth: 'basic' })
   })
 })
 
@@ -288,15 +318,13 @@ describe('TavilySearchProvider error handling', () => {
   })
 
   it('surfaces an abort during success-body parse as WEB_ABORTED, not provider error', async () => {
-    const body = { json: () => Promise.reject(new DOMException('aborted', 'AbortError')), ok: true, status: 200 }
-    vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))
+    vi.stubGlobal('fetch', vi.fn(async () => new AbortedBodyResponse(null, { status: 200 })))
     await expect(searchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
 
   it('surfaces an abort during error-body parse as WEB_ABORTED', async () => {
-    const body = { json: () => Promise.reject(new DOMException('aborted', 'AbortError')), ok: false, status: 500 }
-    vi.stubGlobal('fetch', vi.fn(async () => body as unknown as Response))
+    vi.stubGlobal('fetch', vi.fn(async () => new AbortedBodyResponse(null, { status: 500 })))
     await expect(searchProvider(options).search({ query: 'q' }))
       .rejects.toThrow(expect.objectContaining({ code: 'WEB_ABORTED' }))
   })
@@ -328,14 +356,14 @@ describe('web-search-tavily plugin registration', () => {
   })
 
   it('threads searchDepth and maxResults config into the request', async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+    const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ results: [] }))
     vi.stubGlobal('fetch', fetchMock)
     const ctx = new Context()
     await ctx.plugin(WebRuntime, { searchProvider: TAVILY_PROVIDER_ID })
     const fiber = await ctx.plugin(tavilyPlugin, { apiKey: 'tvly-key', searchDepth: 'advanced', maxResults: 9 })
     await ctx.web.search({ query: 'q' })
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(JSON.parse(init.body as string)).toMatchObject({ search_depth: 'advanced', max_results: 9 })
+    const { body } = recordedFetch(fetchMock)
+    expect(body).toMatchObject({ search_depth: 'advanced', max_results: 9 })
     await fiber.dispose()
   })
 
@@ -343,15 +371,15 @@ describe('web-search-tavily plugin registration', () => {
     const prev = process.env.TAVILY_API_KEY
     process.env.TAVILY_API_KEY = 'env-key'
     try {
-      const fetchMock = vi.fn(async () => jsonResponse({ results: [] }))
+      const fetchMock = vi.fn<typeof fetch>(async () => jsonResponse({ results: [] }))
       vi.stubGlobal('fetch', fetchMock)
       const ctx = new Context()
       await ctx.plugin(WebRuntime, { searchProvider: TAVILY_PROVIDER_ID })
       await ctx.plugin(tavilyPlugin, {})
       await ctx.web.search({ query: 'q' })
-      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+      const { url, headers } = recordedFetch(fetchMock)
       expect(url).toBe('https://api.tavily.com/search')
-      expect((init.headers as Record<string, string>)['authorization']).toBe('Bearer env-key')
+      expect(headers.get('authorization')).toBe('Bearer env-key')
       await ctx.fiber.dispose()
     } finally {
       if (prev === undefined) delete process.env.TAVILY_API_KEY
