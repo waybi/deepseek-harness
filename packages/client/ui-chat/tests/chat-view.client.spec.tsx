@@ -2228,7 +2228,7 @@ describe('ChatView', () => {
     expect(members[0]?.getAttribute('hidden')).toBeNull()
   })
 
-  it('omits injected Context while folding and revealing the visible Turn process', () => {
+  it('keeps injected Context visible outside the folded Turn process', () => {
     const h = makeHarness({
       nodes: [
         user(1, 'question'),
@@ -2246,13 +2246,16 @@ describe('ChatView', () => {
 
     expect(members).toHaveLength(2)
     expect(members.map(member => member.dataset.chatFlowKind)).toEqual(['assistant-step', 'tool-call'])
-    expect(contextRow).toBeNull()
-    expect(view.queryByText('runtime policy changed')).toBeNull()
+    expect(contextRow).not.toBeNull()
+    expect(contextRow?.hasAttribute('data-turn-process-member')).toBe(false)
+    expect(contextRow?.hasAttribute('hidden')).toBe(false)
+    fireEvent.click(within(contextRow!).getByRole('button', { name: '上下文注入' }))
+    expect(view.getByText('runtime policy changed')).toBeTruthy()
     expect(members.map(member => member.getAttribute('hidden'))).toEqual(['until-found', 'until-found'])
     fireEvent(members[1]!, new Event('beforematch'))
     expect(turnProcessControl(view.container)?.getAttribute('aria-expanded')).toBe('true')
     expect(members.map(member => member.getAttribute('hidden'))).toEqual([null, null])
-    expect(view.container.querySelector('[data-chat-flow-kind="context"]')).toBeNull()
+    expect(view.container.querySelector('[data-chat-flow-kind="context"]')).toBe(contextRow)
   })
 
   it('omits the System prompt through Turn completion and process expansion', withClock(4_000, () => {
@@ -2263,7 +2266,7 @@ describe('ChatView', () => {
     }), builder)
     const h = makeHarness({ chat: initial }, { running: true })
     const view = render(<h.ChatView {...h.props} />)
-    expect(renderedFlowKinds(view.container)).toEqual(['user', 'turn-process'])
+    expect(renderedFlowKinds(view.container)).toEqual(['user', 'turn-process', 'context'])
     expect(turnProcessControl(view.container)?.textContent).toBe('深度求索中，用时4秒')
     expect(view.container.querySelector('[data-chat-flow-kind="system-prompt"]')).toBeNull()
 
@@ -2281,7 +2284,7 @@ describe('ChatView', () => {
       })
     })
     expect(renderedFlowKinds(view.container)).toEqual([
-      'user', 'turn-process', 'assistant-step',
+      'user', 'turn-process', 'context', 'assistant-step',
     ])
     expect(view.container.querySelector('[data-chat-flow-kind="system-prompt"]')).toBeNull()
 
@@ -2303,7 +2306,7 @@ describe('ChatView', () => {
     const toggle = turnProcessControl(view.container)!
     const members = [...view.container.querySelectorAll<HTMLElement>('[data-turn-process-member]')]
     expect(renderedFlowKinds(view.container)).toEqual([
-      'user', 'turn-process', 'assistant-step', 'assistant-step', 'turn-tail',
+      'user', 'turn-process', 'context', 'assistant-step', 'assistant-step', 'turn-tail',
     ])
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(view.container.querySelector('[data-chat-flow-kind="system-prompt"]')).toBeNull()
@@ -2312,7 +2315,7 @@ describe('ChatView', () => {
 
     fireEvent.click(toggle)
     expect(renderedFlowKinds(view.container)).toEqual([
-      'user', 'turn-process', 'assistant-step', 'assistant-step', 'turn-tail',
+      'user', 'turn-process', 'context', 'assistant-step', 'assistant-step', 'turn-tail',
     ])
     expect(view.container.querySelector('[data-chat-flow-kind="system-prompt"]')).toBeNull()
     expect(members.map(member => member.getAttribute('hidden'))).toEqual([null])
@@ -2332,11 +2335,13 @@ describe('ChatView', () => {
     expect(toggle.getAttribute('data-turn-process-tool-calls')).toBe('0')
     expect(toggle.getAttribute('data-turn-process-messages')).toBe('0')
     expect(toggle.getAttribute('data-turn-process-subagents')).toBe('0')
-    expect(contextRow).toBeNull()
+    expect(contextRow).not.toBeNull()
+    expect(contextRow?.hasAttribute('data-turn-process-member')).toBe(false)
     expect(view.container.querySelector('[data-turn-process-member]')).toBeNull()
-    expect(view.queryByText('runtime policy')).toBeNull()
+    fireEvent.click(within(contextRow!).getByRole('button', { name: '上下文注入' }))
+    expect(view.getByText('runtime policy')).toBeTruthy()
     fireEvent.click(toggle)
-    expect(view.container.querySelector('[data-chat-flow-kind="context"]')).toBeNull()
+    expect(view.container.querySelector('[data-chat-flow-kind="context"]')).toBe(contextRow)
     expect(view.getByText('final answer').closest('[hidden]')).toBeNull()
   })
 
@@ -2845,7 +2850,7 @@ describe('ChatView', () => {
     expect(complete.nodes).toBe(partial.nodes)
     expect(complete.locations.getTurn(1)).not.toBe(beforeKeys)
     expect(complete.order.map(key => complete.nodes.get(key)?.kind)).toEqual([
-      'user', 'turn-process', 'assistant-step', 'assistant-step', 'turn-tail',
+      'user', 'context', 'turn-process', 'assistant-step', 'assistant-step', 'turn-tail',
     ])
 
     act(() => {

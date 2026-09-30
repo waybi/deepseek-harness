@@ -10,7 +10,7 @@ import { hasAssistantReplyContent } from '../contract/assistant-content.ts'
 import { isVisibleChatNode } from '../contract/chat-visibility.ts'
 import { processActivity } from './process-activity.ts'
 
-const INDEPENDENT = new Set(['user', 'steering', 'turn-trigger', 'model-retry', 'turn-error', 'turn-max-tokens', 'turn-tail'])
+const INDEPENDENT = new Set(['user', 'steering', 'turn-trigger', 'context', 'model-retry', 'turn-error', 'turn-max-tokens', 'turn-tail'])
 type ProcessInput = ConversationGroupInput<ChatConversationViewNode>
 
 function turnOf(node: ChatNode): number | undefined {

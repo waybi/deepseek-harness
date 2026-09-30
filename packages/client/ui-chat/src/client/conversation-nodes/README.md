@@ -76,7 +76,7 @@ The Turn control follows all its opening inputs, including human steering and no
 | Human message claimed from `next-step` | Steering message, outside process folding. |
 | Non-human message in the current `next-turn` claim | Independent, initially collapsed Turn-trigger notice. |
 | Non-human message in an idle `next-step` claim | Turn-trigger notice only in Step 1, with a loaded Turn start, a claim after that start, no `next-turn` claim in this Turn, and no human in the same `next-step` batch. |
-| Other non-human input | Ordinary Context, retained in the Node Store but omitted from Chat. Unclaimed, canceled, or requeued messages do not establish a waking claim. |
+| Other non-human input | Ordinary Context, shown as an independent, initially collapsed row outside process folding. Unclaimed, canceled, or requeued messages do not establish a waking claim. |
 
 Trigger titles and icons use the recorded `source.kind`: `schedule`, `tool-jobs`, and `cordis-host-runner` identify scheduled work, background work, and plugin updates. Goal, agent, team, subagent, and webhook sources have their own titles; a webhook with `provider: github` uses the GitHub title. Unknown sources use the generic execution-request title. Expanding the notice shows its recorded body; it does not imply successful execution.
 
@@ -91,7 +91,7 @@ Trigger titles and icons use the recorded `source.kind`: `schedule`, `tool-jobs`
 | Neither start nor end is loaded | Keep process rows visible and withhold the whole-Turn control. |
 | A Turn control exists, but there is no process content | Retain its title, without a collapse action. |
 
-The final answer is the latest Step's settled Assistant reply, provided it has visible reply content and no tool-call block. Its response remains outside whole-Turn folding; its reasoning remains process content. User and steering inputs, trigger notices, terminal errors, max-token notices, and the completed-turn footer remain independent. Secondary grouping treats model retries as separators, but whole-Turn folding still includes retry rows.
+The final answer is the latest Step's settled Assistant reply, provided it has visible reply content and no tool-call block. Its response remains outside whole-Turn folding; its reasoning remains process content. User and steering inputs, trigger notices, ordinary Context rows, terminal errors, max-token notices, and the completed-turn footer remain independent. Secondary grouping treats model retries as separators, but whole-Turn folding still includes retry rows.
 
 Loading an older page preserves the reader's group-opening choices. Newly loaded process content follows the same Turn state while the final answer is unchanged and whole-Turn folding remains eligible. If the page reveals an intervening input, individual group disclosures replace whole-Turn hiding. When the real start arrives, the duration becomes available; loading all history is not an additional folding condition. When new content only extends an existing group at its beginning, that group and its old message rows retain their identities and opening choices. Replies, steering, and other real boundaries in the new page still separate groups; not every new row joins the old group.
 
@@ -176,11 +176,11 @@ A group collects adjacent process content within one Turn. Step-number changes a
 |---|---|
 | Non-blank Assistant reasoning | Append one `reasoning` reference for that Assistant to the current group, creating a group if necessary. |
 | Assistant reply | End the preceding group and emit an independent `response` reference. If the same Node has reasoning, append that reasoning before ending the group. |
-| `user`, `steering`, `turn-trigger`, `model-retry`, `turn-error`, `turn-max-tokens`, `turn-tail` | End the preceding group and retain the Node as an independent root. |
+| `user`, `steering`, `turn-trigger`, `context`, `model-retry`, `turn-error`, `turn-max-tokens`, `turn-tail` | End the preceding group and retain the Node as an independent root. |
 | `turn-process` | Retain the control as an independent root without ending the current group. |
 | Other visible Nodes owned by a Turn, including tools | Append the whole Node to the current group, creating a group if necessary. |
 | Node from another Turn or without a Turn | Break the same-Turn sequence. A Node without a Turn remains independent, including an unsplit Assistant. |
-| Hidden Nodes, system prompts, ordinary Context injection, and `permission` commands | Excluded from the grouping input; they neither join nor split a group. |
+| Hidden Nodes, system prompts, and `permission` commands | Excluded from the grouping input; they neither join nor split a group. |
 
 A reply contains non-blank text, an image, or another visible block; reasoning and tool-call protocol blocks do not count as a reply. An Assistant with neither non-blank reasoning nor reply content contributes no reference. Group creation requires a member, so metadata-only Turns create no empty group.
 
