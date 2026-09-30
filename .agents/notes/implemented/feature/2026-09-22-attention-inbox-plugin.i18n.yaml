@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-attention-inbox-plugin.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-22-attention-inbox-plugin.md
-2026-09-22-attention-inbox-plugin.md: 95789adc9f96e6850cc4085d2aeb389d5eb9d51f
-2026-09-22-attention-inbox-plugin.zh.md: f4e7cda7242a0a5f4b5b554b0f5fc9d33dd689d7
+/agent-note-attention-inbox-footer-plugin:
+  en: baf3c7dc5f45bc5e
+  zh: 658743fb5e6309b8
+/agent-note-attention-inbox-footer-plugin/problem:
+  en: 2fb98de69821e9f2
+  zh: fff02ab782c1177c
+/agent-note-attention-inbox-footer-plugin/decision:
+  en: fbafbfcf753b795f
+  zh: 7c2935a6982d5fd9
+/agent-note-attention-inbox-footer-plugin/alternatives-considered:
+  en: 5f83e589c999f8b5
+  zh: cd3f867d2747743d
+/agent-note-attention-inbox-footer-plugin/consequences:
+  en: c4304e793be4ec00
+  zh: 4f61487f88142e6b
+/agent-note-attention-inbox-footer-plugin/testing:
+  en: 05bdf1289e9df0c7
+  zh: c008259b50f709e7

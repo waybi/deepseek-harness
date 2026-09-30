@@ -1,6 +1,22 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-reveal-current-session-in-sidebar.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-22-reveal-current-session-in-sidebar.md
-2026-09-22-reveal-current-session-in-sidebar.md: 192d7af2abfa4e48f5c9f29925b9efb18f9037d6
-2026-09-22-reveal-current-session-in-sidebar.zh.md: d6440ff1ed7e210b27b1b22460598fa5b0e02d61
+/agent-note-reveal-the-current-session-in-the-sidebar-tree:
+  en: b979d6a9fb13817c
+  zh: cefd5123e894be6d
+/agent-note-reveal-the-current-session-in-the-sidebar-tree/problem:
+  en: 1582479c910d317d
+  zh: 287344d06fa02e08
+/agent-note-reveal-the-current-session-in-the-sidebar-tree/decision:
+  en: c716433ff3523afd
+  zh: 20b79adadfa57150
+/agent-note-reveal-the-current-session-in-the-sidebar-tree/alternatives-considered:
+  en: ca2f1e0b5705123a
+  zh: 666cfea5d934be92
+/agent-note-reveal-the-current-session-in-the-sidebar-tree/consequences:
+  en: c7070ba86637a6bd
+  zh: b4f0a73e7be51bb3
+/agent-note-reveal-the-current-session-in-the-sidebar-tree/testing:
+  en: a4c95e9be79d0940
+  zh: a87c511455df09c1

@@ -1,6 +1,37 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-09-22-runai-mechanism-port.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-09-22-runai-mechanism-port.md
-2026-09-22-runai-mechanism-port.md: ef8b358709f687c49f1390b26f6e3eca53f85e6a
-2026-09-22-runai-mechanism-port.zh.md: 1629ab6a0e74a57769ad5af4a9138f425e710ba5
+/agent-note-port-six-runai-coder-harness-mechanisms:
+  en: 6a215863556848d0
+  zh: 5d57a01fa3cbfb12
+/agent-note-port-six-runai-coder-harness-mechanisms/problem:
+  en: 1d3237b5c1ff9bc6
+  zh: b0bf676821ee8a0c
+/agent-note-port-six-runai-coder-harness-mechanisms/inventory-mechanism-evidence-dsh-counterpart:
+  en: e2de45b4030992cb
+  zh: 83e6e4f93c0edb9c
+/agent-note-port-six-runai-coder-harness-mechanisms/proposal:
+  en: 99b4347631f60278
+  zh: 6f32ce9c64479e78
+/agent-note-port-six-runai-coder-harness-mechanisms/proposal/batch-a-configuration-only-dsh-cordis-patch-yml-dsh-agents-md:
+  en: 37c8f09fc774e837
+  zh: 9cedf1c4a98a539e
+/agent-note-port-six-runai-coder-harness-mechanisms/proposal/batch-b-one-external-hook-script-mechanism-a:
+  en: 20878edde5217815
+  zh: 8d6287b1cd1a1b4b
+/agent-note-port-six-runai-coder-harness-mechanisms/proposal/batch-c-two-feasibility-checks-each-time-boxed-each-ends-in-a-decision:
+  en: b217270d1ab40997
+  zh: 3d05dd03dc1e7f1a
+/agent-note-port-six-runai-coder-harness-mechanisms/status-2026-09-22:
+  en: 83b0ba571fe60359
+  zh: 50d65b1d07be6435
+/agent-note-port-six-runai-coder-harness-mechanisms/alternatives-considered:
+  en: 9a2e3fa1ba8f1d7d
+  zh: 63d1dbef87184f55
+/agent-note-port-six-runai-coder-harness-mechanisms/acceptance-criteria:
+  en: f234d2652448db7c
+  zh: d2352a0b9f558658
+/agent-note-port-six-runai-coder-harness-mechanisms/risks:
+  en: 96742ff0f17e2dd2
+  zh: c556dd766cd6a5cf

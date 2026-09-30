@@ -1,6 +1,19 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
+# Bilingual-pair consistency record for 2026-08-18-session-delete.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-session-delete.md
-2026-08-18-session-delete.md: de7e2e2c031c0e1265bdf7f33a621450d1aacf42
-2026-08-18-session-delete.zh.md: be7124e43c68c9f8cc1e586bceff3f093875a5e3
+/agent-note-session-delete:
+  en: 2076b17f0b9a0907
+  zh: 0c56a392e1099123
+/agent-note-session-delete/problem:
+  en: 6daca5832a7f62ff
+  zh: 28364a7e8f858bb9
+/agent-note-session-delete/decision:
+  en: 73b525d218bac2b3
+  zh: d545bf0ca8050522
+/agent-note-session-delete/alternatives-considered:
+  en: 36d08abe15ad9659
+  zh: 30099fa18686035f
+/agent-note-session-delete/consequences:
+  en: ff7b5ec502e9a7a0
+  zh: fb5fb45c3011bdea
