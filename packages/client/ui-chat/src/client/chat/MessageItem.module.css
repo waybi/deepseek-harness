@@ -45,6 +45,17 @@
   font-size: var(--dsh-content-font-size-secondary, 13px);
   line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
 }
+
+/* Steering not yet admitted by the running step: dimmed bubble plus a
+   tertiary notice, so it does not read as a delivered message. */
+.userRow[data-pending-steering] .bubble {
+  opacity: 0.6;
+}
+.pendingNotice {
+  color: var(--dsw-alias-label-tertiary);
+  font-size: var(--dsh-content-font-size-secondary, 13px);
+  line-height: calc(18px + var(--dsh-content-font-delta-secondary, 0px));
+}
 .contextRow {
   padding: 2px 0;
 }

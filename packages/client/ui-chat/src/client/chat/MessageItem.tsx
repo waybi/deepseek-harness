@@ -222,6 +222,9 @@ function UserStyleBubble({
             {t('message.referenceSummary', { labels: referenceLabels.join(t('message.referenceSeparator')) })}
           </div>
         )}
+        {/* Steering waits for the running step to end; without this notice the
+            bubble reads as already delivered while the model is still busy. */}
+        {pending && <div className={css.pendingNotice}>{t('message.steeringPending')}</div>}
       </div>
       {actions?.(text)}
     </div>
