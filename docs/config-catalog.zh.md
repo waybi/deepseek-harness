@@ -722,6 +722,29 @@ export interface ModelCompactPolicyConfig extends CompactionPolicyConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-compaction-basic -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-compaction-tool-result-expiry -->
+<a id="deepseek-aidsh-compaction-tool-result-expiry"></a>
+
+## `@deepseek-ai/dsh-compaction-tool-result-expiry`
+
+- `inject`: `tokenMeter` · `sessionProjections`
+- `source`: [`packages/compaction/compaction-tool-result-expiry/src/types.ts:5`](../packages/compaction/compaction-tool-result-expiry/src/types.ts)
+
+```ts config-catalog
+/** Turn-age and size policy for expiring cold tool results. */
+export interface ToolResultExpiryConfig {
+  /**
+   * A tool result is cold once this many turns have started after the turn
+   * that produced it. The current turn and the previous `coldTurns - 1` turns
+   * keep their tool results verbatim. Defaults to `3`.
+   */
+  coldTurns?: number
+  /** Expire only results whose text exceeds this many Unicode code points. Defaults to `2048`. */
+  thresholdChars?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-compaction-tool-result-expiry -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-compaction-tool-result-pruner -->
 <a id="deepseek-aidsh-compaction-tool-result-pruner"></a>
 

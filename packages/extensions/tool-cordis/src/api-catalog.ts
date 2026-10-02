@@ -3237,6 +3237,43 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'toolResultExpiry',
+    summary: 'Turn-age based replacement of cold tool results with one-line stubs.',
+    description: 'Turn-age based replacement of cold tool results with one-line stubs.',
+    methods: [
+      {
+        signature: 'readonly config: ResolvedConfig',
+        description: 'Resolved and immutable expiry policy.',
+        parameters: [],
+      },
+      {
+        signature: 'measureContent(blocks: readonly ContentBlock[]): number',
+        description: 'Measure text content in Unicode code points; non-text blocks cost zero.',
+        parameters: [{ name: 'blocks', description: 'tool-result content to measure.' }],
+        returns: 'total Unicode code points across text blocks.',
+      },
+      {
+        signature: 'isCold(resultTurn: number, currentTurn: number): boolean',
+        description: 'Whether a tool result produced in `resultTurn` is cold at `currentTurn`.',
+        parameters: [{ name: 'resultTurn', description: 'turn that produced the result.' }, { name: 'currentTurn', description: 'turn whose request is being prepared.' }],
+        returns: 'true once `coldTurns` or more turns have started since `resultTurn`.',
+      },
+      {
+        signature: 'expireContent(blocks: readonly ContentBlock[], toolName: string): ContentBlock[] | null',
+        description: 'Replace all text of an over-threshold result with one stub, keeping non-text blocks in their original relative order.',
+        parameters: [{ name: 'blocks', description: 'original tool-result content.' }, { name: 'toolName', description: 'tool that produced the result, named in the stub.' }],
+        returns: 'stubbed content, or `null` when the text is within threshold, already a stub, or not longer than the stub that would replace it.',
+      },
+      {
+        signature: 'expireSession(session: Session, currentTurn: number): ExpiryResult',
+        description: 'Stub every cold over-threshold tool result on one stable current-surface snapshot. Each replacement preserves the complete event data except for `content`, cites the shadowed node so replay can recover it, and is immediately preceded by a `compaction/prune` shadow-price event pricing the shadowed node through the injected token meter.',
+        parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }, { name: 'currentTurn', description: 'turn whose request is being prepared.' }],
+        returns: 'landed replacements and aggregate Unicode-code-point savings.',
+        throws: ['when the session rejects a replacement; replacements committed earlier in the pass remain durable.'],
+      },
+    ],
+  },
+  {
     key: 'toolResultPruner',
     summary: 'Deterministic head/middle/tail pruning for current tool-result surface nodes.',
     description: 'Deterministic head/middle/tail pruning for current tool-result surface nodes.',
@@ -5182,6 +5219,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EveryScheduleRecord',
     declaration: 'export interface EveryScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'every\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly everySeconds: number;\n    readonly scheduledAt: string;\n}',
+  },
+  {
+    name: 'ExpiredEntry',
+    declaration: 'export interface ExpiredEntry {\n    readonly originalSeq: SessionSeq;\n    readonly replacementSeq: SessionSeq;\n    readonly callId: ToolCallId;\n    readonly turn: number;\n    readonly charsBefore: number;\n    readonly charsAfter: number;\n}',
+  },
+  {
+    name: 'ExpiryResult',
+    declaration: 'export interface ExpiryResult {\n    readonly expired: readonly ExpiredEntry[];\n    readonly charsRemoved: number;\n}',
   },
   {
     name: 'FeedbackCategory',

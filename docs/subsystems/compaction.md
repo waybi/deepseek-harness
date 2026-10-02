@@ -132,6 +132,38 @@ interface PruneResult {
 }
 ```
 
+## Tool-result expiry outcomes
+
+The optional tool-result expiry service reports each durable stub replacement and the aggregate Unicode-code-point reduction. Its public result types live in [`compaction-tool-result-expiry/src/types.ts`](../../packages/compaction/compaction-tool-result-expiry/src/types.ts).
+
+```ts type-equiv
+/** Cited source event and size accounting for one landed surface replacement. */
+interface ExpiredEntry {
+  /** Full-fidelity tool-result event shadowed by the stub. */
+  readonly originalSeq: SessionSeq
+  /** Newly appended stub tool-result event. */
+  readonly replacementSeq: SessionSeq
+  /** Tool call shared by the original and the stub. */
+  readonly callId: ToolCallId
+  /** Turn that produced the original result. */
+  readonly turn: number
+  /** Original text size in Unicode code points. */
+  readonly charsBefore: number
+  /** Stub text size in Unicode code points. */
+  readonly charsAfter: number
+}
+```
+
+```ts type-equiv
+/** Aggregate outcome of one pre-step expiry pass. */
+interface ExpiryResult {
+  /** Replacements in the snapshotted surface order. */
+  readonly expired: readonly ExpiredEntry[]
+  /** Total Unicode code points removed across replacements. */
+  readonly charsRemoved: number
+}
+```
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -208,6 +240,57 @@ abstract compactRegion( start: SessionSeq, end: SessionSeq, agent: CompactionAge
 Types: [CommandId](commands.md) · [SessionSeq](session.md)
 
 Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
+
+<a id="ctxtoolresultexpiry--toolresultexpiry"></a>
+
+### `ctx.toolResultExpiry` — `ToolResultExpiry`
+
+Turn-age based replacement of cold tool results with one-line stubs.
+
+```ts cordis-catalog
+/**
+ * Measure text content in Unicode code points; non-text blocks cost zero.
+ * @param blocks - tool-result content to measure.
+ * @returns total Unicode code points across text blocks.
+ */
+measureContent(blocks: readonly ContentBlock[]): number
+
+/**
+ * Whether a tool result produced in `resultTurn` is cold at `currentTurn`.
+ * @param resultTurn - turn that produced the result.
+ * @param currentTurn - turn whose request is being prepared.
+ * @returns true once `coldTurns` or more turns have started since `resultTurn`.
+ */
+isCold(resultTurn: number, currentTurn: number): boolean
+
+/**
+ * Replace all text of an over-threshold result with one stub, keeping
+ * non-text blocks in their original relative order.
+ * @param blocks - original tool-result content.
+ * @param toolName - tool that produced the result, named in the stub.
+ * @returns stubbed content, or `null` when the text is within threshold,
+ * already a stub, or not longer than the stub that would replace it.
+ */
+expireContent(blocks: readonly ContentBlock[], toolName: string): ContentBlock[] | null
+
+/**
+ * Stub every cold over-threshold tool result on one stable current-surface
+ * snapshot. Each replacement preserves the complete event data except for
+ * `content`, cites the shadowed node so replay can recover it, and is
+ * immediately preceded by a `compaction/prune` shadow-price event pricing
+ * the shadowed node through the injected token meter.
+ * @param session - session whose current surface is rewritten.
+ * @param currentTurn - turn whose request is being prepared.
+ * @returns landed replacements and aggregate Unicode-code-point savings.
+ * @throws when the session rejects a replacement; replacements committed
+ * earlier in the pass remain durable.
+ */
+expireSession(session: Session, currentTurn: number): ExpiryResult
+```
+
+Types: [ContentBlock](llm-streaming.md) · [Session](session.md)
+
+Source: [`packages/compaction/compaction-tool-result-expiry/src/index.ts`](../../packages/compaction/compaction-tool-result-expiry/src/index.ts)
 
 <a id="ctxtoolresultpruner--toolresultpruner"></a>
 

@@ -422,6 +422,14 @@
         headChars: 4096
         tailChars: 1024
 
+    # Replaces tool output from three or more turns ago with a one-line stub
+    # before each request, so old output is not resent on every request.
+    - id: tool-result-expiry
+      name: '@deepseek-ai/dsh-compaction-tool-result-expiry'
+      config:
+        coldTurns: 3
+        thresholdChars: 2048
+
     # When an image-capable route rejects a request as over its image budget,
     # replace the oldest images with placeholders on the surface and retry.
     - id: image-offload

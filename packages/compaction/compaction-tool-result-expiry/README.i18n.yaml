@@ -1,0 +1,67 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/compaction/compaction-tool-result-expiry/README.md
+/:
+  en: 234c287f7a5e1376
+  zh: 475398eab26f23a1
+/deepseek-ai-dsh-compaction-tool-result-expiry:
+  en: 1e0ddb44ebe55937
+  zh: f9e903effe1e95db
+/deepseek-ai-dsh-compaction-tool-result-expiry/summary:
+  en: 3952d170aa0e9541
+  zh: 43fa2145fe19da12
+/deepseek-ai-dsh-compaction-tool-result-expiry/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-compaction-tool-result-expiry/use-this-package:
+  en: 4ed55f0c5ae5d198
+  zh: 0aad1dd38cc41492
+/deepseek-ai-dsh-compaction-tool-result-expiry/use-this-package/smallest-working-composition:
+  en: e8d0a1bbed7ea28e
+  zh: ec1ca86244fbb585
+/deepseek-ai-dsh-compaction-tool-result-expiry/use-this-package/what-expires:
+  en: 5d3af9e31b4a5a15
+  zh: acf113019682f94f
+/deepseek-ai-dsh-compaction-tool-result-expiry/use-this-package/setting-the-policy:
+  en: 572a81042bd02dff
+  zh: 44a98773532487e0
+/deepseek-ai-dsh-compaction-tool-result-expiry/use-this-package/when-expiry-runs:
+  en: d04bc182d2b5a65e
+  zh: 4f13d881b63eb82a
+/deepseek-ai-dsh-compaction-tool-result-expiry/understand-the-implementation:
+  en: 50a6380b7ed46691
+  zh: 7991f6a8ba273a0f
+/deepseek-ai-dsh-compaction-tool-result-expiry/understand-the-implementation/design-philosophy:
+  en: 414297cb2d236dee
+  zh: 646d943467b7b596
+/deepseek-ai-dsh-compaction-tool-result-expiry/understand-the-implementation/expiry-mechanics:
+  en: 40c4a4a02aff2f30
+  zh: 9a0738f9a43ebd5d
+/deepseek-ai-dsh-compaction-tool-result-expiry/understand-the-implementation/source-map:
+  en: a40789c9c25d0f51
+  zh: ab1428aeb1e399bc
+/deepseek-ai-dsh-compaction-tool-result-expiry/further-exploration:
+  en: c1d14ee4682273cf
+  zh: dfc9f637911c7447
+/deepseek-ai-dsh-compaction-tool-result-expiry/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-compaction-tool-result-expiry/model-experience/expired-tool-result:
+  en: 87d47a9f6087db5a
+  zh: a3fdfdefc1f93fad
+/deepseek-ai-dsh-compaction-tool-result-expiry/model-experience/expired-tool-result/what-the-model-sees:
+  en: 1a7338291812f8e1
+  zh: f24bd14eba18a55b
+/deepseek-ai-dsh-compaction-tool-result-expiry/model-experience/expired-tool-result/token-effect:
+  en: bb970ddc81b771aa
+  zh: 0aef6f8ef9597f24
+/deepseek-ai-dsh-compaction-tool-result-expiry/model-experience/expired-tool-result/kv-cache-effect:
+  en: 54d7663f18c123ec
+  zh: 2864b10bb8e33d0f
+/deepseek-ai-dsh-compaction-tool-result-expiry/known-limitations-and-deferred-work:
+  en: a7681a1f8d2ebd81
+  zh: e14b042287b2d208
+/deepseek-ai-dsh-compaction-tool-result-expiry/known-limitations-and-deferred-work/dev-note:
+  en: 1ed3009b389c559f
+  zh: d3a1d99b200e33ec

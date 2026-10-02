@@ -231,6 +231,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Rewrites oversized current tool results through replayable single-node surface replacements before summary compaction.',
   },
   {
+    key: 'toolResultExpiry',
+    pkg: 'compaction-tool-result-expiry',
+    title: 'Turn-age tool-result expiry',
+    mode: 'core',
+    consumers: [],
+    note: 'Replaces cold oversized tool results with one-line stubs on every agent/pre-step through replayable single-node surface replacements.',
+  },
+  {
     key: 'sessions',
     pkg: 'session',
     title: 'In-memory session store',

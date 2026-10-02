@@ -38,6 +38,7 @@
     "@deepseek-ai/dsh-compaction": "workspace:*",
     "@deepseek-ai/dsh-compaction-basic": "workspace:*",
     "@deepseek-ai/dsh-compaction-image-offload": "workspace:*",
+    "@deepseek-ai/dsh-compaction-tool-result-expiry": "workspace:*",
     "@deepseek-ai/dsh-compaction-tool-result-pruner": "workspace:*",
     "@deepseek-ai/dsh-config-editor": "workspace:*",
     "@deepseek-ai/dsh-cordis-host-runner": "workspace:*",

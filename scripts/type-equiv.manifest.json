@@ -1532,6 +1532,16 @@
       "source": "packages/compaction/compaction-tool-result-pruner/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/compaction.md",
+      "symbol": "ExpiredEntry",
+      "source": "packages/compaction/compaction-tool-result-expiry/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/compaction.md",
+      "symbol": "ExpiryResult",
+      "source": "packages/compaction/compaction-tool-result-expiry/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/subagent.md",
       "symbol": "SubagentCapabilities",
       "source": "packages/subagent/subagent/src/types.ts"

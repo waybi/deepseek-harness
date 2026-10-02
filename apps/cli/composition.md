@@ -164,6 +164,8 @@ flowchart LR
   cfg --> plugin_dsh_base_session_checkpoint_policy
   plugin_dsh_base_tool_result_pruner["tool-result-pruner<br/>@deepseek-ai/dsh-compaction-tool-result-pruner"]
   cfg --> plugin_dsh_base_tool_result_pruner
+  plugin_dsh_base_tool_result_expiry["tool-result-expiry<br/>@deepseek-ai/dsh-compaction-tool-result-expiry"]
+  cfg --> plugin_dsh_base_tool_result_expiry
   plugin_dsh_base_image_offload["image-offload<br/>@deepseek-ai/dsh-compaction-image-offload"]
   cfg --> plugin_dsh_base_image_offload
   plugin_dsh_base_tool_todo["tool-todo<br/>@deepseek-ai/dsh-tool-todo"]
@@ -278,6 +280,7 @@ flowchart LR
 | `spill-policy` | `@deepseek-ai/dsh-spill-policy` |
 | `session-checkpoint-policy` | `@deepseek-ai/dsh-session-checkpoint-policy` |
 | `tool-result-pruner` | `@deepseek-ai/dsh-compaction-tool-result-pruner` |
+| `tool-result-expiry` | `@deepseek-ai/dsh-compaction-tool-result-expiry` |
 | `image-offload` | `@deepseek-ai/dsh-compaction-image-offload` |
 | `tool-todo` | `@deepseek-ai/dsh-tool-todo` |
 | `tool-goal` | `@deepseek-ai/dsh-tool-goal` |
