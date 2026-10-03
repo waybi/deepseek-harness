@@ -150,6 +150,7 @@ const SECTION_ORDERS = {
   TOOL_COMPUTER_USE: 3000,
   MCP_SERVERS: 3100,
   TOOLS_SDK: 5000,
+  TOOLS_SEARCH: 5100,
   DELIVERABLE_FILE_REFERENCES: 9000,
   STRUCTURED_OUTPUT: 9900,
   // Local paths and endpoints follow reusable instructions.

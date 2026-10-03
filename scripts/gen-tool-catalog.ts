@@ -19,7 +19,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
 import GoalService from '@deepseek-ai/dsh-goal'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture, type Config as ToolsConfig } from '@deepseek-ai/dsh-tools'
 import LocalBashExecutor from '@deepseek-ai/dsh-bash-local'
 import * as BashEnvPlugin from '@deepseek-ai/dsh-shell-env'
 import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
@@ -260,15 +260,25 @@ const TOOL_PACKAGES: ToolPackage[] = [
     pkg: '@deepseek-ai/dsh-tools',
     dir: 'tools',
     source: 'packages/core/tools/src/ptc.ts',
-    requires: ['ctx.tools', 'ctx.ptcRuntime (execution time)', 'ctx.systemPrompt'],
-    writes: ['tool/call', 'one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call', 'tool/result'],
-    // The registry's OWN tool: run_code exists only under a non-native mode
+    requires: ['ctx.tools', 'ctx.ptcRuntime (execution time)', 'ctx.systemPrompt', 'ctx.sessionProjections (optional, durable tool_search reveals)'],
+    writes: ['tool/call', 'one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call', 'tools/reveal (tool_search)', 'tool/result'],
+    // The registry's OWN tools: run_code exists only under a non-native mode
     // (the registry registers it in its constructor; the PTC runtime is read
-    // at assembly/execution time, so the schema harvest needs none mounted).
-    toolsConfig: { mode: 'ptc' },
-    async mount() {},
+    // at assembly/execution time, so the schema harvest needs none mounted),
+    // and tool_search is declared only while a deferred tool is still hidden,
+    // so the harvest defers one fixture tool. `both` declares run_code and
+    // the native list together.
+    toolsConfig: { mode: 'both', deferred: ['catalog_fixture_deferred'] },
+    async mount(ctx) {
+      ctx.tools.register(defineContentToolFixture({
+        name: 'catalog_fixture_deferred',
+        description: 'Fixture deferred tool for the catalog harvest.',
+        parameters: {},
+        execute: () => Promise.resolve([]),
+      }))
+    },
     note:
-      'Owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime\'s language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result.',
+      'run_code is owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` / `mode: both` (see the PTC mode Agent Note). Under `ptc` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime\'s language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. tool_search is the registry\'s reserved discovery transport, declared last in the native list only while a `deferred` (config pattern or `exposure: \'deferred\'`) tool is still hidden for the agent; its description embeds the live catalog of hidden tools (`- name: first sentence`), so the schema shown here carries the harvest fixture\'s line. A search returns up to five matching descriptions and logs `tools/reveal`; revealed tools are declared after the existing schemas for the rest of the session.',
   },
   {
     pkg: '@deepseek-ai/dsh-plan-mode',

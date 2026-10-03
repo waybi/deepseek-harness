@@ -503,9 +503,13 @@
     # ── rows every mode mounts, whose values each overlay may state ──────────────
 
     # The tool registry. Presentation mode is a deployment choice; omitting it here
-    # keeps the schema default (native).
+    # keeps the schema default (native). Rarely used tool families are deferred:
+    # their schemas are declared only after the model reveals them through
+    # `tool_search`, which keeps the per-request tool declaration small.
     - id: tools
       name: '@deepseek-ai/dsh-tools'
+      config:
+        deferred: ['de_*', 'de_coi_*', 'mcp__*', 'workflow']
 
     # The deployment persona is a deployment choice; plan-mode and tool plugins own
     # their own prompt sections.

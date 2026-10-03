@@ -11,7 +11,7 @@ import type { ScopeKey, ScopeLayer, Scoped } from '@deepseek-ai/dsh-scope'
 import type { ToolCallId, ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { UserMessage } from '@deepseek-ai/dsh-session'
+import type { Session, UserMessage } from '@deepseek-ai/dsh-session'
 import { assertNever, deepFreeze, snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { PromptSection, ToolProviderResult } from '@deepseek-ai/dsh-system-prompt'
 import type { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
@@ -23,6 +23,18 @@ import type { ToolCallView, ToolResultView } from './presentation.ts'
 import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schema.ts'
 import type { JsonSchemaNode } from './json-schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME } from './ptc.ts'
+import {
+  compileDeferredPatterns,
+  createToolSearchTool,
+  renderToolSearchDescription,
+  RevealLog,
+  TOOL_SEARCH_NAME,
+  toolsRevealedProjection,
+  withSearchDescription,
+} from './tool-search.ts'
+import type { ToolExposure } from './tool-search.ts'
+// Type-only: the optional `ctx.sessionProjections` service for durable reveals.
+import type {} from '@deepseek-ai/dsh-session-projection'
 import type { PtcSdkLanguage } from './ptc.ts'
 import { renderToolsSdk } from './ts-types.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
@@ -102,6 +114,8 @@ export {
 export type { PtcDispatchEventData, PtcDispatchStartEventData } from './types.ts'
 
 export { CodeRunFailedError, RUN_CODE_NAME } from './ptc.ts'
+export { compileDeferredPatterns, searchDeferredTools, TOOL_SEARCH_NAME, toolsRevealedProjection } from './tool-search.ts'
+export type { ToolExposure, ToolsRevealedState } from './tool-search.ts'
 export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
 export { jsonSchemaToPy, renderToolsSdkPy } from './py-types.ts'
 export { defineContentToolFixture, type ContentToolFixtureOptions } from './testing.ts'
@@ -223,6 +237,8 @@ export interface ToolOutputDefinition {
 export interface ToolDefinition extends ToolSchema {
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
+  /** Model-visible exposure; see {@link DefineToolOptions.exposure}. Defaults to `direct`. */
+  readonly exposure?: ToolExposure
   /**
    * Run one accepted call and return only its canonical lossless-JSON value.
    * Async work must observe or forward `exec.signal` and settle only after its
@@ -691,6 +707,13 @@ export interface Config {
    * restores strictly serial dispatch. Must be a positive integer.
    */
   maxParallelSubCalls?: number
+  /**
+   * Tool names (exact, or a prefix ending in `*`) whose schemas are declared
+   * to the model only after it reveals them through the reserved
+   * `tool_search` tool. A definition's own `exposure: 'direct'` overrides a
+   * matching pattern. Empty (default) declares every visible tool directly.
+   */
+  deferred?: string[]
 }
 
 /**
@@ -791,6 +814,13 @@ interface FusedToolSignal {
   dispose(): void
 }
 
+/** The live session an agent-keyed scope carries, when it carries one. */
+function sessionOf(scope: ScopeKey | undefined): Session | undefined {
+  if (scope === undefined || !('session' in scope)) return undefined
+  const { session } = scope as { session?: unknown }
+  return typeof session === 'object' && session !== null && 'append' in session ? session as Session : undefined
+}
+
 /** Resolve the run_code overlap cap at the owning config boundary (direct construction bypasses the Loader schema). */
 function resolveMaxParallelSubCalls(value: number | undefined): number {
   const maxParallelSubCalls = value ?? 10
@@ -810,6 +840,7 @@ export class ToolRuntime extends Service {
   static Config: z<Config> = z.object({
     mode: z.union(['native', 'ptc', 'both'] as const).default('native'),
     maxParallelSubCalls: z.natural().min(1).default(10),
+    deferred: z.array(z.string()).default([]),
   })
 
   /** Internal staged view consumed by `dsh-agent-loop`'s parallel scheduler. */
@@ -844,6 +875,12 @@ export class ToolRuntime extends Service {
    * transport is stateless beyond its closures over `this`.
    */
   private ptcTransport: ToolDefinition | undefined
+  /** Configured deferred-name predicate. */
+  private readonly isDeferredByConfig: (name: string) => boolean
+  /** Durable per-session record of revealed deferred tools. */
+  private readonly reveals = new RevealLog(() => this.ctx.get('sessionProjections'))
+  /** Reserved discovery transport, built on first need like the PTC transport. */
+  private searchTransport: ToolDefinition | undefined
 
   constructor(ctx: Context, config: Config = {}) {
     super(ctx, 'tools')
@@ -851,10 +888,92 @@ export class ToolRuntime extends Service {
     // optional-input type for direct (non-Loader) construction in tests.
     this.defaultMode = config.mode ?? 'native'
     this.maxParallelSubCalls = resolveMaxParallelSubCalls(config.maxParallelSubCalls)
+    this.isDeferredByConfig = compileDeferredPatterns(config.deferred ?? [])
+    // Durable reveals need the projection registry; a composition without one
+    // (minimal test mounts) still logs reveals but remembers them per process.
+    ctx.get('sessionProjections')?.register(toolsRevealedProjection)
     ctx.systemPrompt.tools(context => this.wireSchemas(context.scope))
+    ctx.systemPrompt.section(this.searchSection())
     if (this.defaultMode !== 'native') {
       ctx.systemPrompt.section(this.collapseSection())
       ctx.systemPrompt.section(this.sdkSection())
+    }
+  }
+
+  /**
+   * Whether a visible definition is declared only after a `tool_search` reveal.
+   * @param definition - visible definition.
+   * @returns true when the definition is deferred for every scope.
+   */
+  private isDeferred(definition: ToolDefinition): boolean {
+    if (definition.exposure !== undefined) return definition.exposure === 'deferred'
+    return this.isDeferredByConfig(definition.name)
+  }
+
+  /**
+   * Split one scope's visible definitions into declared and still-hidden
+   * deferred ones. A reveal is read from the scope's session log; a scope
+   * without a session (the global view) never reveals.
+   * @param scope - the viewing scope (the agent), or undefined for the global view.
+   * @returns the declared definitions in view order and the hidden deferred ones.
+   */
+  private partition(scope?: ScopeKey): { declared: ToolDefinition[]; hidden: ToolDefinition[] } {
+    const view = this.view(scope)
+    const revealed = this.revealedFor(scope)
+    const declared: ToolDefinition[] = []
+    const hidden: ToolDefinition[] = []
+    for (const definition of view.visible.values()) {
+      if (definition.name === RUN_CODE_NAME || !this.isDeferred(definition) || revealed.has(definition.name)) {
+        declared.push(definition)
+      } else {
+        hidden.push(definition)
+      }
+    }
+    if (hidden.length > 0) declared.push(this.requireSearchTransport())
+    return { declared, hidden }
+  }
+
+  /** Revealed names for a scope, or an empty set when the scope carries no session. */
+  private revealedFor(scope: ScopeKey | undefined): ReadonlySet<string> {
+    const session = sessionOf(scope)
+    return session === undefined ? new Set() : this.reveals.revealed(session)
+  }
+
+  /** Reserved `tool_search` transport; its description reads the live hidden catalog per scope. */
+  private requireSearchTransport(): ToolDefinition {
+    if (this.searchTransport === undefined) {
+      const base = createToolSearchTool({
+        searchable: scope => this.partition(scope).hidden,
+        reveal: (scope, names) => {
+          const session = sessionOf(scope)
+          if (session === undefined) return undefined
+          const fresh = this.reveals.reveal(session, names)
+          if (fresh.length > 0) this.ctx.emit('tools/change')
+          return fresh
+        },
+      })
+      this.searchTransport = withSearchDescription(base, () => renderToolSearchDescription(
+        this.partition(this.describingScope).hidden,
+      ))
+    }
+    return this.searchTransport
+  }
+
+  /**
+   * Scope whose catalog the `tool_search` description currently renders.
+   * Set around schema projection because `ToolSchema.description` is a plain
+   * string read with no scope argument.
+   */
+  private describingScope: ScopeKey | undefined
+
+  /** Prompt line telling the model deferred tools exist; empty when none are hidden for the scope. */
+  private searchSection(): PromptSection {
+    return {
+      name: 'tools:search',
+      order: this.ctx.systemPrompt.getSectionOrder('TOOLS_SEARCH'),
+      text: context => this.partition(context.scope).hidden.length > 0
+        ? `Some tools are registered but not declared to save context. If no declared tool fits a task, call \`${TOOL_SEARCH_NAME}\` with a short description of what you need; its description lists every hidden tool by name. A revealed tool stays available for the rest of the session.`
+        : '',
     }
   }
 
@@ -1009,8 +1128,8 @@ export class ToolRuntime extends Service {
     const view = this.view(scope)
     const mode = this.modeFor(scope)
     if (mode === 'native') {
-      const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
-      return { schemas, knownNames: [...view.knownNames] }
+      const schemas = this.declaredSchemas(scope, false)
+      return { schemas, knownNames: [...view.knownNames, TOOL_SEARCH_NAME] }
     }
     // Validate the runtime language BEFORE projecting schemas: schemaOf reads
     // run_code's language-aware description/parameters getters, whose own
@@ -1018,14 +1137,33 @@ export class ToolRuntime extends Service {
     // renderer-table rejection the canonical assembly-time error for a
     // language with no SDK renderer.
     this.requirePtcRuntime(mode)
-    const schemas = [...view.visible.values()].map(definition => this.schemaOf(definition, false))
+    const schemas = this.declaredSchemas(scope, false)
     if (mode === 'ptc') {
       return {
         schemas: schemas.filter(schema => schema.name === RUN_CODE_NAME),
         knownNames: [RUN_CODE_NAME],
       }
     }
-    return { schemas, knownNames: [...view.knownNames, RUN_CODE_NAME] }
+    return { schemas, knownNames: [...view.knownNames, RUN_CODE_NAME, TOOL_SEARCH_NAME] }
+  }
+
+  /**
+   * Project the declared (non-hidden) definitions of one scope. Hidden
+   * deferred tools are replaced by the `tool_search` transport whose catalog
+   * is rendered for exactly this scope.
+   * @param scope - the viewing scope (the agent); omitted = the global view.
+   * @param detachParameters - whether to deep-clone parameters.
+   * @returns one schema per declared tool, `tool_search` last when any tool is hidden.
+   */
+  private declaredSchemas(scope: ScopeKey | undefined, detachParameters: boolean): ToolSchema[] {
+    const { declared } = this.partition(scope)
+    const previous = this.describingScope
+    this.describingScope = scope
+    try {
+      return declared.map(definition => this.schemaOf(definition, detachParameters))
+    } finally {
+      this.describingScope = previous
+    }
   }
 
   /**
@@ -1080,6 +1218,9 @@ export class ToolRuntime extends Service {
     if (name === RUN_CODE_NAME) {
       throw new Error(`tool name "${RUN_CODE_NAME}" is reserved for the PTC mode presentation transport and cannot be registered or shadowed`)
     }
+    if (name === TOOL_SEARCH_NAME) {
+      throw new Error(`tool name "${TOOL_SEARCH_NAME}" is reserved for the deferred-tool discovery transport and cannot be registered or shadowed`)
+    }
     return this.layers.effect(
       this.ctx,
       layer => layer.tools.insert(name, definition),
@@ -1110,6 +1251,9 @@ export class ToolRuntime extends Service {
     }
     if ([...allow ?? [], ...deny ?? []].includes(RUN_CODE_NAME)) {
       throw new Error(`tools.restrict() cannot name reserved PTC mode presentation transport "${RUN_CODE_NAME}"; restrict end-capability tools instead`)
+    }
+    if ([...allow ?? [], ...deny ?? []].includes(TOOL_SEARCH_NAME)) {
+      throw new Error(`tools.restrict() cannot name reserved discovery transport "${TOOL_SEARCH_NAME}"; defer or deny end-capability tools instead`)
     }
     const known = this.view(scope).restrictableNames
     const unknown = [...allow ?? [], ...deny ?? []].filter(name => !known.has(name))
@@ -1245,7 +1389,14 @@ export class ToolRuntime extends Service {
    * @returns the definition that may run, or undefined when the call must be rejected.
    */
   private resolveExecution(name: string, scope: ScopeKey | undefined, nested: boolean): ToolDefinition | undefined {
+    // The discovery transport is callable exactly when it is declared: some
+    // deferred tool is still hidden for this scope. A hidden deferred tool is
+    // not callable until revealed, so the prompt and the executor agree.
+    if (name === TOOL_SEARCH_NAME) {
+      return this.partition(scope).hidden.length > 0 ? this.requireSearchTransport() : undefined
+    }
     const tool = this.get(name, scope)
+    if (tool !== undefined && this.isDeferred(tool) && !this.revealedFor(scope).has(name)) return undefined
     if (tool === undefined) return undefined
     if (this.collapses(name, scope, nested)) return undefined
     return tool
@@ -1258,7 +1409,7 @@ export class ToolRuntime extends Service {
    * @returns one deep-cloned schema per visible tool.
    */
   schemas(scope?: ScopeKey): ToolSchema[] {
-    return [...this.view(scope).visible.values()].map(definition => this.schemaOf(definition, true))
+    return this.declaredSchemas(scope, true)
   }
 
   /** Project visible callable tools onto the generated PTC mode SDK contract. */

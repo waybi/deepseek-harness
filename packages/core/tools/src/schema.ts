@@ -498,6 +498,13 @@ export interface DefineToolOptions<S extends ParameterSchemaSpec, O extends Valu
   }
   /** Requests deferred loading of the tool definition; see {@link @deepseek-ai/dsh-llm#ToolSchema.deferLoading}. */
   readonly deferLoading?: true
+  /**
+   * Model-visible exposure. `direct` (default) declares the schema on every
+   * request; `deferred` lists the tool only in the `tool_search` catalog until
+   * the model reveals it. The registry's `deferred` patterns can defer a tool
+   * that declares nothing here; an explicit `direct` wins over them.
+   */
+  readonly exposure?: 'direct' | 'deferred'
   /** Optional positive cooperative timeout budget in milliseconds. */
   readonly timeoutMs?: number
   /**
@@ -593,6 +600,7 @@ export function defineTool<const S extends ParameterSchemaSpec, const O extends 
       } : {},
     },
     ...(options.deferLoading === true ? { deferLoading: options.deferLoading } : {}),
+    ...(options.exposure !== undefined ? { exposure: options.exposure } : {}),
     ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
     async execute(args: unknown, exec: ToolRunContext): Promise<JsonValue> {
       const violations = validate(args)

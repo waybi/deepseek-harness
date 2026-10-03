@@ -74,6 +74,9 @@ kind: "package-reference"
 | `maxOverflowRetries` | `1` | 已确认上下文窗口溢出后的最大重试次数；`0` 只禁用恢复。 |
 | `modelPolicies` | `[]` | 针对个别模型路由的精确 `{ provider, model, ...partialPolicy }` 覆盖。 |
 | `auto` | `true` | 启用自动压缩与溢出恢复；设为 `false` 则仅手动执行。 |
+| `minIntervalTurns` | `8` | 同一会话的自动压力压缩至少间隔这么多轮。`0` 关闭该门控。 |
+| `minGrowthTokens` | `20000` | 距上次自动压力压缩，估算历史至少增长这么多 token 才会再次压缩。`0` 关闭该门控。 |
+| `minReclaimTokens` | `10000` | 只有待摘要范围估算达到这么多 token，自动压力压缩才会执行。`0` 关闭该门控。 |
 
 配置错误会快速失败：未知设置、重复的按模型覆盖、无效 token 数、两种保留形式同时出现，或保留比例不小于阈值比例，都会在加载时拒绝插件。模型首次使用时，`W − O − B` 必须为正，且解析出的保留预算必须低于触发阈值。余量为零时，必须在全局或对应模型策略中显式设置正数 `maxTokens`。小窗口部署必须配置适合其容量的余量；降低 `thresholdRatio` 可以提早压缩。
 
@@ -179,6 +182,8 @@ This is an automatically generated checkpoint condensing an earlier span of the 
 #### KV Cache 影响
 
 它是替换，而非仅追加。每个检查点都会使从第一个已替换历史 token 起的复用失效；该范围之前未更改的请求前缀仍可复用。
+
+由于每个检查点都会丢弃已缓存前缀，自动压力压缩落地前要过三道门：距该会话上次压力压缩至少 `minIntervalTurns` 轮、自那时起估算至少增长 `minGrowthTokens` token、候选范围至少值 `minReclaimTokens`。被推迟的压缩会记录拦住它的那道门（`compaction (step pressure) deferred: …`）及三项读数；落地的压缩把读数作为 `pressureGate` 记录在其 `compaction/start` 事件上。溢出恢复与 `/compact` 不受门控约束。挂载了工具结果过期服务时，其待落地的替换会在同一轮一并落地，一次缓存损失换两种改写。
 
 ### 辅助摘要器请求
 

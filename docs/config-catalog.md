@@ -686,6 +686,28 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
   modelPolicies?: ModelCompactPolicyConfig[]
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
+  /**
+   * Minimum turns between two automatic pressure compactions of one session.
+   * Every compaction rewrites history and discards the provider prompt-cache
+   * prefix, so a compaction that lands too soon after the previous one pays
+   * the full-price re-upload again for little reclaimed room. Overflow
+   * recovery ignores this gate. Non-negative integer; defaults to `8`.
+   */
+  minIntervalTurns?: number
+  /**
+   * Minimum estimated-token growth since the previous automatic pressure
+   * compaction before another may run. Blocks the loop where the summary
+   * itself keeps the session at threshold. Overflow recovery ignores this
+   * gate. Non-negative integer; defaults to `20000`.
+   */
+  minGrowthTokens?: number
+  /**
+   * Minimum estimated tokens a pressure compaction must be able to reclaim
+   * (tokens above the threshold plus the compactable range below it) for the
+   * cache loss to be worth it; smaller candidates wait for more pressure.
+   * Overflow recovery ignores this gate. Non-negative integer; defaults to `10000`.
+   */
+  minReclaimTokens?: number
 }
 
 /** Policy fields shared by the default policy and exact model overrides. */
@@ -739,6 +761,22 @@ export interface ToolResultExpiryConfig {
   coldTurns?: number
   /** Expire only results whose text exceeds this many Unicode code points. Defaults to `2048`. */
   thresholdChars?: number
+  /**
+   * After a pass lands at least one replacement, skip expiry for this many
+   * subsequent turns. Every landed replacement rewrites history and breaks the
+   * provider prompt-cache prefix for the whole conversation, so batching
+   * replacements keeps the prefix stable between sweeps. This is the
+   * fallback bound; idle and compaction sweeps (below) land for free because
+   * the cached prefix is already gone at those moments. Defaults to `30`.
+   */
+  sweepEvery?: number
+  /**
+   * Sweep when the session has been idle for at least this many milliseconds
+   * since its previous request, on the assumption that the provider prompt
+   * cache has expired by then (measured: a 7357-routed prefix survived 21
+   * minutes; 1h is the conservative bound). Defaults to `3_600_000`.
+   */
+  idleSweepMs?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-compaction-tool-result-expiry -->
@@ -3341,7 +3379,7 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-system-prompt`
 
-- `source`: [`packages/core/system-prompt/src/index.ts:247`](../packages/core/system-prompt/src/index.ts)
+- `source`: [`packages/core/system-prompt/src/index.ts:248`](../packages/core/system-prompt/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the deployment-authored fragment of the system prompt (see {@link Config.personaPrefix} for its contract). */
@@ -4032,7 +4070,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tools`
 
 - `inject`: `systemPrompt`
-- `source`: [`packages/core/tools/src/index.ts:674`](../packages/core/tools/src/index.ts)
+- `source`: [`packages/core/tools/src/index.ts:690`](../packages/core/tools/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: how the registered tools are presented to the model. */
@@ -4056,6 +4094,13 @@ export interface Config {
    * restores strictly serial dispatch. Must be a positive integer.
    */
   maxParallelSubCalls?: number
+  /**
+   * Tool names (exact, or a prefix ending in `*`) whose schemas are declared
+   * to the model only after it reveals them through the reserved
+   * `tool_search` tool. A definition's own `exposure: 'direct'` overrides a
+   * matching pattern. Empty (default) declares every visible tool directly.
+   */
+  deferred?: string[]
 }
 
 /** How the registry presents its tools to the model (see {@link Config.mode}). */

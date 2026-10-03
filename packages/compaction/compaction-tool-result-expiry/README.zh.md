@@ -56,6 +56,8 @@ kind: "package-reference"
 |---|---|---|
 | `coldTurns` | `3` | 产生结果的轮次之后又开始了这么多轮，结果即为冷。当前轮与之前 `coldTurns - 1` 轮保持原文。 |
 | `thresholdChars` | `2048` | 只让文本超过此 Unicode 码点数的结果过期。 |
+| `sweepEvery` | `30` | 某一趟落地至少一处替换后，再隔这么多轮才允许下一趟，让提供方前缀缓存在其间保持稳定。`1` 表示每轮都扫。 |
+| `idleSweepMs` | `3600000` | 会话距上次请求闲置至少这么久后也允许落地一趟，此时缓存前缀多半已经过期。 |
 
 未知设置会导致插件在构造时被拒绝。在模型很少回看旧结果的会话里调低 `coldTurns` 以更早卸掉输出；调高 `thresholdChars` 以让小结果（文件列表、短命令输出）永久保持原文。
 
@@ -115,7 +117,9 @@ kind: "package-reference"
 
 #### 模型看到的内容
 
-从某结果所在轮之后第 `coldTurns` 轮的第一次请求起，该结果显示为 `[<tool> output from an earlier turn expired: <N> characters removed; rerun the tool to see it again]`，而非其文本。非文本块保持顺序。当前轮与最近几轮的结果为原文。
+从某结果所在轮之后至少 `coldTurns` 轮的第一次清扫起，该结果显示为 `[<tool> output from an earlier turn expired: <N> characters removed; rerun the tool to see it again]`，而非其文本。非文本块保持顺序。当前轮与最近几轮的结果为原文。
+
+若原文末尾带有 spill 策略通知（`(Omitted … Full formatted result stored at: <path>. …)`），占位改为 `[<tool> output from an earlier turn expired: <N> characters removed; the complete result is still stored at the path below, read that file instead of rerunning the tool]`，通知原样跟在其后，因此存储路径在过期后仍然保留。
 
 #### Token 影响
 
@@ -123,7 +127,7 @@ kind: "package-reference"
 
 #### KV Cache 影响
 
-某结果第一次过期会使该节点之后的提供方前缀复用在一次请求内失效；之后的每次请求共享新前缀。第一个占位之前的节点永不改写，因此系统提示词、工具 schema 与近期历史持续匹配。
+每处落地的替换都会使该节点之后的提供方前缀复用在一次请求内失效；之后的每次请求共享新前缀。第一个占位之前的节点永不改写，因此系统提示词、工具 schema 与近期历史持续匹配。替换是分批落地的：一趟落地后，下一趟要等 `sweepEvery` 轮或 `idleSweepMs` 的闲置间隔；`dsh-compaction-basic` 也会在自己的压缩过程中（前缀此时已经丢失）顺带落地待处理的替换。
 
 ## 已知限制与延期工作
 
@@ -131,7 +135,7 @@ kind: "package-reference"
 
 - **轮龄按轮数计，不按 token 或时间**——一个有大量工具往返的长单轮会保留其全部结果原文，直到下一轮开始。
 - **字符阈值不是 token 阈值**——不同提供方 token 密度各异；`thresholdChars` 只能近似节省量。
-- **占位是唯一的恢复提示**——模型必须重跑工具；不提供读取过期文本的工具。
+- **除非结果已 spill，否则占位是唯一的恢复提示**——没有保留的 spill 策略通知时模型必须重跑工具；不提供读取过期文本的工具。
 
 <a id="dev-note"></a>
 ### 开发备注

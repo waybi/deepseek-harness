@@ -12,6 +12,9 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../session/session-projection"
+    },
+    {
       "path": "../../ptc-runtime/ptc-runtime"
     },
     {

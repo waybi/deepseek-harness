@@ -73,8 +73,21 @@ ctx.tools.register(defineTool({
 |---|---|---|
 | `mode` | `native` | 可见工具向模型呈现的方式：`native`、`ptc` 或 `both` |
 | `maxParallelSubCalls` | `10` | `run_code` 程序重叠子调用的并发上限；`1` 恢复严格串行分发 |
+| `deferred` | `[]` | 工具名（精确名，或以 `*` 结尾的前缀），其 schema 只在模型通过 `tool_search` 揭示后才声明；见[延迟声明不常用工具](#defer-rarely-used-tools) |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tools)是每个受支持字段的穷尽式真源。非原生模式要求已组合的 `ctx.ptcRuntime` 且其语言有已注册的 SDK 渲染器；agent preset 通过 [`dsh-agent-tool-presentation`](../agent-tool-presentation/README.zh.md) 自行选择呈现方式，单个 agent 可用 `presentAs(mode)` 遮蔽默认值。
+
+### 延迟声明不常用工具
+
+工具很多的部署要在每次请求里为每个 schema 付费。把不常用的工具列进 `deferred`，或在你拥有的定义上设置 `exposure: 'deferred'`（显式的 `exposure: 'direct'` 优先于匹配的模式）：
+
+```yaml
+- name: '@deepseek-ai/dsh-tools'
+  config:
+    deferred: ['de_*', 'de_coi_*', 'mcp__*', 'workflow']
+```
+
+只要某个 agent 仍有延迟工具处于隐藏状态，该 agent 的声明列表就以保留的 `tool_search(query)` 工具收尾，其描述把每个隐藏工具列为一行目录（`- 名称: 描述首句`），系统提示词也会告诉模型：没有合适的已声明工具时先搜索。一次搜索按名称与描述词项对隐藏工具排序，最多返回五个完整描述，并追加一条仅记日志的 `tools/reveal` 事件；被揭示的工具从下一步起可调用，声明在既有 schema 之后（已缓存前缀继续匹配），并在本会话余下时间里保持揭示状态，包括跨压缩与进程重启（`toolsRevealed` 投影折叠这些事件）。隐藏工具在揭示前不可调用，因此声明列表与执行器一致。`tools.restrict()` 先于延迟生效：被拒绝的延迟工具既不进目录也搜不到。`tool_search` 本身不能被注册或限制。
 
 ### 按 agent 限制工具
 
@@ -114,6 +127,7 @@ ctx.tools.register(defineTool({
 | [`src/json-schema.ts`](src/json-schema.ts) | 强制执行的原始 JSON Schema 子集与校验 |
 | [`src/presentation.ts`](src/presentation.ts) | 带 `card` 标签的 UI 呈现意图 |
 | [`src/ptc.ts`](src/ptc.ts) | PTC mode：SDK 生成、`run_code` 分发桥接层、结算 |
+| [`src/tool-search.ts`](src/tool-search.ts) | 延迟声明：`tool_search` 传输、搜索排序、`tools/reveal` 事件与 `toolsRevealed` 投影 |
 | [`src/ts-types.ts`](src/ts-types.ts) | TypeScript SDK 类型渲染 |
 | [`src/py-types.ts`](src/py-types.ts) | Python SDK 类型渲染 |
 | [`src/invariant.ts`](src/invariant.ts) | 不变式配套 |
@@ -166,11 +180,11 @@ ctx.tools.register(defineTool({
 
 #### Token 影响
 
-每次请求的固定成本与可见定义成正比。隐藏工具的限制会为该 agent 移除其全部 schema 成本。
+每次请求的固定成本与已声明定义成正比。隐藏工具的限制会为该 agent 移除其全部 schema 成本。延迟工具在揭示前只占 `tool_search` 内的一行目录，揭示后在本会话余下时间里按完整 schema 计费。
 
 #### KV Cache 影响
 
-只要可见定义及其顺序不变，前缀就保持稳定。注册、dispose 或作用域限制可能从第一个改变的 schema token 起使复用失效。
+只要已声明定义及其顺序不变，前缀就保持稳定。注册、dispose 或作用域限制可能从第一个改变的 schema token 起使复用失效。一次揭示会把被揭示的 schema 追加到既有 schema 之后，并缩小其后的 `tool_search` 目录，因此复用只从第一个追加的 schema 起失效。
 
 ### PTC mode schema 与系统提示词
 
@@ -233,6 +247,8 @@ Program-only SDK bindings:
 - **PTC mode 的 SDK 语言由当前加载的运行时决定，且呈现方式按 agent 而非按工具**：`mode: ptc`/`both` 会拒绝组装提示词，除非 `ctx.ptcRuntime.language` 有已注册的 SDK 渲染器；同一个 agent 内不能让一个工具仅使用 Native，而另一个仅使用 PTC。
 - **PTC mode 中间值只存在于执行局部，且没有字节上限**：它们无法从会话回放重建，并可能耗尽进程或 worker 内存；只有外层 `run_code` 输出受 worker 可配置的硬上限约束。
 - **每次运行都会获得全新的 `run_code` 状态**：MVP 不采用持久 REPL 风格内核，因为跨调用状态不会出现在日志中。
+- **揭示按会话生效且不可撤销**：被揭示的延迟工具会一直声明到会话结束；没有 `tool_forget`。`tool_search` 目录读取工具描述的首句，首句不能自我说明的描述很难被搜到。
+- **延迟工具与 PTC mode**：在 `ptc` 下 SDK 仍声明每个可见工具；延迟只影响原生声明列表。
 
 `defineTool()`、注册表模式投影和系统提示组装会保留 `deferLoading: true`。该标记请求延迟加载工具定义，并不意味着存在 `tool-addition` 记录；提供方执行语义的限制见 [LLM 包](../../../packages/llm/llm/README.zh.md#known-limitations-and-deferred-work)。
 

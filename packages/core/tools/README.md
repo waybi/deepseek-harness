@@ -73,8 +73,21 @@ The `mode` config decides what the model sees: `native` (every visible schema), 
 |---|---|---|
 | `mode` | `native` | How visible tools are presented to the model: `native`, `ptc`, or `both` |
 | `maxParallelSubCalls` | `10` | Concurrency cap for a `run_code` program's overlapping sub-calls; `1` restores strictly serial dispatch |
+| `deferred` | `[]` | Tool names (exact, or a prefix ending in `*`) declared only after the model reveals them through `tool_search`; see [Defer rarely used tools](#defer-rarely-used-tools) |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tools) is the exhaustive source for every accepted field. Non-native modes require a composed `ctx.ptcRuntime` whose language has a registered SDK renderer; an agent preset selects its own presentation with [`dsh-agent-tool-presentation`](../agent-tool-presentation/README.md), and one agent can shadow the default with `presentAs(mode)`.
+
+### Defer rarely used tools
+
+A deployment with many tools pays for every schema on every request. List the rarely needed ones under `deferred`, or set `exposure: 'deferred'` on a definition you own (an explicit `exposure: 'direct'` wins over a matching pattern):
+
+```yaml
+- name: '@deepseek-ai/dsh-tools'
+  config:
+    deferred: ['de_*', 'de_coi_*', 'mcp__*', 'workflow']
+```
+
+While any deferred tool is hidden for an agent, that agent's declared list ends with the reserved `tool_search(query)` tool, whose description catalogs each hidden tool as one line (`- name: first sentence of its description`), and the system prompt tells the model to search when no declared tool fits. A search ranks hidden tools by name and description terms, returns up to five complete descriptions, and appends a log-only `tools/reveal` event; revealed tools become callable from the next step, are declared after the existing schemas (the cached prefix keeps matching), and stay revealed for the rest of the session, including across compaction and process restarts (the `toolsRevealed` projection folds the events). A hidden tool is not callable before its reveal, so the declared list and the executor agree. `tools.restrict()` applies before deferral: a denied deferred tool is neither cataloged nor searchable. `tool_search` itself cannot be registered or restricted.
 
 ### Restrict tools per agent
 
@@ -114,6 +127,7 @@ The registry holds typed `ToolDefinition`s in scoped layers and projects them on
 | [`src/json-schema.ts`](src/json-schema.ts) | The enforced raw JSON Schema subset and validation |
 | [`src/presentation.ts`](src/presentation.ts) | The `card`-tagged UI render intents |
 | [`src/ptc.ts`](src/ptc.ts) | PTC mode: SDK generation, `run_code` dispatch bridge, settlement |
+| [`src/tool-search.ts`](src/tool-search.ts) | Deferred exposure: `tool_search` transport, search ranking, `tools/reveal` event and `toolsRevealed` projection |
 | [`src/ts-types.ts`](src/ts-types.ts) | TypeScript SDK type rendering |
 | [`src/py-types.ts`](src/py-types.ts) | Python SDK type rendering |
 | [`src/invariant.ts`](src/invariant.ts) | Invariant companion |
@@ -166,11 +180,11 @@ In normal mode the model sees each visible definition's exact name, description,
 
 #### Token effect
 
-Fixed per-request cost proportional to the visible definitions. Restrictions that hide tools remove their entire schema cost for that agent.
+Fixed per-request cost proportional to the declared definitions. Restrictions that hide tools remove their entire schema cost for that agent. A deferred tool costs one catalog line inside `tool_search` until revealed, then its full schema for the rest of the session.
 
 #### KV Cache effect
 
-Prefix-stable while visible definitions and their order are unchanged. Registration, disposal, or scoped restriction may invalidate reuse from the first changed schema token.
+Prefix-stable while declared definitions and their order are unchanged. Registration, disposal, or scoped restriction may invalidate reuse from the first changed schema token. A reveal appends the revealed schema after the existing ones and shrinks the `tool_search` catalog that follows them, so reuse is lost only from the first appended schema onward.
 
 ### PTC mode schema and system prompt
 
@@ -233,6 +247,8 @@ These limits define when the registry needs special care. They are current packa
 - **PTC mode's SDK language follows the one loaded runtime, and a presentation is per agent rather than per tool** — `mode: ptc`/`both` rejects prompt assembly unless `ctx.ptcRuntime.language` has a registered SDK renderer; within one agent no tool can be native-only while another is ptc-only.
 - **PTC mode intermediate values are execution-local and unbounded by bytes** — they cannot be reconstructed from session replay and may exhaust process or worker memory; only the outer `run_code` output has the worker's configurable hard cap.
 - **`run_code` state is fresh per run** — a persistent REPL-style kernel is rejected for the MVP, because cross-call state would be invisible to the log.
+- **Reveals are per session and never undone** — a revealed deferred tool is declared until the session ends; there is no `tool_forget`. The `tool_search` catalog reads a tool's first sentence, so a description whose first sentence is not self-explanatory is hard to find.
+- **Deferred tools and PTC mode** — under `ptc` the SDK still declares every visible tool; deferral only affects the native declaration list.
 
 `defineTool()`, registry schema projection, and system-prompt assembly preserve `deferLoading: true`. The marker requests deferred definition loading and does not imply a `tool-addition` record; the [LLM package](../../../packages/llm/llm/README.md#known-limitations-and-deferred-work) documents provider enforcement limits.
 

@@ -5831,7 +5831,7 @@
       "kind": "event",
       "event": "compaction/start",
       "surface": false,
-      "digest": "db874d463b0fdec77e9da1c4568f37cb70bd6596781eb93800db44fb8a116965",
+      "digest": "03f828a8bd704f93d79fb62889c2854940522762a61a4b1f05a88755df3d5e2f",
       "schema": {
         "root": 0,
         "nodes": [
@@ -5845,22 +5845,22 @@
               },
               {
                 "name": "ignorable",
-                "type": 6,
+                "type": 7,
                 "optional": true
               },
               {
                 "name": "seq",
-                "type": 5,
+                "type": 6,
                 "optional": false
               },
               {
                 "name": "time",
-                "type": 5,
+                "type": 6,
                 "optional": false
               },
               {
                 "name": "type",
-                "type": 7,
+                "type": 8,
                 "optional": false
               }
             ],
@@ -5875,13 +5875,18 @@
                 "optional": false
               },
               {
+                "name": "pressureGate",
+                "type": 3,
+                "optional": true
+              },
+              {
                 "name": "sourceCommandId",
                 "type": 2,
                 "optional": true
               },
               {
                 "name": "turn",
-                "type": 3,
+                "type": 4,
                 "optional": false
               }
             ],
@@ -5892,10 +5897,31 @@
             "type": "string"
           },
           {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "growthTokens",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "reclaimTokens",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "turnsSinceLast",
+                "type": 4,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
             "kind": "union",
             "types": [
-              4,
-              5
+              5,
+              6
             ]
           },
           {
@@ -18328,6 +18354,80 @@
       }
     },
     {
+      "key": "event:tools/reveal",
+      "kind": "event",
+      "event": "tools/reveal",
+      "surface": false,
+      "digest": "7f8f9df3947c286eb63d943fdb341b8d615fa862fdb23b15e659398a02662dc3",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "names",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 3
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": "tools/reveal"
+          }
+        ]
+      }
+    },
+    {
       "key": "event:turn/end",
       "kind": "event",
       "event": "turn/end",
@@ -21829,6 +21929,11 @@
       "sources": []
     },
     {
+      "digest": "03f828a8bd704f93d79fb62889c2854940522762a61a4b1f05a88755df3d5e2f",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "05a2796621b1ee6c03ef7abe560b25116bb4da4d592312117242a78415a32b04",
       "names": [],
       "sources": []
@@ -22708,7 +22813,7 @@
         "packages/core/tools/src/index.ts#ToolRestriction"
       ],
       "sources": [
-        "packages/core/tools/src/index.ts:700"
+        "packages/core/tools/src/index.ts:723"
       ]
     },
     {
@@ -22729,13 +22834,6 @@
       "digest": "3e2ece4967cfebe95f450a93f45523dff99d6749f6269f2f60f84dfecfcf3693",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "3e4e7683b0192c9f0e6a75c59076108f017892cdb302a98032c2632fd79c356f",
-      "names": [],
-      "sources": [
-        "packages/compaction/compaction/src/types.ts:24"
-      ]
     },
     {
       "digest": "3ee93b06f3a125850337602bcdf155d2538c43a5c944ec55b1b3c365152d6796",
@@ -23219,7 +23317,7 @@
       "digest": "5dd766ccd1702a1142ad8b4bd44f2242f8e8a6752669ad3de0a5d224329b1438",
       "names": [],
       "sources": [
-        "packages/compaction/compaction/src/types.ts:82"
+        "packages/compaction/compaction/src/types.ts:105"
       ]
     },
     {
@@ -23645,6 +23743,11 @@
       "sources": []
     },
     {
+      "digest": "7f8f9df3947c286eb63d943fdb341b8d615fa862fdb23b15e659398a02662dc3",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "7f9365bae9fcb73e1e34061a1acfe0422c1a5fd351848cace9bebbe806f28462",
       "names": [
         "packages/workflow/tool-workflow/src/types.ts#ToolWorkflowRunEndData"
@@ -23919,7 +24022,7 @@
       "digest": "8fcb0b44a575e998665c053643d1ab04c82f39253ebd190ac0c975b78e40b543",
       "names": [],
       "sources": [
-        "packages/core/tools/src/index.ts:34"
+        "packages/core/tools/src/index.ts:46"
       ]
     },
     {
@@ -24084,6 +24187,15 @@
       "sources": []
     },
     {
+      "digest": "9de36a7e1a2d145e04ad8faee6758fcde54085f83a3779e9484747b13c2f8d87",
+      "names": [
+        "packages/compaction/compaction/src/types.ts#PressureGateReading"
+      ],
+      "sources": [
+        "packages/compaction/compaction/src/types.ts:21"
+      ]
+    },
+    {
       "digest": "9e07693fd7cd9babe0688c22c986e4d519ae1c0e40eeea13b2dc583bed2abc86",
       "names": [],
       "sources": []
@@ -24097,8 +24209,8 @@
       "digest": "9e41386b3a0c9572b0d63078492ebb3997da7d3a830d44e0259418bd02f4bcb2",
       "names": [],
       "sources": [
-        "packages/compaction/compaction/src/types.ts:38",
-        "packages/compaction/compaction/src/types.ts:84"
+        "packages/compaction/compaction/src/types.ts:107",
+        "packages/compaction/compaction/src/types.ts:61"
       ]
     },
     {
@@ -24516,6 +24628,13 @@
       "sources": []
     },
     {
+      "digest": "b59a207b68c4f5fde52f8ad9c0559cfc201b2ea6c07e89fb3920c646e7a0344f",
+      "names": [],
+      "sources": [
+        "packages/core/tools/src/tool-search.ts:36"
+      ]
+    },
+    {
       "digest": "b63b089a00b3b9357675b3e0c3d3e9aa4fdbda1fba9c91a6b0c59ffdbb89f505",
       "names": [
         "packages/schedule/schedule/src/types.ts#LegacyAtScheduleRecord"
@@ -24769,7 +24888,7 @@
       "digest": "ca59530d1a4f3e191b4032bc4a20eded0d827db8b5a7efb27b3af9e9b456c6f2",
       "names": [],
       "sources": [
-        "packages/compaction/compaction/src/types.ts:72"
+        "packages/compaction/compaction/src/types.ts:95"
       ]
     },
     {
@@ -24909,11 +25028,6 @@
     },
     {
       "digest": "db6c5246911d47a7969f6b4cb47c7d0dbbde75c402710b22ace3672fa97bebe0",
-      "names": [],
-      "sources": []
-    },
-    {
-      "digest": "db874d463b0fdec77e9da1c4568f37cb70bd6596781eb93800db44fb8a116965",
       "names": [],
       "sources": []
     },
@@ -25172,6 +25286,11 @@
       "sources": []
     },
     {
+      "digest": "efe1055c20b9413d5ad1ab8775ace665939e81077ec4ffe5899a232870b02e0a",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "f05fb85e715af4ab4de0b6ba111166dd0435bd8bb74a0fa0f32b9d174113fc7c",
       "names": [],
       "sources": []
@@ -25347,6 +25466,13 @@
       "digest": "fb5e0517050d2c6d40e5b8145db1f7c5ca7044d5d50fada6ff80e0b22c6ca973",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "fb780dcf094f69851cdfbcda4fd0030e22c2cd237555df7145c90d3f61802ed4",
+      "names": [],
+      "sources": [
+        "packages/compaction/compaction/src/types.ts:37"
+      ]
     },
     {
       "digest": "fb8b6a2e53cb9cf44c551176de0fb77d1ddc60037b99a891ff8a860b6d5c29a0",
