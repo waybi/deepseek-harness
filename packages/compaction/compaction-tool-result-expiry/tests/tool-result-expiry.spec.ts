@@ -5,6 +5,7 @@ import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
+import { SpillLocator } from '@deepseek-ai/dsh-spill'
 import { formatSpillNotice, hasSpillNotice } from '@deepseek-ai/dsh-spill-policy/notice'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
@@ -231,7 +232,7 @@ describe('ToolResultExpiry surface replacement', () => {
 
   it('keeps a spill-policy notice after the stub and points the model at the stored file', () => {
     const notice = formatSpillNotice({ kind: 'exact', count: 9000 }, {
-      locator: '/tmp/spill/result.txt',
+      locator: SpillLocator('/tmp/spill/result.txt'),
       retrievalHint: 'Use read to retrieve the complete output',
     })
     const preview = 'p'.repeat(BIG)
@@ -251,7 +252,7 @@ describe('ToolResultExpiry surface replacement', () => {
 
   it('leaves a notice-only result alone because nothing but the pointer would be removed', () => {
     const notice = formatSpillNotice({ kind: 'exact', count: 9000 }, {
-      locator: '/tmp/spill/' + 'x'.repeat(BIG),
+      locator: SpillLocator('/tmp/spill/' + 'x'.repeat(BIG)),
       retrievalHint: 'Use read to retrieve the complete output',
     })
     const session = Session.create(SessionId('expire-spill-only'))
