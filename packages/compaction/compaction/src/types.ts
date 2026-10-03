@@ -14,6 +14,19 @@ import type { CompactionId } from './brand.ts'
 
 export type { CompactionId }
 
+/**
+ * Gate readings an automatic pressure compaction passed before it landed.
+ * Every value is an estimated-token or turn count read at decision time.
+ */
+export interface PressureGateReading {
+  /** Turns since the previous automatic pressure compaction; `null` when none ran in this process. */
+  turnsSinceLast: number | null
+  /** Estimated-token growth since the previous automatic pressure compaction; `null` when none ran. */
+  growthTokens: number | null
+  /** Estimated tokens the selected range could reclaim. */
+  reclaimTokens: number
+}
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
@@ -21,7 +34,17 @@ declare module '@deepseek-ai/dsh-session/types' {
      * `compaction/end`. A numbered owner is strictly enclosed by that open turn;
      * `null` identifies a standalone manual transaction between turns.
      */
-    'compaction/start': { compactionId: CompactionId; sourceCommandId?: CommandId; turn: number | null }
+    'compaction/start': {
+      compactionId: CompactionId
+      sourceCommandId?: CommandId
+      turn: number | null
+      /**
+       * Why an automatic pressure compaction was allowed to land: the gate
+       * readings that cleared it. Absent for overflow recovery and manual
+       * compaction, which bypass the gates.
+       */
+      pressureGate?: PressureGateReading
+    }
     /**
      * Completed summary, its inputs, and its model call facts — log-only, no surfaceOp.
      * The summary content is in `data.summary`; the actual surface replacement

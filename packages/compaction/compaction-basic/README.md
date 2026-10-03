@@ -74,6 +74,9 @@ All settings are optional. With context window `W`, effective request output cap
 | `maxOverflowRetries` | `1` | Maximum retries after a confirmed context-window overflow; `0` disables recovery only. |
 | `modelPolicies` | `[]` | Exact `{ provider, model, ...partialPolicy }` overrides for individual model routes. |
 | `auto` | `true` | Enable automatic condensation and overflow recovery; set `false` for manual-only operation. |
+| `minIntervalTurns` | `8` | Automatic pressure condensation waits at least this many turns after the previous one in the same session. `0` disables the gate. |
+| `minGrowthTokens` | `20000` | Automatic pressure condensation waits until the estimated history grew by at least this many tokens since the previous one. `0` disables the gate. |
+| `minReclaimTokens` | `10000` | Automatic pressure condensation runs only when the range it would summarize is estimated at this many tokens or more. `0` disables the gate. |
 
 Misconfiguration fails fast: unknown settings, duplicate per-model overrides, invalid token counts, both retention forms together, or a retention ratio at least as large as the threshold ratio reject the plugin at load. When the model is first used, `W − O − B` must be positive and the resolved retained budget must be below the trigger. Zero headroom requires an explicit positive `maxTokens`, globally or in that model policy. Small-window deployments must configure headroom that fits their capacity; lower `thresholdRatio` to compact earlier.
 
@@ -179,6 +182,8 @@ Model-free pruning can avoid the auxiliary call entirely; otherwise it reduces t
 #### KV Cache effect
 
 Replacing rather than append-only. Each checkpoint invalidates reuse from the first replaced history token; the unchanged request prefix before that range remains reusable.
+
+Because every checkpoint discards the cached prefix, automatic pressure condensation passes three gates before it lands: at least `minIntervalTurns` turns since the previous pressure condensation of the session, at least `minGrowthTokens` estimated tokens of growth since then, and a candidate range worth at least `minReclaimTokens`. A deferred condensation logs the gate that held it (`compaction (step pressure) deferred: …`) with the three readings; a landed one records the readings on its `compaction/start` event as `pressureGate`. Overflow recovery and `/compact` ignore the gates. When the mounted tool-result expiry service is present, its pending replacements land in the same pass, so one cache loss pays for both rewrites.
 
 ### Auxiliary summarizer request
 

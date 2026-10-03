@@ -14,6 +14,7 @@
     { "path": "../../llm/token-meter" },
     { "path": "../../core/session" },
     { "path": "../../session/session-projection" },
-    { "path": "../compaction" }
+    { "path": "../compaction" },
+    { "path": "../../spill/spill-policy" }
   ]
 }

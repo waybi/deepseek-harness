@@ -11,12 +11,30 @@ export interface ToolResultExpiryConfig {
   coldTurns?: number
   /** Expire only results whose text exceeds this many Unicode code points. Defaults to `2048`. */
   thresholdChars?: number
+  /**
+   * After a pass lands at least one replacement, skip expiry for this many
+   * subsequent turns. Every landed replacement rewrites history and breaks the
+   * provider prompt-cache prefix for the whole conversation, so batching
+   * replacements keeps the prefix stable between sweeps. This is the
+   * fallback bound; idle and compaction sweeps (below) land for free because
+   * the cached prefix is already gone at those moments. Defaults to `30`.
+   */
+  sweepEvery?: number
+  /**
+   * Sweep when the session has been idle for at least this many milliseconds
+   * since its previous request, on the assumption that the provider prompt
+   * cache has expired by then (measured: a 7357-routed prefix survived 21
+   * minutes; 1h is the conservative bound). Defaults to `3_600_000`.
+   */
+  idleSweepMs?: number
 }
 
 /** Validated, detached, deeply immutable expiry configuration. */
 export interface ResolvedConfig {
   readonly coldTurns: number
   readonly thresholdChars: number
+  readonly sweepEvery: number
+  readonly idleSweepMs: number
 }
 
 /** Cited source event and size accounting for one landed surface replacement. */

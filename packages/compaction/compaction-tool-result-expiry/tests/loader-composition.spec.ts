@@ -15,7 +15,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
-import ToolResultExpiry, { expiredStub } from '@deepseek-ai/dsh-compaction-tool-result-expiry'
+import ToolResultExpiry, { DEFAULTS, expiredStub } from '@deepseek-ai/dsh-compaction-tool-result-expiry'
 
 let root: string | undefined
 const contexts: Context[] = []
@@ -129,7 +129,12 @@ describe('compaction-tool-result-expiry real Loader composition', () => {
     await context.loader.await()
 
     expect(context.get('toolResultExpiry')).toBeInstanceOf(ToolResultExpiry)
-    expect(context.toolResultExpiry.config).toEqual({ coldTurns: 2, thresholdChars: 30 })
+    expect(context.toolResultExpiry.config).toEqual({
+      coldTurns: 2,
+      thresholdChars: 30,
+      sweepEvery: DEFAULTS.sweepEvery,
+      idleSweepMs: DEFAULTS.idleSweepMs,
+    })
   })
 
   it('rejects stale config after plugin schema normalization', async () => {
@@ -152,7 +157,8 @@ describe('compaction-tool-result-expiry real Loader composition', () => {
     contexts.push(ctx)
     await mountAgentLoopTestDependencies(ctx)
     await ctx.plugin(TokenMeter)
-    await ctx.plugin(ToolResultExpiry, { coldTurns: 2, thresholdChars: 30 })
+    // sweepEvery 1: this spec exercises the stub itself, not the cache-prefix batching gate.
+    await ctx.plugin(ToolResultExpiry, { coldTurns: 2, thresholdChars: 30, sweepEvery: 1 })
     const loop = await mountAgentLoopTestHarness(ctx)
     ctx.llm.registerAdapter(['mock'], adapter)
     ctx.tools.register(defineContentToolFixture({

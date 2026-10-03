@@ -42,6 +42,28 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
   modelPolicies?: ModelCompactPolicyConfig[]
   /** Enable automatic step-boundary pressure and overflow-recovery listeners. Defaults to `true`. */
   auto?: boolean
+  /**
+   * Minimum turns between two automatic pressure compactions of one session.
+   * Every compaction rewrites history and discards the provider prompt-cache
+   * prefix, so a compaction that lands too soon after the previous one pays
+   * the full-price re-upload again for little reclaimed room. Overflow
+   * recovery ignores this gate. Non-negative integer; defaults to `8`.
+   */
+  minIntervalTurns?: number
+  /**
+   * Minimum estimated-token growth since the previous automatic pressure
+   * compaction before another may run. Blocks the loop where the summary
+   * itself keeps the session at threshold. Overflow recovery ignores this
+   * gate. Non-negative integer; defaults to `20000`.
+   */
+  minGrowthTokens?: number
+  /**
+   * Minimum estimated tokens a pressure compaction must be able to reclaim
+   * (tokens above the threshold plus the compactable range below it) for the
+   * cache loss to be worth it; smaller candidates wait for more pressure.
+   * Overflow recovery ignores this gate. Non-negative integer; defaults to `10000`.
+   */
+  minReclaimTokens?: number
 }
 
 /** Exactly one validated retention form. */
@@ -64,6 +86,9 @@ interface ResolvedPolicyFields {
 export type ResolvedConfig = ResolvedPolicyFields & ResolvedRetention & {
   readonly modelPolicies: readonly Readonly<ModelCompactPolicyConfig>[]
   readonly auto: boolean
+  readonly minIntervalTurns: number
+  readonly minGrowthTokens: number
+  readonly minReclaimTokens: number
 }
 
 /** Fully merged policy for one routed conversation target, before capacity scaling. */

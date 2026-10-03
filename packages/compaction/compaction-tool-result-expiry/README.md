@@ -56,6 +56,8 @@ All settings are optional. The generated [configuration catalog](../../../docs/c
 |---|---|---|
 | `coldTurns` | `3` | A result is cold once this many turns have started after the turn that produced it. The current turn and the previous `coldTurns - 1` turns stay verbatim. |
 | `thresholdChars` | `2048` | Expire only results whose text exceeds this many Unicode code points. |
+| `sweepEvery` | `30` | After a pass lands at least one replacement, hold further passes for this many turns so the provider prefix cache stays stable in between. `1` sweeps every turn. |
+| `idleSweepMs` | `3600000` | A pass may also land once the session has idled at least this long since its previous request, when the cached prefix has most likely expired anyway. |
 
 An unknown setting rejects the plugin at construction. Lower `coldTurns` to shed output sooner in sessions where the model rarely rereads old results; raise `thresholdChars` to keep small results (file listings, short command output) verbatim indefinitely.
 
@@ -115,7 +117,9 @@ This section explains the design decisions behind expiry; the observable behavio
 
 #### What the model sees
 
-From the first request of a turn `coldTurns` after a result's turn, that result appears as `[<tool> output from an earlier turn expired: <N> characters removed; rerun the tool to see it again]` in place of its text. Non-text blocks keep their order. Results from the current and recent turns are verbatim.
+From the first sweep of a turn `coldTurns` or more after a result's turn, that result appears as `[<tool> output from an earlier turn expired: <N> characters removed; rerun the tool to see it again]` in place of its text. Non-text blocks keep their order. Results from the current and recent turns are verbatim.
+
+When the original text ends with a spill-policy notice (`(Omitted … Full formatted result stored at: <path>. …)`), the stub instead reads `[<tool> output from an earlier turn expired: <N> characters removed; the complete result is still stored at the path below, read that file instead of rerunning the tool]` and the notice follows it verbatim, so the stored path survives expiry.
 
 #### Token effect
 
@@ -123,7 +127,7 @@ Each expired result costs one stub line instead of its original text on every la
 
 #### KV Cache effect
 
-The first expiry of a given result invalidates provider prefix reuse from that node onward for one request; every request after that shares the new prefix. Nodes before the first stub are never rewritten, so the system prompt, tool schemas, and recent history keep matching.
+Every landed replacement invalidates provider prefix reuse from that node onward for one request; every request after that shares the new prefix. Nodes before the first stub are never rewritten, so the system prompt, tool schemas, and recent history keep matching. Replacements are batched: after a pass lands, the next pass waits `sweepEvery` turns or an idle gap of `idleSweepMs`, and `dsh-compaction-basic` lands any pending replacements inside its own condensation pass, where the prefix is already lost.
 
 ## Known Limitations and Deferred Work
 
@@ -131,7 +135,7 @@ The first expiry of a given result invalidates provider prefix reuse from that n
 
 - **Age is measured in turns, not tokens or time** — a long single turn with many tool round-trips keeps all of its results verbatim until the next turn starts.
 - **Character thresholds are not token thresholds** — provider token density varies; `thresholdChars` only approximates the saving.
-- **The stub is the only recovery hint** — the model must rerun the tool; no retrieval tool for the expired text ships.
+- **The stub is the only recovery hint unless the result was spilled** — without a retained spill-policy notice the model must rerun the tool; no retrieval tool for the expired text ships.
 
 <a id="dev-note"></a>
 ### Dev Note

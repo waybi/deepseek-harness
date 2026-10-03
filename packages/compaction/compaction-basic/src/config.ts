@@ -40,6 +40,9 @@ const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
   ...POLICY_CONFIG_KEYS,
   'modelPolicies',
   'auto',
+  'minIntervalTurns',
+  'minGrowthTokens',
+  'minReclaimTokens',
 ])
 
 /** Complete exact-target override key set. */
@@ -106,6 +109,9 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
     maxOverflowRetries: config.maxOverflowRetries ?? 1,
     modelPolicies,
     auto: config.auto ?? true,
+    minIntervalTurns: config.minIntervalTurns ?? 8,
+    minGrowthTokens: config.minGrowthTokens ?? 20_000,
+    minReclaimTokens: config.minReclaimTokens ?? 10_000,
   })
 }
 

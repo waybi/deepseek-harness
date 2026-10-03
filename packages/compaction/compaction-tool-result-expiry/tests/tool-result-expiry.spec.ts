@@ -5,12 +5,14 @@ import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
+import { formatSpillNotice, hasSpillNotice } from '@deepseek-ai/dsh-spill-policy/notice'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import ToolResultExpiry, {
   codePointLength,
   DEFAULTS,
   expiredStub,
+  expiredStubWithSpill,
   resolveConfig,
   toolResultSurfaceProjection,
   UNNAMED_TOOL,
@@ -85,10 +87,15 @@ describe('tool-result expiry configuration', () => {
     const raw = { coldTurns: 5, thresholdChars: 100 }
     const resolved = resolveConfig(raw)
     raw.coldTurns = 1
-    expect(resolved).toEqual({ coldTurns: 5, thresholdChars: 100 })
+    expect(resolved).toEqual({ coldTurns: 5, thresholdChars: 100, sweepEvery: DEFAULTS.sweepEvery, idleSweepMs: DEFAULTS.idleSweepMs })
     expect(Object.isFrozen(resolved)).toBe(true)
-    expect(resolveConfig({ coldTurns: 1 })).toEqual({ coldTurns: 1, thresholdChars: DEFAULTS.thresholdChars })
-    expect(DEFAULTS).toEqual({ coldTurns: 3, thresholdChars: 2048 })
+    expect(resolveConfig({ coldTurns: 1 })).toEqual({
+      coldTurns: 1,
+      thresholdChars: DEFAULTS.thresholdChars,
+      sweepEvery: DEFAULTS.sweepEvery,
+      idleSweepMs: DEFAULTS.idleSweepMs,
+    })
+    expect(DEFAULTS).toEqual({ coldTurns: 3, thresholdChars: 2048, sweepEvery: 30, idleSweepMs: 3_600_000 })
     expect(Object.isFrozen(DEFAULTS)).toBe(true)
   })
 
@@ -200,6 +207,66 @@ describe('ToolResultExpiry surface replacement', () => {
     const later = expiry.expireSession(session, 4)
     expect(later.expired.map(entry => entry.originalSeq)).toEqual([second])
     expect(expiry.expireSession(session, 4).expired).toEqual([])
+  })
+
+  it('sweeps on the first eligible turn, then holds the prefix for sweepEvery turns', () => {
+    const session = Session.create(SessionId('expire-sweep'))
+    appendToolStep(session, 1, 'c1', [{ type: 'text', text: 'c'.repeat(BIG) }])
+    const expiry = service({ ...SMALL, sweepEvery: 3 })
+    // Turn 2: cold candidates absent (coldTurns 2) -> nothing lands, no sweep recorded.
+    expect(expiry.sweepSession(session, 2).expired).toEqual([])
+    expect(expiry.isSweepTurn(session, 3)).toBe(true)
+    // Turn 3: first landed sweep.
+    expect(expiry.sweepSession(session, 3).expired.map(entry => entry.turn)).toEqual([1])
+    const second = appendToolStep(session, 3, 'c2', [{ type: 'text', text: 'd'.repeat(BIG) }])
+    // Turns 4, 5: c2 is cold from turn 5 but the sweep is held until turn 6.
+    expect(expiry.isSweepTurn(session, 4)).toBe(false)
+    expect(expiry.sweepSession(session, 5).expired).toEqual([])
+    expect(derivedText(session, second)).toBe('d'.repeat(BIG))
+    // Turn 6: sweep reopens and lands the batch.
+    expect(expiry.isSweepTurn(session, 6)).toBe(true)
+    expect(expiry.sweepSession(session, 6).expired.map(entry => entry.originalSeq)).toEqual([second])
+    expect(expiry.isSweepTurn(session, 7)).toBe(false)
+  })
+
+  it('keeps a spill-policy notice after the stub and points the model at the stored file', () => {
+    const notice = formatSpillNotice({ kind: 'exact', count: 9000 }, {
+      locator: '/tmp/spill/result.txt',
+      retrievalHint: 'Use read to retrieve the complete output',
+    })
+    const preview = 'p'.repeat(BIG)
+    const session = Session.create(SessionId('expire-spill'))
+    const spilled = appendToolStep(session, 1, 'c1', [{ type: 'text', text: `${preview}\n\n${notice}` }])
+    const expiry = service({ ...SMALL, sweepEvery: 1 })
+
+    const result = expiry.sweepSession(session, 3)
+    expect(result.expired.map(entry => entry.originalSeq)).toEqual([spilled])
+    const text = derivedText(session, result.expired[0]!.replacementSeq)
+    expect(text).toBe(`${expiredStubWithSpill('bash', codePointLength(preview) + 2)}\n\n${notice}`)
+    expect(text).toContain('/tmp/spill/result.txt')
+    expect(hasSpillNotice(text)).toBe(true)
+    // The stubbed result is recognized as already expired on the next sweep.
+    expect(expiry.expireSession(session, 5).expired).toEqual([])
+  })
+
+  it('leaves a notice-only result alone because nothing but the pointer would be removed', () => {
+    const notice = formatSpillNotice({ kind: 'exact', count: 9000 }, {
+      locator: '/tmp/spill/' + 'x'.repeat(BIG),
+      retrievalHint: 'Use read to retrieve the complete output',
+    })
+    const session = Session.create(SessionId('expire-spill-only'))
+    const seq = appendToolStep(session, 1, 'c1', [{ type: 'text', text: notice }])
+    expect(service({ ...SMALL, sweepEvery: 1 }).sweepSession(session, 3).expired).toEqual([])
+    expect(derivedText(session, seq)).toBe(notice)
+  })
+
+  it('sweeps every turn when sweepEvery is 1', () => {
+    const session = Session.create(SessionId('expire-sweep-1'))
+    appendToolStep(session, 1, 'c1', [{ type: 'text', text: 'c'.repeat(BIG) }])
+    const second = appendToolStep(session, 2, 'c2', [{ type: 'text', text: 'd'.repeat(BIG) }])
+    const expiry = service({ ...SMALL, sweepEvery: 1 })
+    expect(expiry.sweepSession(session, 3).expired.map(entry => entry.turn)).toEqual([1])
+    expect(expiry.sweepSession(session, 4).expired.map(entry => entry.originalSeq)).toEqual([second])
   })
 
   it('falls back to a generic tool name when no surface assistant message names the call', () => {

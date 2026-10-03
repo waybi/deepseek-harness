@@ -7,15 +7,17 @@
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { CompactionEngine, ManualCompactionError } from '@deepseek-ai/dsh-compaction'
-import type { CompactionResult, CompactionTrigger } from '@deepseek-ai/dsh-compaction'
+import type { CompactionResult, CompactionTrigger, PressureGateReading } from '@deepseek-ai/dsh-compaction'
 import type { Session, SessionSeq } from '@deepseek-ai/dsh-session'
 import { CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
+import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import { assertNever } from '@deepseek-ai/dsh-util-values'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
-// Type-only: makes the optional sibling service available to `ctx.get()`.
+// Type-only: makes the optional sibling services available to `ctx.get()`.
 import type {} from '@deepseek-ai/dsh-compaction-tool-result-pruner'
+import type {} from '@deepseek-ai/dsh-compaction-tool-result-expiry'
 import {
   resolveCompactSpec,
   resolveConfig,
@@ -87,6 +89,7 @@ const summarizationModelSchema = z.string()
 const maxTokensSchema = z.number().step(1).min(1)
 const compactionRetriesSchema = z.number().step(1).min(0)
 const maxOverflowRetriesSchema = z.number().step(1).min(0)
+const pressureGateSchema = z.number().step(1).min(0)
 
 const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
   provider: z.string().required(),
@@ -125,6 +128,9 @@ export class BasicCompactionEngine extends CompactionEngine {
     maxOverflowRetries: maxOverflowRetriesSchema,
     modelPolicies: z.array(modelPolicy),
     auto: z.boolean(),
+    minIntervalTurns: pressureGateSchema,
+    minGrowthTokens: pressureGateSchema,
+    minReclaimTokens: pressureGateSchema,
   })
 
   /** Resolved and validated compaction configuration. */
@@ -133,6 +139,10 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly warnedPressureConfigTargets = new Set<string>()
   private readonly overflowRetries = new WeakMap<Agent, number>()
   private readonly overflowAgents = new WeakMap<Session, Agent>()
+  /** Turn and pre-compaction measurement of the last automatic pressure compaction, per session. */
+  private readonly lastPressureCompaction = new WeakMap<Session, { turn: number; tokens: number }>()
+  /** Turn of the latest pre-step seen, per session; the pressure gates price against it. */
+  private readonly currentTurn = new WeakMap<Session, number>
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
@@ -156,9 +166,10 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
 
     ctx.on('agent/pre-step', async (
-      { agent, signal },
+      { agent, turn, signal },
       next,
     ): Promise<PreStepDecision> => {
+      this.currentTurn.set(agent.session, turn)
       if (!signal.aborted) {
         try {
           const result = await this.compactIfNeeded(agent, 'pressure', signal)
@@ -290,12 +301,22 @@ export class BasicCompactionEngine extends CompactionEngine {
     // Overflow always qualifies; pressure first resolves the routed model's
     // capacity and checks its target-specific threshold.
     const prune = this.ctx.get('toolResultPruner')
-
-    if (trigger === 'context-overflow') {
+    // Expiry normally confines its history rewrites to moments when the
+    // prompt-cache prefix is already lost; compaction is such a moment, so
+    // let it land its batch here before the model-free prune pass.
+    const expiry = this.ctx.get('toolResultExpiry')
+    const landFreePasses = (): void => {
+      let touched = false
+      if (expiry !== undefined && expiry.sweepForCompaction(agent.session).expired.length > 0) touched = true
       if (prune !== undefined) {
         prune.pruneSession(agent.session)
-        measurement = meter.measure(agent.session)
+        touched = true
       }
+      if (touched) measurement = meter.measure(agent.session)
+    }
+
+    if (trigger === 'context-overflow') {
+      landFreePasses()
       const range = selectCompactableRange(agent.session, measurement, 0)
       if (range === null) return null
       return this.compactRegion(range.start, range.end, agent, signal)
@@ -318,14 +339,23 @@ export class BasicCompactionEngine extends CompactionEngine {
     )
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
-    // Once pressure qualifies, land the model-free pass before choosing a
-    // summary range, then remeasure through the singleton replay fold.
-    if (prune !== undefined) {
-      prune.pruneSession(agent.session)
-      measurement = meter.measure(agent.session)
+    // Every landed compaction rewrites history and discards the provider
+    // prompt-cache prefix, so pressure alone is not enough: the three gates
+    // below refuse a compaction that would land too soon, after too little
+    // growth, or for too little reclaimed room. Overflow recovery (above) and
+    // manual `compactNow` bypass them.
+    const gate = this.pressureGate(agent.session, measurement, spec.retainTokens)
+    if (gate.blocked !== undefined) {
+      this.ctx.logger.info(`compaction (step pressure) deferred: ${gate.blocked}`)
+      return null
     }
+
+    // Once pressure qualifies, land the model-free passes before choosing a
+    // summary range, then remeasure through the singleton replay fold.
+    landFreePasses()
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
+    const tokensBefore = measurement.totalTokens
     let result: CompactionResult | null = null
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
       const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)
@@ -335,7 +365,11 @@ export class BasicCompactionEngine extends CompactionEngine {
         /* v8 ignore next -- paired with the defensive post-success branch above. */
         break
       }
-      result = await this.compactRegion(range.start, range.end, agent, signal)
+      result = await this.compactRegion(range.start, range.end, agent, signal, gate.reading)
+      this.lastPressureCompaction.set(agent.session, {
+        turn: this.currentTurn.get(agent.session) ?? 0,
+        tokens: tokensBefore,
+      })
       measurement = meter.measure(agent.session)
       if (measurement.totalTokens < spec.thresholdTokens) return result
     }
@@ -347,12 +381,54 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
+   * Price the three pressure gates against the last automatic pressure
+   * compaction of this session. Interval and growth gates stay open until a
+   * first compaction has landed in this process; the reclaim gate reads the
+   * range `selectCompactableRange` would pick under the retained tail.
+   * @param session - session under pressure.
+   * @param measurement - current measurement the threshold check used.
+   * @param retainTokens - retained recent tail the summary range must respect.
+   * @returns the gate readings, plus the first failed gate's diagnostic when blocked.
+   */
+  private pressureGate(
+    session: Session,
+    measurement: TokenMeasurement,
+    retainTokens: number,
+  ): { reading: PressureGateReading; blocked?: string } {
+    const { minIntervalTurns, minGrowthTokens, minReclaimTokens } = this.config
+    const last = this.lastPressureCompaction.get(session)
+    const turn = this.currentTurn.get(session)
+    const turnsSinceLast = last === undefined || turn === undefined ? null : turn - last.turn
+    const growthTokens = last === undefined ? null : measurement.totalTokens - last.tokens
+    const range = selectCompactableRange(session, measurement, retainTokens)
+    let reclaimTokens = 0
+    if (range !== null) {
+      for (const node of measurement.nodes) {
+        if (node.seq >= range.start && node.seq <= range.end) reclaimTokens += node.tokens
+      }
+    }
+    const reading: PressureGateReading = { turnsSinceLast, growthTokens, reclaimTokens }
+    const fmt = `(turnsSinceLast=${String(turnsSinceLast)}, growthTokens=${String(growthTokens)}, reclaimTokens=${reclaimTokens})`
+    if (turnsSinceLast !== null && turnsSinceLast < minIntervalTurns) {
+      return { reading, blocked: `minIntervalTurns ${minIntervalTurns} not reached ${fmt}` }
+    }
+    if (growthTokens !== null && growthTokens < minGrowthTokens) {
+      return { reading, blocked: `minGrowthTokens ${minGrowthTokens} not reached ${fmt}` }
+    }
+    if (reclaimTokens < minReclaimTokens) {
+      return { reading, blocked: `minReclaimTokens ${minReclaimTokens} not reached ${fmt}` }
+    }
+    return { reading }
+  }
+
+  /**
    * Compact one inclusive positional range from the agent-owned surface using
    * the effective token meter for all retention and shrink pricing.
    * @param start - inclusive first surface-node seq.
    * @param end - inclusive last surface-node seq.
    * @param agent - owner of the target session, used by the summarizer.
    * @param signal - optional summarization cancellation signal.
+   * @param pressureGate - gate readings that cleared an automatic pressure compaction, recorded on `compaction/start`.
    * @returns the successful durable compaction result.
    */
   override async compactRegion(
@@ -360,6 +436,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     end: SessionSeq,
     agent: Agent,
     signal?: AbortSignal,
+    pressureGate?: PressureGateReading,
   ): Promise<CompactionResult> {
     return compactSurfaceRegion(
       this.regionDependencies(),
@@ -367,7 +444,11 @@ export class BasicCompactionEngine extends CompactionEngine {
       start,
       end,
       agent,
-      { owner: 'current-turn', stability: 'whole-surface' },
+      {
+        owner: 'current-turn',
+        stability: 'whole-surface',
+        ...pressureGate === undefined ? {} : { pressureGate },
+      },
       signal,
     )
   }

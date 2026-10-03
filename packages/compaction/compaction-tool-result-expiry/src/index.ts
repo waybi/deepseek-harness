@@ -25,7 +25,8 @@ import type {} from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-token-meter'
 // Type-only: the `ctx.sessionProjections` Context merge for the declared injection.
 import type {} from '@deepseek-ai/dsh-session-projection'
-import { codePointLength, DEFAULTS, expiredStub, resolveConfig } from './config.ts'
+import { hasSpillNotice } from '@deepseek-ai/dsh-spill-policy/notice'
+import { codePointLength, DEFAULTS, expiredStub, expiredStubWithSpill, resolveConfig } from './config.ts'
 import { toolResultSurfaceProjection } from './projection.ts'
 import type { ToolResultSurfaceNode, ToolResultSurfaceState } from './projection.ts'
 import type {
@@ -35,7 +36,7 @@ import type {
   ToolResultExpiryConfig,
 } from './types.ts'
 
-export { codePointLength, DEFAULTS, expiredStub, resolveConfig } from './config.ts'
+export { codePointLength, DEFAULTS, expiredStub, expiredStubWithSpill, resolveConfig } from './config.ts'
 export { toolResultSurfaceProjection, UNNAMED_TOOL } from './projection.ts'
 export type { ToolResultSurfaceNode, ToolResultSurfaceState } from './projection.ts'
 export type {
@@ -51,8 +52,28 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** Matches a stub this plugin emitted, so an already-expired result is never rewritten again. */
-const STUB_PATTERN = /^\[.+ output from an earlier turn expired: \d+ characters removed; rerun the tool to see it again\]$/u
+/** Matches the head of a stub this plugin emitted, so an already-expired result is never rewritten again. */
+const STUB_PATTERN = /^\[.+ output from an earlier turn expired: \d+ characters removed; /u
+
+/** Paragraph break that precedes a spill-policy notice appended to a retained preview. */
+const NOTICE_BREAK = '\n\n('
+
+/**
+ * Split off the trailing spill-policy notice of one text block.
+ * @param text - complete text of a tool-result block.
+ * @returns the notice when the block ends with one, else `null`.
+ */
+function spillNoticeOf(text: string): string | null {
+  if (!hasSpillNotice(text)) return null
+  // The shortest suffix that is itself a complete notice is the notice.
+  let index = text.lastIndexOf(NOTICE_BREAK)
+  while (index >= 0) {
+    const tail = text.slice(index + NOTICE_BREAK.length - 1)
+    if (hasSpillNotice(tail)) return tail
+    index = text.lastIndexOf(NOTICE_BREAK, index - 1)
+  }
+  return text
+}
 
 /** Turn-age based replacement of cold tool results with one-line stubs. */
 export class ToolResultExpiry extends Service {
@@ -64,10 +85,16 @@ export class ToolResultExpiry extends Service {
   static Config: z<ToolResultExpiryConfig> = z.object({
     coldTurns: z.number().step(1).min(1).default(DEFAULTS.coldTurns),
     thresholdChars: z.number().step(1).min(1).default(DEFAULTS.thresholdChars),
+    sweepEvery: z.number().step(1).min(1).default(DEFAULTS.sweepEvery),
+    idleSweepMs: z.number().step(1).min(1).default(DEFAULTS.idleSweepMs),
   })
 
   /** Resolved and immutable expiry policy. */
   readonly config: ResolvedConfig
+  /** Turn of the last pass that landed a replacement, per session. */
+  private readonly lastSweep = new WeakMap<Session, number>()
+  /** Wall-clock time and turn of the most recent pre-step seen, per session. */
+  private readonly lastStep = new WeakMap<Session, { at: number; turn: number }>()
 
   constructor(ctx: Context, config: ToolResultExpiryConfig = {}) {
     super(ctx, 'toolResultExpiry')
@@ -78,7 +105,7 @@ export class ToolResultExpiry extends Service {
     ctx.on('agent/pre-step', async ({ agent, turn, signal }, next): Promise<PreStepDecision> => {
       if (!signal.aborted) {
         try {
-          const result = this.expireSession(agent.session, turn)
+          const result = this.sweepSession(agent.session, turn)
           if (result.expired.length > 0) {
             ctx.logger.info(
               `tool-result expiry (turn ${turn}): stubbed ${result.expired.length} cold tool results `
@@ -92,6 +119,60 @@ export class ToolResultExpiry extends Service {
       }
       return next()
     }, { prepend: true })
+  }
+
+  /** Current wall-clock time in milliseconds; overridable for tests. */
+  now(): number {
+    return Date.now()
+  }
+
+  /**
+   * Whether a pass may land replacements at `currentTurn`. Any landed
+   * replacement rewrites history and invalidates the provider prompt-cache
+   * prefix, so sweeps are confined to moments when that prefix is already
+   * lost or stale: the session has idled past `idleSweepMs`, or `sweepEvery`
+   * turns have elapsed since the last landed sweep (fallback bound).
+   * Compaction-driven sweeps bypass this gate via `sweepForCompaction`.
+   * @param session - session being prepared.
+   * @param currentTurn - turn whose request is being prepared.
+   * @returns true when expiry should run this turn.
+   */
+  isSweepTurn(session: Session, currentTurn: number): boolean {
+    const previous = this.lastStep.get(session)
+    if (previous !== undefined && this.now() - previous.at >= this.config.idleSweepMs) return true
+    const last = this.lastSweep.get(session) ?? 0
+    return currentTurn - last >= this.config.sweepEvery
+  }
+
+  /**
+   * Record the pre-step for `currentTurn`, run `expireSession` only when
+   * `isSweepTurn` allows, and note the turn when a replacement lands.
+   * @param session - session whose current surface may be rewritten.
+   * @param currentTurn - turn whose request is being prepared.
+   * @returns the pass result, empty when skipped.
+   */
+  sweepSession(session: Session, currentTurn: number): ExpiryResult {
+    const allowed = this.isSweepTurn(session, currentTurn)
+    this.lastStep.set(session, { at: this.now(), turn: currentTurn })
+    if (!allowed) return { expired: [], charsRemoved: 0 }
+    const result = this.expireSession(session, currentTurn)
+    if (result.expired.length > 0) this.lastSweep.set(session, currentTurn)
+    return result
+  }
+
+  /**
+   * Sweep on behalf of compaction, which is about to rewrite history anyway
+   * so the cache cost is already sunk. Uses the turn recorded by the latest
+   * pre-step; a session never stepped in this process is left untouched.
+   * @param session - session compaction is about to summarize.
+   * @returns the pass result, empty when no pre-step turn is known.
+   */
+  sweepForCompaction(session: Session): ExpiryResult {
+    const step = this.lastStep.get(session)
+    if (step === undefined) return { expired: [], charsRemoved: 0 }
+    const result = this.expireSession(session, step.turn)
+    if (result.expired.length > 0) this.lastSweep.set(session, step.turn)
+    return result
   }
 
   /**
@@ -120,6 +201,8 @@ export class ToolResultExpiry extends Service {
   /**
    * Replace all text of an over-threshold result with one stub, keeping
    * non-text blocks in their original relative order.
+   * A text block ending in a spill-policy notice keeps that notice after the
+   * stub, which then points at the stored file instead of a rerun.
    * @param blocks - original tool-result content.
    * @param toolName - tool that produced the result, named in the stub.
    * @returns stubbed content, or `null` when the text is within threshold,
@@ -129,9 +212,23 @@ export class ToolResultExpiry extends Service {
     const totalChars = this.measureContent(blocks)
     if (totalChars <= this.config.thresholdChars) return null
     const texts = blocks.filter(block => block.type === 'text')
-    const [onlyText] = texts
-    if (texts.length === 1 && onlyText !== undefined && STUB_PATTERN.test(onlyText.text)) return null
-    const stubText = expiredStub(toolName, totalChars)
+    if (texts.some(block => STUB_PATTERN.test(block.text))) return null
+    // A spill-policy notice is the model's only pointer to the complete
+    // result on disk; keep every notice verbatim after the stub so reading
+    // the stored file, not rerunning the tool, is the way back.
+    const notices: string[] = []
+    let noticeChars = 0
+    for (const block of texts) {
+      const notice = spillNoticeOf(block.text)
+      if (notice === null) continue
+      notices.push(notice)
+      noticeChars += codePointLength(notice)
+    }
+    const removable = totalChars - noticeChars
+    if (removable <= 0) return null
+    const stubText = notices.length === 0
+      ? expiredStub(toolName, removable)
+      : [expiredStubWithSpill(toolName, removable), ...notices].join('\n\n')
     if (codePointLength(stubText) >= totalChars) return null
 
     const stub: ContentBlock = { type: 'text', text: stubText }
@@ -147,7 +244,7 @@ export class ToolResultExpiry extends Service {
         stubInserted = true
       }
     }
-    /* v8 ignore next -- totalChars > threshold ≥ 1 guarantees at least one text block. */
+    /* v8 ignore next -- removable > 0 guarantees at least one text block. */
     if (!stubInserted) throw new Error('tool-result expiry: no text block to replace')
     return expired
   }

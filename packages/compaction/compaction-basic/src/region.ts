@@ -14,7 +14,7 @@ import {
   toolPairingBalancedAfter,
   toolPairingBalancedBefore,
 } from '@deepseek-ai/dsh-compaction'
-import type { CompactionResult } from '@deepseek-ai/dsh-compaction'
+import type { CompactionResult, PressureGateReading } from '@deepseek-ai/dsh-compaction'
 import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import { createUserMessage, errorChain } from '@deepseek-ai/dsh-llm'
 import type { Message, UserMessage } from '@deepseek-ai/dsh-llm'
@@ -61,6 +61,8 @@ interface CompactionTransactionOptions {
   readonly flush?: () => Promise<void>
   /** Manual command that initiated this transaction, when present. */
   readonly sourceCommandId?: CommandId
+  /** Gate readings that cleared an automatic pressure compaction, recorded on `compaction/start`. */
+  readonly pressureGate?: PressureGateReading
 }
 
 interface CompactionEntryState {
@@ -206,6 +208,7 @@ export async function compactSurfaceRegion(
     compactionId,
     ...options.sourceCommandId === undefined ? {} : { sourceCommandId: options.sourceCommandId },
     turn: owner,
+    ...options.pressureGate === undefined ? {} : { pressureGate: options.pressureGate },
   }
   const startEvent = session.append('compaction/start', lifecycle)
   const assertStable: StabilityCheck = options.stability === 'whole-surface'

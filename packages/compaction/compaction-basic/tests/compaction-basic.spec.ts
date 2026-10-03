@@ -38,6 +38,11 @@ declare module '@deepseek-ai/dsh-llm' {
 
 const SIGNAL = new AbortController().signal
 const MODEL = 'test-model'
+/**
+ * Pressure-gate overrides for fixtures whose 1 000-token windows never reach
+ * the production reclaim minimum; the gates have their own suite below.
+ */
+const GATES_OFF = { minIntervalTurns: 0, minGrowthTokens: 0, minReclaimTokens: 0 } as const
 
 class ContextAdapter extends LlmAdapter {
   constructor(private readonly contextWindow: number) {
@@ -294,7 +299,7 @@ function service(
   config: BasicCompactionConfig = { auto: false },
   ctx = createContext(),
 ): TestCompactionEngine {
-  return new TestCompactionEngine(ctx, { headroomTokens: 0, maxTokens: 8192, ...config })
+  return new TestCompactionEngine(ctx, { headroomTokens: 0, maxTokens: 8192, ...GATES_OFF, ...config })
 }
 
 async function compactIfNeeded(
@@ -321,6 +326,9 @@ describe('compact configuration and defaults', () => {
       maxOverflowRetries: 1,
       modelPolicies: [],
       auto: true,
+      minIntervalTurns: 8,
+      minGrowthTokens: 20_000,
+      minReclaimTokens: 10_000,
     })
     expect(Object.isFrozen(resolved)).toBe(true)
   })
@@ -949,6 +957,7 @@ describe('optional model-free tool-result pruning', () => {
     const ctx = createContext(10_000)
     const prune = new ToolResultPruner(ctx, pruneConfig)
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       auto: false,
@@ -968,6 +977,7 @@ describe('optional model-free tool-result pruning', () => {
     const ctx = createContext(1_000)
     void new ToolResultPruner(ctx, pruneConfig)
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       auto: false,
@@ -987,6 +997,7 @@ describe('optional model-free tool-result pruning', () => {
     const ctx = createContext(2_000)
     void new ToolResultPruner(ctx, pruneConfig)
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       auto: false,
@@ -1004,6 +1015,7 @@ describe('optional model-free tool-result pruning', () => {
   it('retains the original compaction-basic behavior without the optional plugin', async () => {
     const ctx = createContext(2_000)
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       auto: false,
@@ -1703,6 +1715,7 @@ describe('automatic listener and loader composition', () => {
   it('compacts before a step above threshold using the durable routed model and remains idle below it', async () => {
     const ctx = createContext()
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 0.5,
@@ -1721,6 +1734,7 @@ describe('automatic listener and loader composition', () => {
   it('skips pre-step pressure when the step signal is already aborted', async () => {
     const ctx = createContext()
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 0.5,
@@ -1741,6 +1755,7 @@ describe('automatic listener and loader composition', () => {
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 0.5,
@@ -1764,6 +1779,7 @@ describe('automatic listener and loader composition', () => {
       name: model,
     }))
     void new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 0.5,
@@ -1784,6 +1800,7 @@ describe('automatic listener and loader composition', () => {
     const warnings: string[] = []
     ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
     void new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 0.5,
@@ -1828,6 +1845,7 @@ describe('automatic listener and loader composition', () => {
   it('force-compacts below normal pressure for canonical overflow and retries only after replacement', async () => {
     const ctx = createContext(10_000)
     void new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 1,
@@ -1854,6 +1872,7 @@ describe('automatic listener and loader composition', () => {
       tailChars: 10,
     })
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 1,
@@ -1875,6 +1894,7 @@ describe('automatic listener and loader composition', () => {
       tailChars: 10,
     })
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 1,
@@ -1898,6 +1918,7 @@ describe('automatic listener and loader composition', () => {
       tailChars: 10,
     })
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 1,
@@ -1923,6 +1944,7 @@ describe('automatic listener and loader composition', () => {
       tailChars: 10,
     })
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 1,
@@ -1939,6 +1961,7 @@ describe('automatic listener and loader composition', () => {
   it('preserves the newest whole tool-call/result pair during forced overflow compaction', async () => {
     const ctx = createContext()
     void new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       thresholdRatio: 1,
@@ -2078,6 +2101,7 @@ describe('automatic listener and loader composition', () => {
   it('applies the routed model override to the overflow retry cap', async () => {
     const ctx = createContext()
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       maxOverflowRetries: 2,
@@ -2111,6 +2135,7 @@ describe('automatic listener and loader composition', () => {
   it('maxOverflowRetries:0 disables recovery without disabling post-step pressure', async () => {
     const ctx = createContext()
     void new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       maxOverflowRetries: 0,
@@ -2128,6 +2153,7 @@ describe('automatic listener and loader composition', () => {
   it('auto:false installs neither automatic listener', async () => {
     const ctx = createContext()
     void new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       auto: false,
@@ -2170,6 +2196,128 @@ describe('automatic listener and loader composition', () => {
     await preStep(ctx, agent(session, MODEL))
     expect(session.snapshotEvents().some(event => event.type === 'compaction/start')).toBe(false)
     expect(await recover(ctx, agent(session, MODEL), overflow())).toBe(false)
+  })
+})
+
+describe('pressure gates', () => {
+  /** Pressured fixture with all gates off except the one under test. */
+  function gated(overrides: Partial<BasicCompactionConfig>, ctx = createContext()): TestCompactionEngine {
+    return service({ auto: false, thresholdRatio: 0.5, retainTokens: 180, ...overrides }, ctx)
+  }
+
+  function infoLog(ctx: Context): string[] {
+    const lines: string[] = []
+    ctx.logger.info = ((message: string) => void lines.push(message)) as typeof ctx.logger.info
+    return lines
+  }
+
+  async function preStep(ctx: Context, owner: Agent, turn: number): Promise<void> {
+    await agentEvents(ctx, owner).waterfall(
+      'agent/pre-step', { messages: [], turn, step: 1, signal: SIGNAL },
+      () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+    )
+  }
+
+  function gateReadings(session: Session): unknown[] {
+    return session.snapshotEvents()
+      .filter(event => event.type === 'compaction/start')
+      .map(event => (event.data as { pressureGate?: unknown }).pressureGate)
+  }
+
+  it('records the gate readings on compaction/start and prices reclaim from the selected range', async () => {
+    const ctx = createContext()
+    const compact = gated({}, ctx)
+    const session = conversation(4)
+    const measurement = ctx.tokenMeter.measure(session)
+    const range = selectCompactableRange(session, measurement, 180)!
+    const expected = measurement.nodes
+      .filter(node => node.seq >= range.start && node.seq <= range.end)
+      .reduce((sum, node) => sum + node.tokens, 0)
+    expect(expected).toBeGreaterThan(0)
+
+    await expect(compactIfNeeded(compact, session)).resolves.not.toBeNull()
+    expect(gateReadings(session)).toEqual([{ turnsSinceLast: null, growthTokens: null, reclaimTokens: expected }])
+  })
+
+  it('blocks a pressure compaction that would reclaim less than minReclaimTokens', async () => {
+    const ctx = createContext()
+    const lines = infoLog(ctx)
+    const compact = gated({ minReclaimTokens: 100_000 }, ctx)
+    const session = conversation(4)
+
+    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
+    expect(compact.calls).toHaveLength(0)
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/start')).toBe(false)
+    expect(lines).toEqual([expect.stringMatching(
+      /deferred: minReclaimTokens 100000 not reached \(turnsSinceLast=null, growthTokens=null, reclaimTokens=\d+\)/,
+    )])
+  })
+
+  it('blocks a second pressure compaction until minIntervalTurns have passed since the last one', async () => {
+    const ctx = createContext()
+    const lines = infoLog(ctx)
+    const compact = gated({ auto: true, minIntervalTurns: 3 }, ctx)
+    const session = conversation(4)
+    const owner = agent(session, MODEL)
+
+    await preStep(ctx, owner, 5)
+    expect(compact.calls).toHaveLength(1)
+    // Regrow the surface past threshold again and step two turns later.
+    for (let index = 0; index < 4; index += 1) {
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'fixture '.repeat(80).trim() }],
+        source: { kind: 'user' },
+      }), { surfaceOp: 'append' })
+    }
+    await preStep(ctx, owner, 7)
+    expect(compact.calls).toHaveLength(1)
+    expect(lines.filter(line => line.includes('deferred'))).toEqual([
+      expect.stringMatching(/minIntervalTurns 3 not reached \(turnsSinceLast=2, growthTokens=-?\d+, reclaimTokens=\d+\)/),
+    ])
+    // Turn 8 clears the interval gate.
+    await preStep(ctx, owner, 8)
+    expect(compact.calls).toHaveLength(2)
+    expect(gateReadings(session).map(reading => (reading as { turnsSinceLast: number | null }).turnsSinceLast))
+      .toEqual([null, 3])
+  })
+
+  it('blocks a second pressure compaction until the session grew by minGrowthTokens', async () => {
+    const ctx = createContext()
+    const lines = infoLog(ctx)
+    const compact = gated({ auto: true, minGrowthTokens: 1_000_000 }, ctx)
+    const session = conversation(4)
+    const owner = agent(session, MODEL)
+
+    await preStep(ctx, owner, 5)
+    expect(compact.calls).toHaveLength(1)
+    for (let index = 0; index < 3; index += 1) {
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'fixture '.repeat(80).trim() }],
+        source: { kind: 'user' },
+      }), { surfaceOp: 'append' })
+    }
+    await preStep(ctx, owner, 20)
+    expect(compact.calls).toHaveLength(1)
+    expect(lines.filter(line => line.includes('deferred'))).toEqual([
+      expect.stringMatching(/minGrowthTokens 1000000 not reached \(turnsSinceLast=15, growthTokens=-?\d+, reclaimTokens=\d+\)/),
+    ])
+  })
+
+  it('lets overflow recovery and manual compaction bypass every gate', async () => {
+    const ctx = createContext()
+    const compact = gated({ minIntervalTurns: 1_000, minGrowthTokens: 1_000_000, minReclaimTokens: 1_000_000 }, ctx)
+    const session = conversation(4)
+
+    await expect(compactIfNeeded(compact, session, 'pressure')).resolves.toBeNull()
+    await expect(compactIfNeeded(compact, session, 'context-overflow')).resolves.not.toBeNull()
+    expect(gateReadings(session)).toEqual([undefined])
+  })
+
+  it('rejects negative or fractional gate values through the plugin schema', () => {
+    const schema = BasicCompactionEngine.Config
+    expect(() => schema({ auto: false, minIntervalTurns: -1 })).toThrow()
+    expect(() => schema({ auto: false, minReclaimTokens: 1.5 })).toThrow()
+    expect(schema({ auto: false, minGrowthTokens: 0 })).toMatchObject({ minGrowthTokens: 0 })
   })
 })
 
@@ -2294,6 +2442,7 @@ describe('route-priced image pressure', () => {
     const session = imageConversation()
     const before = ctx.tokenMeter.measure(session)
     const compact = new TestCompactionEngine(ctx, {
+      ...GATES_OFF,
       headroomTokens: 0,
       maxTokens: 8192,
       auto: false,

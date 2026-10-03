@@ -163,6 +163,7 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
   }))
   // Small window so several tool steps cross the threshold and compaction
   // fires within the runaway turn after enough history can shrink.
+  // Pressure gates off: these windows are far below the production reclaim minimum.
   const compact = new ReproCompactionEngine(ctx, {
     auto: true,
     headroomTokens: 0,
@@ -170,6 +171,9 @@ async function harness(toolSteps: number): Promise<{ ctx: Context; compact: Repr
     retainTokens: 50,
     maxTokens: 8192,
     compactionRetries: 1,
+    minIntervalTurns: 0,
+    minGrowthTokens: 0,
+    minReclaimTokens: 0,
   })
   return { ctx, compact }
 }
