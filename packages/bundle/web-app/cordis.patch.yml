@@ -36,6 +36,8 @@
     # designed; unset keeps the schema default (native). Remove the env seam
     # once the web UI owns the choice per session.
     mode: !!js process.env.DSH_TOOLS_MODE
+    # A patch replaces the whole row config, so restate dsh-base's deferral list.
+    deferred: ['de_*', 'de_coi_*', 'mcp__*', 'workflow']
 
 # ── web-only host rows, the transport layer, and the browser roster ─────────
 
