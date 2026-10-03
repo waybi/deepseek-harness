@@ -85,13 +85,15 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     }
   })
 
-  it('records the shipped `subagent_fork` alias in a note (config-driven tool name)', async () => {
+  it('records the shipped `subagent_fork` alias as a shipped name (config-driven tool name)', async () => {
     // `tool-subagent`'s registered name is the load-time `toolName` config, so the shipped
-    // agents surface this one package as both `subagent` and `subagent_fork`.
+    // agents surface this one package as both `subagent` and `subagent_fork`. The alias lives
+    // in the `shippedNames` column; the note explains the config mechanism without listing it.
     const catalog = await collectToolCatalog()
     const subagent = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-subagent')
     expect(subagent?.schemas.map(s => s.name)).toEqual(['list_subagent_models', 'subagent'])
-    expect(subagent?.note).toMatch(/subagent_fork/)
+    expect(subagent?.shippedNames).toEqual(['subagent', 'subagent_fork'])
+    expect(subagent?.note).toMatch(/`toolName` config/)
   })
 })
 
