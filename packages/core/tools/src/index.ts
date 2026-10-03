@@ -24,7 +24,7 @@ import { assertSupportedJsonSchema, validateJsonSchemaValue } from './json-schem
 import type { JsonSchemaNode } from './json-schema.ts'
 import { createRunCodeTool, RUN_CODE_NAME } from './ptc.ts'
 import {
-  compileDeferredPatterns,
+  compileDeferredGroups,
   createToolSearchTool,
   renderToolSearchDescription,
   RevealLog,
@@ -114,7 +114,7 @@ export {
 export type { PtcDispatchEventData, PtcDispatchStartEventData } from './types.ts'
 
 export { CodeRunFailedError, RUN_CODE_NAME } from './ptc.ts'
-export { compileDeferredPatterns, searchDeferredTools, TOOL_SEARCH_NAME, toolsRevealedProjection } from './tool-search.ts'
+export { compileDeferredGroups, compileDeferredPatterns, searchDeferredTools, TOOL_SEARCH_NAME, toolsRevealedProjection } from './tool-search.ts'
 export type { ToolExposure, ToolsRevealedState } from './tool-search.ts'
 export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
 export { jsonSchemaToPy, renderToolsSdkPy } from './py-types.ts'
@@ -710,8 +710,15 @@ export interface Config {
   /**
    * Tool names (exact, or a prefix ending in `*`) whose schemas are declared
    * to the model only after it reveals them through the reserved
-   * `tool_search` tool. A definition's own `exposure: 'direct'` overrides a
-   * matching pattern. Empty (default) declares every visible tool directly.
+   * `tool_search` tool. A leading `!` excludes matching names. A definition's
+   * own `exposure: 'direct'` overrides a matching pattern. Empty (default)
+   * declares every visible tool directly.
+   *
+   * Each pattern is a reveal group: a search that hits one member reveals
+   * every hidden member of its most specific pattern (MCP tools group per
+   * server). A reveal changes the declared tool list, which invalidates the
+   * provider's cached prompt prefix once, so grouping keeps that cost to one
+   * invalidation per family.
    */
   deferred?: string[]
 }
@@ -875,8 +882,8 @@ export class ToolRuntime extends Service {
    * transport is stateless beyond its closures over `this`.
    */
   private ptcTransport: ToolDefinition | undefined
-  /** Configured deferred-name predicate. */
-  private readonly isDeferredByConfig: (name: string) => boolean
+  /** Configured deferred-name lookup: the reveal group of a deferred name, or undefined. */
+  private readonly deferredGroup: (name: string) => string | undefined
   /** Durable per-session record of revealed deferred tools. */
   private readonly reveals = new RevealLog(() => this.ctx.get('sessionProjections'))
   /** Reserved discovery transport, built on first need like the PTC transport. */
@@ -888,7 +895,7 @@ export class ToolRuntime extends Service {
     // optional-input type for direct (non-Loader) construction in tests.
     this.defaultMode = config.mode ?? 'native'
     this.maxParallelSubCalls = resolveMaxParallelSubCalls(config.maxParallelSubCalls)
-    this.isDeferredByConfig = compileDeferredPatterns(config.deferred ?? [])
+    this.deferredGroup = compileDeferredGroups(config.deferred ?? [])
     // Durable reveals need the projection registry; a composition without one
     // (minimal test mounts) still logs reveals but remembers them per process.
     ctx.get('sessionProjections')?.register(toolsRevealedProjection)
@@ -907,7 +914,17 @@ export class ToolRuntime extends Service {
    */
   private isDeferred(definition: ToolDefinition): boolean {
     if (definition.exposure !== undefined) return definition.exposure === 'deferred'
-    return this.isDeferredByConfig(definition.name)
+    return this.deferredGroup(definition.name) !== undefined
+  }
+
+  /**
+   * Reveal group of a deferred name: its configured pattern group, or the name
+   * itself for a definition deferred only through its own `exposure`.
+   * @param name - deferred tool name.
+   * @returns the group key shared by tools that reveal together.
+   */
+  private revealGroupOf(name: string): string {
+    return this.deferredGroup(name) ?? name
   }
 
   /**
@@ -947,7 +964,14 @@ export class ToolRuntime extends Service {
         reveal: (scope, names) => {
           const session = sessionOf(scope)
           if (session === undefined) return undefined
-          const fresh = this.reveals.reveal(session, names)
+          // Each reveal changes the declared tool list and so invalidates the
+          // provider's cached prompt prefix once; revealing a whole group per
+          // search keeps that to one invalidation per tool family.
+          const groups = new Set(names.map(name => this.revealGroupOf(name)))
+          const expanded = this.partition(scope).hidden
+            .filter(definition => groups.has(this.revealGroupOf(definition.name)))
+            .map(definition => definition.name)
+          const fresh = this.reveals.reveal(session, expanded)
           if (fresh.length > 0) this.ctx.emit('tools/change')
           return fresh
         },

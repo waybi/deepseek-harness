@@ -73,7 +73,7 @@ The `mode` config decides what the model sees: `native` (every visible schema), 
 |---|---|---|
 | `mode` | `native` | How visible tools are presented to the model: `native`, `ptc`, or `both` |
 | `maxParallelSubCalls` | `10` | Concurrency cap for a `run_code` program's overlapping sub-calls; `1` restores strictly serial dispatch |
-| `deferred` | `[]` | Tool names (exact, or a prefix ending in `*`) declared only after the model reveals them through `tool_search`; see [Defer rarely used tools](#defer-rarely-used-tools) |
+| `deferred` | `[]` | Tool names (exact, a prefix ending in `*`, or a `!`-prefixed exclusion) declared only after the model reveals them through `tool_search`; each pattern is a reveal group; see [Defer rarely used tools](#defer-rarely-used-tools) |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tools) is the exhaustive source for every accepted field. Non-native modes require a composed `ctx.ptcRuntime` whose language has a registered SDK renderer; an agent preset selects its own presentation with [`dsh-agent-tool-presentation`](../agent-tool-presentation/README.md), and one agent can shadow the default with `presentAs(mode)`.
 
@@ -84,10 +84,12 @@ A deployment with many tools pays for every schema on every request. List the ra
 ```yaml
 - name: '@deepseek-ai/dsh-tools'
   config:
-    deferred: ['de_*', 'de_coi_*', 'mcp__*', 'workflow']
+    deferred: ['de_ws_*', 'de_coi_*', 'de_*', '!de_session', 'mcp__*', 'workflow']
 ```
 
-While any deferred tool is hidden for an agent, that agent's declared list ends with the reserved `tool_search(query)` tool, whose description catalogs each hidden tool as one line (`- name: first sentence of its description`), and the system prompt tells the model to search when no declared tool fits. A search ranks hidden tools by name and description terms, returns up to five complete descriptions, and appends a log-only `tools/reveal` event; revealed tools become callable from the next step, are declared after the existing schemas (the cached prefix keeps matching), and stay revealed for the rest of the session, including across compaction and process restarts (the `toolsRevealed` projection folds the events). A hidden tool is not callable before its reveal, so the declared list and the executor agree. `tools.restrict()` applies before deferral: a denied deferred tool is neither cataloged nor searchable. `tool_search` itself cannot be registered or restricted.
+A leading `!` keeps a frequently used name declared even when a broader pattern matches it. Each pattern is a reveal group: a search that hits one tool reveals every hidden tool whose most specific matching pattern is the same, and MCP tools group per server (`mcp__<server>__`). A reveal changes the declared tool list, and a provider's prompt cache is keyed by a prefix that starts with that list, so every reveal costs one full cache rewrite of the conversation; grouping keeps that to one rewrite per tool family instead of one per tool.
+
+While any deferred tool is hidden for an agent, that agent's declared list ends with the reserved `tool_search(query)` tool, whose description catalogs each hidden tool as one line (`- name: first sentence of its description`), and the system prompt tells the model to search when no declared tool fits. A search ranks hidden tools by name and description terms, returns up to five complete descriptions, and appends a log-only `tools/reveal` event; revealed tools become callable from the next step, are declared after the existing schemas, and stay revealed for the rest of the session, including across compaction and process restarts (the `toolsRevealed` projection folds the events). A hidden tool is not callable before its reveal, so the declared list and the executor agree. `tools.restrict()` applies before deferral: a denied deferred tool is neither cataloged nor searchable. `tool_search` itself cannot be registered or restricted.
 
 ### Restrict tools per agent
 

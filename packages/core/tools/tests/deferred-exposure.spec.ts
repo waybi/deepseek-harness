@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { Scope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { compileDeferredPatterns, defineTool, searchDeferredTools, TOOL_SEARCH_NAME } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { compileDeferredGroups, compileDeferredPatterns, defineTool, searchDeferredTools, TOOL_SEARCH_NAME } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -75,6 +75,18 @@ describe('deferred patterns and search ranking', () => {
     expect(matches('read')).toBe(false)
   })
 
+  it('excludes names with a leading bang and groups by the most specific pattern', () => {
+    const group = compileDeferredGroups(['de_ws_*', 'de_coi_*', 'de_*', '!de_session', 'mcp__*', 'workflow'])
+    expect(group('de_session')).toBeUndefined()
+    expect(group('de_ws_status')).toBe('de_ws_*')
+    expect(group('de_coi_dispatch')).toBe('de_coi_*')
+    expect(group('de_broadcast')).toBe('de_*')
+    expect(group('workflow')).toBe('workflow')
+    expect(group('mcp__kimi-cu__click')).toBe('mcp__kimi-cu__')
+    expect(group('mcp__lark_project__get')).toBe('mcp__lark_project__')
+    expect(group('read')).toBeUndefined()
+  })
+
   it('ranks exact name, then substring, then term overlap, capped at five', () => {
     const pool = [
       tool('de_broadcast', 'Broadcast a message to other sessions'),
@@ -125,7 +137,8 @@ describe('deferred exposure through the registry', () => {
   })
 
   it('reveals searched tools durably and appends their schemas after the existing ones', async () => {
-    const ctx = await mount(['de_*'])
+    // Exact-name patterns are one-tool groups, so each search reveals only its hit.
+    const ctx = await mount(['de_broadcast', 'de_session'])
     ctx.tools.register(tool('read'))
     ctx.tools.register(tool('de_broadcast', 'Broadcast a message to other sessions.'))
     ctx.tools.register(tool('de_session', 'Spawn or wake a session.'))
@@ -225,5 +238,33 @@ describe('deferred exposure through the registry', () => {
     expect(() => ctx.tools.register(tool(TOOL_SEARCH_NAME))).toThrow(/reserved for the deferred-tool discovery transport/)
     const { scope } = await mintAgent(ctx, 'reserve')
     expect(() => scope.ctx.tools.restrict({ deny: [TOOL_SEARCH_NAME] })).toThrow(/cannot name reserved discovery transport/)
+  })
+
+  it('reveals a whole group per search so the declared list changes once per family', async () => {
+    const ctx = await mount(['de_ws_*', 'de_*', '!de_session', 'mcp__*'])
+    ctx.tools.register(tool('read'))
+    ctx.tools.register(tool('de_session', 'Spawn or wake a session.'))
+    ctx.tools.register(tool('de_ws_status', 'Workspace occupancy status.'))
+    ctx.tools.register(tool('de_ws_declare', 'Declare workspace occupancy.'))
+    ctx.tools.register(tool('de_broadcast', 'Broadcast a message.'))
+    ctx.tools.register(tool('mcp__kimi-cu__click', 'Click a point.'))
+    ctx.tools.register(tool('mcp__kimi-cu__scroll', 'Scroll a window.'))
+    ctx.tools.register(tool('mcp__lark__doc', 'Read a Feishu document.'))
+    const { key } = await mintAgent(ctx, 'groups')
+
+    // The excluded name stays declared directly.
+    expect(names(ctx, key)).toEqual(['read', 'de_session', TOOL_SEARCH_NAME])
+
+    // One hit on de_ws_status reveals its sibling, but not the broader de_* group.
+    const text = await run(ctx, TOOL_SEARCH_NAME, key, { query: 'de_ws_status' })
+    expect(text).toContain('Revealed 2 tool(s): de_ws_status, de_ws_declare')
+    expect(key.session.snapshotEvents().filter(event => event.type === 'tools/reveal').map(event => event.data))
+      .toEqual([{ names: ['de_ws_status', 'de_ws_declare'] }])
+    expect(names(ctx, key)).toEqual(['read', 'de_session', 'de_ws_status', 'de_ws_declare', TOOL_SEARCH_NAME])
+
+    // MCP tools reveal per server.
+    await run(ctx, TOOL_SEARCH_NAME, key, { query: 'click' })
+    expect(names(ctx, key)).toContain('mcp__kimi-cu__scroll')
+    expect(names(ctx, key)).not.toContain('mcp__lark__doc')
   })
 })

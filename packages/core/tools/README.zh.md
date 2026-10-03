@@ -73,7 +73,7 @@ ctx.tools.register(defineTool({
 |---|---|---|
 | `mode` | `native` | 可见工具向模型呈现的方式：`native`、`ptc` 或 `both` |
 | `maxParallelSubCalls` | `10` | `run_code` 程序重叠子调用的并发上限；`1` 恢复严格串行分发 |
-| `deferred` | `[]` | 工具名（精确名，或以 `*` 结尾的前缀），其 schema 只在模型通过 `tool_search` 揭示后才声明；见[延迟声明不常用工具](#defer-rarely-used-tools) |
+| `deferred` | `[]` | 工具名（精确名、以 `*` 结尾的前缀，或以 `!` 开头的排除项），其 schema 只在模型通过 `tool_search` 揭示后才声明；每个模式是一个揭示组；见[延迟声明不常用工具](#defer-rarely-used-tools) |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tools)是每个受支持字段的穷尽式真源。非原生模式要求已组合的 `ctx.ptcRuntime` 且其语言有已注册的 SDK 渲染器；agent preset 通过 [`dsh-agent-tool-presentation`](../agent-tool-presentation/README.zh.md) 自行选择呈现方式，单个 agent 可用 `presentAs(mode)` 遮蔽默认值。
 
@@ -84,10 +84,12 @@ ctx.tools.register(defineTool({
 ```yaml
 - name: '@deepseek-ai/dsh-tools'
   config:
-    deferred: ['de_*', 'de_coi_*', 'mcp__*', 'workflow']
+    deferred: ['de_ws_*', 'de_coi_*', 'de_*', '!de_session', 'mcp__*', 'workflow']
 ```
 
-只要某个 agent 仍有延迟工具处于隐藏状态，该 agent 的声明列表就以保留的 `tool_search(query)` 工具收尾，其描述把每个隐藏工具列为一行目录（`- 名称: 描述首句`），系统提示词也会告诉模型：没有合适的已声明工具时先搜索。一次搜索按名称与描述词项对隐藏工具排序，最多返回五个完整描述，并追加一条仅记日志的 `tools/reveal` 事件；被揭示的工具从下一步起可调用，声明在既有 schema 之后（已缓存前缀继续匹配），并在本会话余下时间里保持揭示状态，包括跨压缩与进程重启（`toolsRevealed` 投影折叠这些事件）。隐藏工具在揭示前不可调用，因此声明列表与执行器一致。`tools.restrict()` 先于延迟生效：被拒绝的延迟工具既不进目录也搜不到。`tool_search` 本身不能被注册或限制。
+以 `!` 开头的模式让常用工具即使被更宽的模式匹配也保持直接声明。每个模式是一个揭示组：一次搜索命中某个工具时，会把最具体匹配模式相同的所有隐藏工具一起揭示；MCP 工具按服务器分组（`mcp__<server>__`）。揭示会改变声明的工具列表，而提供方的 prompt 缓存以从该列表开始的前缀为键，所以每次揭示都会让整段对话重写一次缓存；分组把这个代价从每个工具一次降到每个工具族一次。
+
+只要某个 agent 仍有延迟工具处于隐藏状态，该 agent 的声明列表就以保留的 `tool_search(query)` 工具收尾，其描述把每个隐藏工具列为一行目录（`- 名称: 描述首句`），系统提示词也会告诉模型：没有合适的已声明工具时先搜索。一次搜索按名称与描述词项对隐藏工具排序，最多返回五个完整描述，并追加一条仅记日志的 `tools/reveal` 事件；被揭示的工具从下一步起可调用，声明在既有 schema 之后，并在本会话余下时间里保持揭示状态，包括跨压缩与进程重启（`toolsRevealed` 投影折叠这些事件）。隐藏工具在揭示前不可调用，因此声明列表与执行器一致。`tools.restrict()` 先于延迟生效：被拒绝的延迟工具既不进目录也搜不到。`tool_search` 本身不能被注册或限制。
 
 ### 按 agent 限制工具
 

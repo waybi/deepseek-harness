@@ -4097,8 +4097,15 @@ export interface Config {
   /**
    * Tool names (exact, or a prefix ending in `*`) whose schemas are declared
    * to the model only after it reveals them through the reserved
-   * `tool_search` tool. A definition's own `exposure: 'direct'` overrides a
-   * matching pattern. Empty (default) declares every visible tool directly.
+   * `tool_search` tool. A leading `!` excludes matching names. A definition's
+   * own `exposure: 'direct'` overrides a matching pattern. Empty (default)
+   * declares every visible tool directly.
+   *
+   * Each pattern is a reveal group: a search that hits one member reveals
+   * every hidden member of its most specific pattern (MCP tools group per
+   * server). A reveal changes the declared tool list, which invalidates the
+   * provider's cached prompt prefix once, so grouping keeps that cost to one
+   * invalidation per family.
    */
   deferred?: string[]
 }

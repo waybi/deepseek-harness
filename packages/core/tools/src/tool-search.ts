@@ -42,20 +42,46 @@ const MAX_HITS = 5
 /** Characters of a tool description kept for one catalog line. */
 const CATALOG_SUMMARY_CHARS = 120
 
+/** MCP tool names are `mcp__<server>__<tool>`; one server's tools reveal together. */
+const MCP_SERVER = /^(mcp__[^_]+(?:_[^_]+)*__)/u
+
 /**
- * Compile deferred-name patterns: a trailing `*` matches any suffix; anything
- * else matches the exact name.
+ * Compile deferred-name patterns into a reveal-group lookup. A trailing `*`
+ * matches any suffix; anything else matches the exact name; a leading `!`
+ * excludes matching names even when another pattern matches. A deferred
+ * tool's group is its most specific (longest) matching pattern, except that
+ * MCP tools group per server, so one search reveals every sibling at once.
  * @param patterns - configured patterns.
+ * @returns the group key of a deferred name, or undefined when the name is not deferred.
+ */
+export function compileDeferredGroups(patterns: readonly string[]): (name: string) => string | undefined {
+  const include: string[] = []
+  const exclude: string[] = []
+  for (const pattern of patterns) {
+    if (pattern.startsWith('!')) exclude.push(pattern.slice(1))
+    else include.push(pattern)
+  }
+  const matches = (pattern: string, name: string): boolean =>
+    pattern.endsWith('*') ? name.startsWith(pattern.slice(0, -1)) : name === pattern
+  return (name) => {
+    if (exclude.some(pattern => matches(pattern, name))) return undefined
+    let best: string | undefined
+    for (const pattern of include) {
+      if (matches(pattern, name) && (best === undefined || pattern.length > best.length)) best = pattern
+    }
+    if (best === undefined) return undefined
+    return MCP_SERVER.exec(name)?.[1] ?? best
+  }
+}
+
+/**
+ * Compile deferred-name patterns into a membership predicate.
+ * @param patterns - configured patterns; see {@link compileDeferredGroups}.
  * @returns a predicate over tool names.
  */
 export function compileDeferredPatterns(patterns: readonly string[]): (name: string) => boolean {
-  const exact = new Set<string>()
-  const prefixes: string[] = []
-  for (const pattern of patterns) {
-    if (pattern.endsWith('*')) prefixes.push(pattern.slice(0, -1))
-    else exact.add(pattern)
-  }
-  return name => exact.has(name) || prefixes.some(prefix => name.startsWith(prefix))
+  const group = compileDeferredGroups(patterns)
+  return name => group(name) !== undefined
 }
 
 /** First sentence of a description, capped, for the catalog line. */

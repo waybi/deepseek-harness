@@ -17,7 +17,7 @@
     # Keep the same temporary process-wide PTC mode opt-in as the Web surface.
     mode: !!js process.env.DSH_TOOLS_MODE
     # A patch replaces the whole row config, so restate dsh-base's deferral list.
-    deferred: ['de_*', 'de_coi_*', 'mcp__*', 'workflow']
+    deferred: ['de_ws_*', 'de_coi_*', 'de_*', '!de_session', 'mcp__*', 'workflow']
 
 - insert:
     - id: headless-startup

@@ -509,7 +509,7 @@
     - id: tools
       name: '@deepseek-ai/dsh-tools'
       config:
-        deferred: ['de_*', 'de_coi_*', 'mcp__*', 'workflow']
+        deferred: ['de_ws_*', 'de_coi_*', 'de_*', '!de_session', 'mcp__*', 'workflow']
 
     # The deployment persona is a deployment choice; plan-mode and tool plugins own
     # their own prompt sections.
