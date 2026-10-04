@@ -993,6 +993,98 @@ describe('optional model-free tool-result pruning', () => {
     expect(session.surface.replaceGeneration).toBe(1)
   })
 
+  it('counts a pressure prune that rewrote history as the last compaction for the gates', async () => {
+    const ctx = createContext(1_000)
+    const lines: string[] = []
+    ctx.logger.info = ((message: string) => void lines.push(message)) as typeof ctx.logger.info
+    const prune = new ToolResultPruner(ctx, pruneConfig)
+    const compact = new TestCompactionEngine(ctx, {
+      minIntervalTurns: 8,
+      minGrowthTokens: 0,
+      minReclaimTokens: 0,
+      headroomTokens: 0,
+      maxTokens: 8192,
+      auto: true,
+      thresholdRatio: 0.5,
+      retainTokens: 50,
+    })
+    const session = oversizedToolResult()
+    const owner = agent(session, MODEL)
+    const pruneSession = vi.spyOn(prune, 'pruneSession')
+    const preStep = (turn: number) => agentEvents(ctx, owner).waterfall(
+      'agent/pre-step', { messages: [], turn, step: 1, signal: SIGNAL },
+      () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+    )
+
+    // Turn 2: pressure qualifies, the prune alone clears it, no summary runs.
+    await preStep(2)
+    expect(pruneSession).toHaveBeenCalledTimes(1)
+    expect(compact.calls).toHaveLength(0)
+    expect(session.surface.replaceGeneration).toBe(1)
+    expect(lines).toContainEqual(expect.stringMatching(/free passes rewrote history: \d+ -> \d+ tokens/))
+
+    // Regrow past the threshold with another oversized result three turns later.
+    const callId = ToolCallId('regrown')
+    session.append('turn/start', { turn: 5 })
+    session.append('step/start', { turn: 5, step: 1 })
+    session.append('assistant/message', {
+      stream: [],
+      turn: 5,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'tool-call', id: callId, name: 'bash', arguments: '{}' }],
+        source: { kind: 'model', provider: MODEL, model: MODEL },
+      }),
+    }, { surfaceOp: 'append' })
+    session.append('tool/call', { turn: 5, step: 1, callId, name: 'bash', arguments: '{}' })
+    session.append('tool/result', {
+      turn: 5,
+      step: 1,
+      message: createToolResultMessage({ callId, content: [{ type: 'text', text: 'Y'.repeat(3_000) }], isError: false }),
+      meta: { presentation: 'preserved' },
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 5, step: 1 })
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeGreaterThanOrEqual(500)
+
+    // Turn 5 is within minIntervalTurns of the turn-2 rewrite: no second rewrite.
+    await preStep(5)
+    expect(pruneSession).toHaveBeenCalledTimes(1)
+    expect(session.surface.replaceGeneration).toBe(1)
+    expect(lines).toContainEqual(expect.stringMatching(
+      /deferred: minIntervalTurns 8 not reached \(turnsSinceLast=3, growthTokens=-?\d+, reclaimTokens=\d+\)/,
+    ))
+
+    // Turn 10 clears the interval gate and the rewrite lands.
+    await preStep(10)
+    expect(pruneSession).toHaveBeenCalledTimes(2)
+    expect(session.surface.replaceGeneration).toBe(2)
+  })
+
+  it('does not record a pressure compaction when the free passes changed nothing', async () => {
+    const ctx = createContext(1_000)
+    void new ToolResultPruner(ctx, { thresholdChars: 1_000_000, headChars: 20, tailChars: 10 })
+    const compact = new TestCompactionEngine(ctx, {
+      minIntervalTurns: 8,
+      minGrowthTokens: 0,
+      minReclaimTokens: 0,
+      headroomTokens: 0,
+      maxTokens: 8192,
+      auto: false,
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+    })
+    const session = conversation(4)
+
+    // Nothing to prune, so the summary runs and is the first recorded compaction.
+    expect(await compactIfNeeded(compact, session)).not.toBeNull()
+    expect(compact.calls).toHaveLength(1)
+    expect(session.snapshotEvents()
+      .filter(event => event.type === 'compaction/start')
+      .map(event => (event.data as { pressureGate?: { turnsSinceLast: number | null } }).pressureGate?.turnsSinceLast))
+      .toEqual([null])
+  })
+
   it('summarizes the pruned surface when pruning is insufficient', async () => {
     const ctx = createContext(2_000)
     void new ToolResultPruner(ctx, pruneConfig)

@@ -305,14 +305,13 @@ export class BasicCompactionEngine extends CompactionEngine {
     // prompt-cache prefix is already lost; compaction is such a moment, so
     // let it land its batch here before the model-free prune pass.
     const expiry = this.ctx.get('toolResultExpiry')
-    const landFreePasses = (): void => {
-      let touched = false
-      if (expiry !== undefined && expiry.sweepForCompaction(agent.session).expired.length > 0) touched = true
-      if (prune !== undefined) {
-        prune.pruneSession(agent.session)
-        touched = true
-      }
-      if (touched) measurement = meter.measure(agent.session)
+    /** Land the model-free passes; true when either one actually rewrote history. */
+    const landFreePasses = (): boolean => {
+      let rewrote = false
+      if (expiry !== undefined && expiry.sweepForCompaction(agent.session).expired.length > 0) rewrote = true
+      if (prune !== undefined && prune.pruneSession(agent.session).pruned.length > 0) rewrote = true
+      if (rewrote) measurement = meter.measure(agent.session)
+      return rewrote
     }
 
     if (trigger === 'context-overflow') {
@@ -352,10 +351,23 @@ export class BasicCompactionEngine extends CompactionEngine {
 
     // Once pressure qualifies, land the model-free passes before choosing a
     // summary range, then remeasure through the singleton replay fold.
-    landFreePasses()
+    const tokensBefore = measurement.totalTokens
+    if (landFreePasses()) {
+      // A free pass that rewrote history discarded the prompt-cache prefix just
+      // like a summary would, so it counts as this session's last pressure
+      // compaction: the gates above then hold off the next rewrite. Without
+      // this, a pass that alone clears pressure left no record and the session
+      // rewrote its history again every time it regrew past the threshold.
+      this.lastPressureCompaction.set(agent.session, {
+        turn: this.currentTurn.get(agent.session) ?? 0,
+        tokens: tokensBefore,
+      })
+      this.ctx.logger.info(
+        `compaction (step pressure) free passes rewrote history: ${tokensBefore} -> ${measurement.totalTokens} tokens`,
+      )
+    }
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
-    const tokensBefore = measurement.totalTokens
     let result: CompactionResult | null = null
     for (let attempt = 0; attempt <= spec.compactionRetries; attempt += 1) {
       const range = selectCompactableRange(agent.session, measurement, spec.retainTokens)

@@ -183,7 +183,7 @@ This is an automatically generated checkpoint condensing an earlier span of the 
 
 它是替换，而非仅追加。每个检查点都会使从第一个已替换历史 token 起的复用失效；该范围之前未更改的请求前缀仍可复用。
 
-由于每个检查点都会丢弃已缓存前缀，自动压力压缩落地前要过三道门：距该会话上次压力压缩至少 `minIntervalTurns` 轮、自那时起估算至少增长 `minGrowthTokens` token、候选范围至少值 `minReclaimTokens`。被推迟的压缩会记录拦住它的那道门（`compaction (step pressure) deferred: …`）及三项读数；落地的压缩把读数作为 `pressureGate` 记录在其 `compaction/start` 事件上。溢出恢复与 `/compact` 不受门控约束。挂载了工具结果过期服务时，其待落地的替换会在同一轮一并落地，一次缓存损失换两种改写。
+由于每个检查点都会丢弃已缓存前缀，自动压力压缩落地前要过三道门：距该会话上次压力压缩至少 `minIntervalTurns` 轮、自那时起估算至少增长 `minGrowthTokens` token、候选范围至少值 `minReclaimTokens`。被推迟的压缩会记录拦住它的那道门（`compaction (step pressure) deferred: …`）及三项读数；落地的压缩把读数作为 `pressureGate` 记录在其 `compaction/start` 事件上。溢出恢复与 `/compact` 不受门控约束。挂载了工具结果过期服务时，其待落地的替换会在同一轮一并落地，一次缓存损失换两种改写。不调用模型的两步（过期清扫与工具结果截断）同样计入：只要它们改写了任何工具结果，即使随后没有做摘要，会话也会把这一刻记为上次压力压缩，门控因此同样拦住下一次改写。没有这条记录时，长会话只靠截断就降到阈值以下，每次重新涨过阈值都会再改写一次历史。什么都没改的一轮不做记录。
 
 ### 辅助摘要器请求
 
