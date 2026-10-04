@@ -448,8 +448,28 @@ describe('compact configuration and defaults', () => {
       contextWindow: window,
       thresholdTokens: threshold,
       retainTokens: retained,
-      ceilingTokens: window - output - 65_536,
+      ceilingTokens: window - output - 65_536 > threshold
+        ? window - output - 65_536
+        : threshold + Math.ceil((window - output - threshold) / 2),
     })
+  })
+
+  it.each([
+    // [window, reserved output, threshold, ceiling]
+    [200_000, 32_000, 102_464, 135_232],
+    [200_000, 64_000, 70_464, 103_232],
+    [288_000, 0, 222_464, 255_232],
+    [262_144, 8_192, 188_416, 221_184],
+    [1_000_000, 384_000, 550_464, 583_232],
+    [1_000_000, 0, 800_000, 934_464],
+    [1_000_000, 128_000, 800_000, 806_464],
+  ])('keeps the hard ceiling above the threshold in window %i with output cap %i', (window, output, threshold, ceiling) => {
+    const policy = resolveTargetPolicy(resolveConfig({}), { provider: MODEL, model: MODEL })
+    const spec = resolveCompactSpec(policy, window, output)
+
+    expect(spec).toMatchObject({ thresholdTokens: threshold, ceilingTokens: ceiling })
+    expect(spec.ceilingTokens).toBeGreaterThan(spec.thresholdTokens)
+    expect(spec.ceilingTokens).toBeLessThan(window - output)
   })
 
   it.each([500, 501])('rejects headroom %i that exhausts the remaining capacity', (headroomTokens) => {
@@ -2311,6 +2331,15 @@ describe('pressure gates', () => {
     )
   }
 
+  function growSession(session: Session, count: number): void {
+    for (let index = 0; index < count; index += 1) {
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'fixture '.repeat(80).trim() }],
+        source: { kind: 'user' },
+      }), { surfaceOp: 'append' })
+    }
+  }
+
   function gateReadings(session: Session): unknown[] {
     return session.snapshotEvents()
       .filter(event => event.type === 'compaction/start')
@@ -2407,14 +2436,7 @@ describe('pressure gates', () => {
     const compact = gated({ auto: true, minIntervalTurns: 100, retainTokens: 180 }, ctx)
     const session = conversation(12)
     const owner = agent(session, MODEL)
-    const grow = (count: number): void => {
-      for (let index = 0; index < count; index += 1) {
-        session.append('user/message', createUserMessage({
-          content: [{ type: 'text', text: 'fixture '.repeat(80).trim() }],
-          source: { kind: 'user' },
-        }), { surfaceOp: 'append' })
-      }
-    }
+    const grow = (count: number): void => { growSession(session, count) }
     expect(ctx.tokenMeter.measure(session).totalTokens).toBeGreaterThanOrEqual(1_000)
 
     // Turn 5: first pressure compaction lands and records the gate baseline.
@@ -2441,6 +2463,40 @@ describe('pressure gates', () => {
     ))
     expect(warnings.some(line => line.includes('step compaction failed'))).toBe(false)
     expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(1_000)
+  })
+
+  it('still lets the gates defer on a small window where headroom caps the threshold', async () => {
+    // Window 2,000, headroom 1,200: message budget 2,000, threshold 800 (the
+    // headroom cap, below ratio 0.5 × 2,000). The old ceiling (budget − headroom)
+    // was also 800, so every pressure step bypassed the gates; the ceiling is
+    // now the midpoint 1,400.
+    const ctx = createContext(2_000)
+    const lines = infoLog(ctx)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: string) => void warnings.push(message)) as typeof ctx.logger.warn
+    const compact = gated({ auto: true, minIntervalTurns: 100, retainTokens: 180, headroomTokens: 1_200 }, ctx)
+    const session = conversation(12)
+    const owner = agent(session, MODEL)
+    const grow = (count: number): void => { growSession(session, count) }
+
+    await preStep(ctx, owner, 5)
+    expect(compact.calls).toHaveLength(1)
+
+    // Above the 800 threshold, below the 1,400 ceiling: the interval gate defers.
+    while (ctx.tokenMeter.measure(session).totalTokens < 900) grow(1)
+    const deferredAt = ctx.tokenMeter.measure(session).totalTokens
+    expect(deferredAt).toBeGreaterThanOrEqual(800)
+    expect(deferredAt).toBeLessThan(1_400)
+    await preStep(ctx, owner, 6)
+    expect(compact.calls).toHaveLength(1)
+    expect(lines).toContainEqual(expect.stringMatching(/deferred: minIntervalTurns 100 not reached/))
+    expect(warnings).toEqual([])
+
+    // Past the ceiling the gates yield.
+    while (ctx.tokenMeter.measure(session).totalTokens < 1_400) grow(1)
+    await preStep(ctx, owner, 7)
+    expect(compact.calls).toHaveLength(2)
+    expect(warnings).toContainEqual(expect.stringMatching(/gates bypassed at hard ceiling \(\d+ >= 1400 tokens\)/))
   })
 
   it('lets overflow recovery and manual compaction bypass every gate', async () => {

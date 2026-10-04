@@ -103,10 +103,13 @@ export type ResolvedCompactSpec = Omit<ResolvedTargetPolicy, 'retainRatio' | 're
   readonly thresholdTokens: number
   readonly retainTokens: number
   /**
-   * Hard pressure ceiling: the window minus reserved completion tokens and
-   * headroom. At or above it automatic pressure compaction ignores the three
-   * pressure gates, so a gate-deferred session cannot grow into a request the
-   * provider rejects. Always at or above `thresholdTokens`.
+   * Hard pressure ceiling. At or above it automatic pressure compaction
+   * ignores the three pressure gates, so a gate-deferred session cannot grow
+   * into a request the provider rejects. It is window − reserved completion
+   * tokens − headroom when that lies above `thresholdTokens`; otherwise
+   * (headroom caps the threshold) the midpoint between `thresholdTokens` and
+   * the message budget. Always strictly above `thresholdTokens` and below the
+   * message budget.
    */
   readonly ceilingTokens: number
 }

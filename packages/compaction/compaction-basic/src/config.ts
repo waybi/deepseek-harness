@@ -208,13 +208,24 @@ export function resolveCompactSpec(
       + `(${retainTokens}) must be less than threshold tokens ${thresholdTokens}`,
     )
   }
+  // The hard ceiling sits strictly between the threshold and the message
+  // budget. Normally it is the message budget minus headroom, keeping the full
+  // headroom as overflow margin. When headroom already caps the threshold (a
+  // small window or a large output reservation: 200K window with 32K reserved
+  // gives a 102,464 threshold), that value equals the threshold and the
+  // pressure gates could never defer anything; only then the ceiling takes the
+  // midpoint between threshold and message budget, splitting the remaining
+  // room between a gate window and an overflow margin.
+  const ceilingTokens = pressureBudgetTokens > thresholdTokens
+    ? pressureBudgetTokens
+    : thresholdTokens + Math.ceil((messageBudgetTokens - thresholdTokens) / 2)
   return deepFreeze({
     target: { ...policy.target },
     contextWindow,
     thresholdRatio: policy.thresholdRatio,
     thresholdTokens,
     retainTokens,
-    ceilingTokens: pressureBudgetTokens,
+    ceilingTokens,
     summarizationProvider: policy.summarizationProvider,
     summarizationModel: policy.summarizationModel,
     maxTokens: policy.maxTokens,
