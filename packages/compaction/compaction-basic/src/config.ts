@@ -214,6 +214,7 @@ export function resolveCompactSpec(
     thresholdRatio: policy.thresholdRatio,
     thresholdTokens,
     retainTokens,
+    ceilingTokens: pressureBudgetTokens,
     summarizationProvider: policy.summarizationProvider,
     summarizationModel: policy.summarizationModel,
     maxTokens: policy.maxTokens,

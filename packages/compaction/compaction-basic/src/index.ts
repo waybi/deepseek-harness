@@ -345,8 +345,18 @@ export class BasicCompactionEngine extends CompactionEngine {
     // manual `compactNow` bypass them.
     const gate = this.pressureGate(agent.session, measurement, spec.retainTokens)
     if (gate.blocked !== undefined) {
-      this.ctx.logger.info(`compaction (step pressure) deferred: ${gate.blocked}`)
-      return null
+      // Hard-ceiling fallback: the gates trade a little context for cache
+      // stability, never the request itself. Once the session reaches the
+      // window minus reserved output and headroom, deferring again would let
+      // the next request overflow, so the gates are ignored for this step.
+      if (measurement.totalTokens < spec.ceilingTokens) {
+        this.ctx.logger.info(`compaction (step pressure) deferred: ${gate.blocked}`)
+        return null
+      }
+      this.ctx.logger.warn(
+        'compaction (step pressure) gates bypassed at hard ceiling '
+        + `(${measurement.totalTokens} >= ${spec.ceilingTokens} tokens): ${gate.blocked}`,
+      )
     }
 
     // Once pressure qualifies, land the model-free passes before choosing a
