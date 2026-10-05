@@ -131,6 +131,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     minIntervalTurns: pressureGateSchema,
     minGrowthTokens: pressureGateSchema,
     minReclaimTokens: pressureGateSchema,
+    maxDeferredSteps: pressureGateSchema,
   })
 
   /** Resolved and validated compaction configuration. */
@@ -143,6 +144,8 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly lastPressureCompaction = new WeakMap<Session, { turn: number; tokens: number }>()
   /** Turn of the latest pre-step seen, per session; the pressure gates price against it. */
   private readonly currentTurn = new WeakMap<Session, number>
+  /** Pressure steps of one turn the time-based gates deferred, per session. */
+  private readonly deferredSteps = new WeakMap<Session, { turn: number | undefined; count: number }>()
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
@@ -336,7 +339,10 @@ export class BasicCompactionEngine extends CompactionEngine {
       info.context.contextWindow,
       reservedCompletionTokens(agent, info.defaultMaxTokens),
     )
-    if (measurement.totalTokens < spec.thresholdTokens) return null
+    if (measurement.totalTokens < spec.thresholdTokens) {
+      this.deferredSteps.delete(agent.session)
+      return null
+    }
 
     // Every landed compaction rewrites history and discards the provider
     // prompt-cache prefix, so pressure alone is not enough: the three gates
@@ -350,6 +356,7 @@ export class BasicCompactionEngine extends CompactionEngine {
       // window minus reserved output and headroom, deferring again would let
       // the next request overflow, so the gates are ignored for this step.
       if (measurement.totalTokens < spec.ceilingTokens) {
+        if (gate.timeBased) this.countDeferredStep(agent.session)
         this.ctx.logger.info(`compaction (step pressure) deferred: ${gate.blocked}`)
         return null
       }
@@ -372,6 +379,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         turn: this.currentTurn.get(agent.session) ?? 0,
         tokens: tokensBefore,
       })
+      this.deferredSteps.delete(agent.session)
       this.ctx.logger.info(
         `compaction (step pressure) free passes rewrote history: ${tokensBefore} -> ${measurement.totalTokens} tokens`,
       )
@@ -392,6 +400,7 @@ export class BasicCompactionEngine extends CompactionEngine {
         turn: this.currentTurn.get(agent.session) ?? 0,
         tokens: tokensBefore,
       })
+      this.deferredSteps.delete(agent.session)
       measurement = meter.measure(agent.session)
       if (measurement.totalTokens < spec.thresholdTokens) return result
     }
@@ -405,19 +414,21 @@ export class BasicCompactionEngine extends CompactionEngine {
   /**
    * Price the three pressure gates against the last automatic pressure
    * compaction of this session. Interval and growth gates stay open until a
-   * first compaction has landed in this process; the reclaim gate reads the
-   * range `selectCompactableRange` would pick under the retained tail.
+   * first compaction has landed in this process, and once `maxDeferredSteps`
+   * steps of the current turn were deferred by them; the reclaim gate reads
+   * the range `selectCompactableRange` would pick under the retained tail.
    * @param session - session under pressure.
    * @param measurement - current measurement the threshold check used.
    * @param retainTokens - retained recent tail the summary range must respect.
-   * @returns the gate readings, plus the first failed gate's diagnostic when blocked.
+   * @returns the gate readings, plus the first failed gate's diagnostic and
+   * whether it was a time-based gate (interval or growth) when blocked.
    */
   private pressureGate(
     session: Session,
     measurement: TokenMeasurement,
     retainTokens: number,
-  ): { reading: PressureGateReading; blocked?: string } {
-    const { minIntervalTurns, minGrowthTokens, minReclaimTokens } = this.config
+  ): { reading: PressureGateReading; blocked?: string; timeBased?: boolean } {
+    const { minIntervalTurns, minGrowthTokens, minReclaimTokens, maxDeferredSteps } = this.config
     const last = this.lastPressureCompaction.get(session)
     const turn = this.currentTurn.get(session)
     const turnsSinceLast = last === undefined || turn === undefined ? null : turn - last.turn
@@ -431,16 +442,47 @@ export class BasicCompactionEngine extends CompactionEngine {
     }
     const reading: PressureGateReading = { turnsSinceLast, growthTokens, reclaimTokens }
     const fmt = `(turnsSinceLast=${String(turnsSinceLast)}, growthTokens=${String(growthTokens)}, reclaimTokens=${reclaimTokens})`
+    let timeBlocked: string | undefined
     if (turnsSinceLast !== null && turnsSinceLast < minIntervalTurns) {
-      return { reading, blocked: `minIntervalTurns ${minIntervalTurns} not reached ${fmt}` }
+      timeBlocked = `minIntervalTurns ${minIntervalTurns} not reached ${fmt}`
+    } else if (growthTokens !== null && growthTokens < minGrowthTokens) {
+      timeBlocked = `minGrowthTokens ${minGrowthTokens} not reached ${fmt}`
     }
-    if (growthTokens !== null && growthTokens < minGrowthTokens) {
-      return { reading, blocked: `minGrowthTokens ${minGrowthTokens} not reached ${fmt}` }
+    if (timeBlocked !== undefined) {
+      const deferred = this.deferredStepsInTurn(session)
+      if (deferred < maxDeferredSteps) return { reading, blocked: timeBlocked, timeBased: true }
+      // One long turn of tool steps never advances the turn count, so the
+      // interval gate alone would hold until the hard ceiling while each step
+      // re-reads the oversized history. After the step budget, land it now.
+      this.ctx.logger.info(
+        `compaction (step pressure) time gates yield after ${deferred} deferred steps this turn: ${timeBlocked}`,
+      )
     }
     if (reclaimTokens < minReclaimTokens) {
       return { reading, blocked: `minReclaimTokens ${minReclaimTokens} not reached ${fmt}` }
     }
     return { reading }
+  }
+
+  /**
+   * Steps of the current turn the time-based gates already deferred.
+   * @param session - session under pressure.
+   * @returns the count, or `0` when the record belongs to another turn.
+   */
+  private deferredStepsInTurn(session: Session): number {
+    const record = this.deferredSteps.get(session)
+    return record !== undefined && record.turn === this.currentTurn.get(session) ? record.count : 0
+  }
+
+  /**
+   * Record one more step of the current turn deferred by a time-based gate.
+   * @param session - session whose pressure step was deferred.
+   */
+  private countDeferredStep(session: Session): void {
+    this.deferredSteps.set(session, {
+      turn: this.currentTurn.get(session),
+      count: this.deferredStepsInTurn(session) + 1,
+    })
   }
 
   /**

@@ -43,6 +43,7 @@ const BASIC_COMPACT_CONFIG_KEYS: ReadonlySet<string> = new Set([
   'minIntervalTurns',
   'minGrowthTokens',
   'minReclaimTokens',
+  'maxDeferredSteps',
 ])
 
 /** Complete exact-target override key set. */
@@ -112,6 +113,7 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
     minIntervalTurns: config.minIntervalTurns ?? 8,
     minGrowthTokens: config.minGrowthTokens ?? 20_000,
     minReclaimTokens: config.minReclaimTokens ?? 10_000,
+    maxDeferredSteps: config.maxDeferredSteps ?? 8,
   })
 }
 

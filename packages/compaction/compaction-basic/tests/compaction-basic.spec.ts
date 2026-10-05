@@ -329,6 +329,7 @@ describe('compact configuration and defaults', () => {
       minIntervalTurns: 8,
       minGrowthTokens: 20_000,
       minReclaimTokens: 10_000,
+      maxDeferredSteps: 8,
     })
     expect(Object.isFrozen(resolved)).toBe(true)
   })
@@ -2499,6 +2500,59 @@ describe('pressure gates', () => {
     expect(warnings).toContainEqual(expect.stringMatching(/gates bypassed at hard ceiling \(\d+ >= 1400 tokens\)/))
   })
 
+  it('lets the time-based gates yield after maxDeferredSteps deferred steps of one turn', async () => {
+    const ctx = createContext()
+    const lines = infoLog(ctx)
+    const compact = gated({ auto: true, minIntervalTurns: 100, maxDeferredSteps: 3 }, ctx)
+    const session = conversation(4)
+    const owner = agent(session, MODEL)
+
+    await preStep(ctx, owner, 5)
+    expect(compact.calls).toHaveLength(1)
+    // One long turn: regrow past the threshold (still under the 1,000 ceiling)
+    // and step repeatedly without a new user turn.
+    while (ctx.tokenMeter.measure(session).totalTokens < 500) growSession(session, 1)
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(1_000)
+    for (let step = 0; step < 3; step += 1) await preStep(ctx, owner, 6)
+    expect(compact.calls).toHaveLength(1)
+    expect(lines.filter(line => line.includes('deferred: minIntervalTurns 100'))).toHaveLength(3)
+
+    await preStep(ctx, owner, 6)
+    expect(compact.calls).toHaveLength(2)
+    expect(lines).toContainEqual(expect.stringMatching(
+      /time gates yield after 3 deferred steps this turn: minIntervalTurns 100 not reached \(turnsSinceLast=1,/,
+    ))
+    expect(gateReadings(session).map(reading => (reading as { turnsSinceLast: number | null }).turnsSinceLast))
+      .toEqual([null, 1])
+  })
+
+  it('restarts the deferred-step budget on every new turn', async () => {
+    const ctx = createContext()
+    const compact = gated({ auto: true, minIntervalTurns: 100, maxDeferredSteps: 3 }, ctx)
+    const session = conversation(4)
+    const owner = agent(session, MODEL)
+
+    await preStep(ctx, owner, 5)
+    while (ctx.tokenMeter.measure(session).totalTokens < 500) growSession(session, 1)
+    for (const turn of [6, 6, 7, 7, 8, 8]) await preStep(ctx, owner, turn)
+    expect(compact.calls).toHaveLength(1)
+  })
+
+  it('lets every pressure step bypass the time-based gates when maxDeferredSteps is 0', async () => {
+    const ctx = createContext()
+    const lines = infoLog(ctx)
+    const compact = gated({ auto: true, minIntervalTurns: 100, maxDeferredSteps: 0 }, ctx)
+    const session = conversation(4)
+    const owner = agent(session, MODEL)
+
+    await preStep(ctx, owner, 5)
+    while (ctx.tokenMeter.measure(session).totalTokens < 500) growSession(session, 1)
+    await preStep(ctx, owner, 6)
+    expect(compact.calls).toHaveLength(2)
+    expect(lines).toContainEqual(expect.stringMatching(/time gates yield after 0 deferred steps this turn/))
+    expect(lines.some(line => line.includes('deferred:'))).toBe(false)
+  })
+
   it('lets overflow recovery and manual compaction bypass every gate', async () => {
     const ctx = createContext()
     const compact = gated({ minIntervalTurns: 1_000, minGrowthTokens: 1_000_000, minReclaimTokens: 1_000_000 }, ctx)
@@ -2513,6 +2567,8 @@ describe('pressure gates', () => {
     const schema = BasicCompactionEngine.Config
     expect(() => schema({ auto: false, minIntervalTurns: -1 })).toThrow()
     expect(() => schema({ auto: false, minReclaimTokens: 1.5 })).toThrow()
+    expect(() => schema({ auto: false, maxDeferredSteps: -1 })).toThrow()
+    expect(schema({ auto: false, maxDeferredSteps: 0 })).toMatchObject({ maxDeferredSteps: 0 })
     expect(schema({ auto: false, minGrowthTokens: 0 })).toMatchObject({ minGrowthTokens: 0 })
   })
 })

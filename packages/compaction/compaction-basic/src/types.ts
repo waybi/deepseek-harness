@@ -64,6 +64,18 @@ export interface BasicCompactionConfig extends CompactionPolicyConfig {
    * Overflow recovery ignores this gate. Non-negative integer; defaults to `10000`.
    */
   minReclaimTokens?: number
+  /**
+   * Pressure steps the time-based gates (`minIntervalTurns`, `minGrowthTokens`)
+   * may defer within one turn. Those gates count user turns and growth, so a
+   * single long turn of many tool steps would otherwise stay deferred until the
+   * hard ceiling while every step re-reads the oversized history. Once this
+   * many steps of the same turn were deferred by them, the next pressure step
+   * ignores both; `minReclaimTokens` and the hard ceiling still apply. The
+   * count resets on a new turn, when pressure clears, and when a compaction
+   * lands. `0` lets every pressure step bypass the time-based gates.
+   * Non-negative integer; defaults to `8`.
+   */
+  maxDeferredSteps?: number
 }
 
 /** Exactly one validated retention form. */
@@ -89,6 +101,7 @@ export type ResolvedConfig = ResolvedPolicyFields & ResolvedRetention & {
   readonly minIntervalTurns: number
   readonly minGrowthTokens: number
   readonly minReclaimTokens: number
+  readonly maxDeferredSteps: number
 }
 
 /** Fully merged policy for one routed conversation target, before capacity scaling. */
