@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/persistence.md
 /session-persistence:
-  en: 0ddce580462dde5b
-  zh: 1b106065618e2aa4
+  en: 31ce06b5d913e3a7
+  zh: 3816c8b7b3d3f8a8
 /session-persistence/sessionhandle-one-open-channel-onto-a-stored-session:
   en: 283765de86ff454d
   zh: ef8fcf55a3071243

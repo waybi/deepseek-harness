@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { createMessage, createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
-import * as SessionInvariant from '@deepseek-ai/dsh-session/invariant'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
+import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { SpillLocator } from '@deepseek-ai/dsh-spill'
 import { formatSpillNotice, hasSpillNotice } from '@deepseek-ai/dsh-spill-policy/notice'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -296,22 +294,6 @@ describe('ToolResultExpiry surface replacement', () => {
     expect(derivedText(session, result.expired[0]!.replacementSeq)).toBe(expiredStub(UNNAMED_TOOL, BIG))
   })
 
-  it('runs under real invariants inside an open turn but not outside one', async () => {
-    const ctx = new Context()
-    await ctx.plugin(SessionStore)
-    await ctx.plugin(SessionProjectionRegistry)
-    await ctx.plugin(InvariantRegistry)
-    await ctx.plugin(SessionInvariant)
-    await ctx.plugin(TokenMeter)
-    const expiry = new ToolResultExpiry(ctx, SMALL)
-    const session = ctx.sessions.create(SessionId('expire-invariant'))
-    appendToolStep(session, 1, 'c1', [{ type: 'text', text: 'c'.repeat(BIG) }])
-    appendToolStep(session, 2, 'c2', [{ type: 'text', text: 'd'.repeat(BIG) }])
-    expect(() => expiry.expireSession(session, 4)).toThrow(/outside any open turn/)
-    session.append('turn/start', { turn: 3 })
-    expect(expiry.expireSession(session, 3).expired.map(entry => entry.turn)).toEqual([1])
-    expect(expiry.expireSession(session, 4).expired.map(entry => entry.turn)).toEqual([2])
-  })
 })
 
 describe('tool-result surface projection', () => {

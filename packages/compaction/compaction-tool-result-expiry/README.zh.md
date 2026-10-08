@@ -93,7 +93,6 @@ kind: "package-reference"
 | [`src/index.ts`](src/index.ts) | 插件入口：`ToolResultExpiry` 服务、`expireSession` / `expireContent` / `isCold` / `measureContent`、`agent/pre-step` 监听器 |
 | [`src/config.ts`](src/config.ts) | `expiredStub`、默认值、码点计数、策略验证 |
 | [`src/types.ts`](src/types.ts) | `ToolResultExpiryConfig`、`ResolvedConfig`、`ExpiredEntry`、`ExpiryResult` |
-| — | 不发布运行时不变式伴生入口；Session 会验证每次仅改写内容的操作，其伴生条目负责维护跨事件包围关系。 |
 
 </details>
 

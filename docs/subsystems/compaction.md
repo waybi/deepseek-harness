@@ -2,13 +2,13 @@
 
 English | [中文](compaction.zh.md)
 
-The compaction seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) split like bash: Service Definition ([dsh-compaction](../../packages/compaction/compaction), `ctx.compaction`), Service Provider (a backend such as [dsh-compaction-basic](../../packages/compaction/compaction-basic)), and human Consumer ([dsh-command-compact](../../packages/compaction/command-compact)). Compaction is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A tokenizer- or template-based backend is a sibling package implementing the same interface. Unlike bash, the interface necessarily depends on `dsh-session` and `dsh-llm`: its verbs act on an agent-owned `Session`, and its durable summary event uses the `ContentBlock` vocabulary (see the [compaction capability-seam Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md)).
+The compaction seam — a [capability seam](../../.agents/notes/implemented/architecture/2026-06-13-capability-seams.md) split like bash: Service Definition ([dsh-compaction](../../packages/compaction/compaction), `ctx.compaction`), Service Provider (a backend such as [dsh-compaction-basic](../../packages/compaction/compaction-basic)), and human Consumer ([dsh-command-compact](../../packages/compaction/command-compact)). Compaction is **one optional capability**, not part of the agent-loop spine — so its vocabulary lives here, not in [core.md](core.md). A tokenizer- or template-based backend is a sibling package implementing the same interface. Unlike bash, the interface necessarily depends on `dsh-session` and `dsh-llm`: its verbs act on an agent-owned `Session`, and its durable summary event uses the `ContentBlock` vocabulary (see the [compaction capability-seam reference](../../packages/compaction/compaction/README.md)).
 
 Source: [`packages/compaction/compaction/src/types.ts`](../../packages/compaction/compaction/src/types.ts)
 
 ## The `compaction/*` session events
 
-Compaction extends [`SessionEventMap`](session.md) with three event types via declaration merging. All three are **log-only** — they record the lock, summary, selected range, shadowed event seqs, token count, and model call without joining the surface. `SurfaceEventType` is deliberately NOT extended (only message-producing events reach the model), so the summary itself rides on a separate `user/message` with `surfaceOp: { op: 'replace', startSeq, endSeq }` — the only surface mutation performed by summary compaction. The [Agent Note](../../.agents/notes/implemented/feature/2026-06-18-compaction-capability-seam.md) owns the rationale for reusing `user/message`.
+Compaction extends [`SessionEventMap`](session.md) with three event types via declaration merging. All three are **log-only** — they record the lock, summary, selected range, shadowed event seqs, token count, and model call without joining the surface. `SurfaceEventType` is deliberately NOT extended (only message-producing events reach the model), so the summary itself rides on a separate `user/message` with `surfaceOp: { op: 'replace', startSeq, endSeq }` — the only surface mutation performed by summary compaction. The [historical Agent Note](../../.agents/notes/archived/feature/2026-06-18-compaction-capability-seam.md) records the rationale for reusing `user/message`.
 
 | Event | Payload | Role |
 |---|---|---|
@@ -249,6 +249,43 @@ Turn-age based replacement of cold tool results with one-line stubs.
 
 ```ts cordis-catalog
 /**
+ * Reads the clock that time-based expiry compares against; tests override it.
+ * @returns Current wall-clock time in epoch milliseconds.
+ */
+now(): number
+
+/**
+ * Whether a pass may land replacements at `currentTurn`. Any landed
+ * replacement rewrites history and invalidates the provider prompt-cache
+ * prefix, so sweeps are confined to moments when that prefix is already
+ * lost or stale: the session has idled past `idleSweepMs`, or `sweepEvery`
+ * turns have elapsed since the last landed sweep (fallback bound).
+ * Compaction-driven sweeps bypass this gate via `sweepForCompaction`.
+ * @param session - session being prepared.
+ * @param currentTurn - turn whose request is being prepared.
+ * @returns true when expiry should run this turn.
+ */
+isSweepTurn(session: Session, currentTurn: number): boolean
+
+/**
+ * Record the pre-step for `currentTurn`, run `expireSession` only when
+ * `isSweepTurn` allows, and note the turn when a replacement lands.
+ * @param session - session whose current surface may be rewritten.
+ * @param currentTurn - turn whose request is being prepared.
+ * @returns the pass result, empty when skipped.
+ */
+sweepSession(session: Session, currentTurn: number): ExpiryResult
+
+/**
+ * Sweep on behalf of compaction, which is about to rewrite history anyway
+ * so the cache cost is already sunk. Uses the turn recorded by the latest
+ * pre-step; a session never stepped in this process is left untouched.
+ * @param session - session compaction is about to summarize.
+ * @returns the pass result, empty when no pre-step turn is known.
+ */
+sweepForCompaction(session: Session): ExpiryResult
+
+/**
  * Measure text content in Unicode code points; non-text blocks cost zero.
  * @param blocks - tool-result content to measure.
  * @returns total Unicode code points across text blocks.
@@ -266,6 +303,8 @@ isCold(resultTurn: number, currentTurn: number): boolean
 /**
  * Replace all text of an over-threshold result with one stub, keeping
  * non-text blocks in their original relative order.
+ * A text block ending in a spill-policy notice keeps that notice after the
+ * stub, which then points at the stored file instead of a rerun.
  * @param blocks - original tool-result content.
  * @param toolName - tool that produced the result, named in the stub.
  * @returns stubbed content, or `null` when the text is within threshold,

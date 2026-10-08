@@ -16,7 +16,7 @@ Status: implemented
 
 - 持久化：`delete(id)` 为该 id 占用进程内写槽，因此活动写 handle 或待创建者会以 `SessionAlreadyOwnedError` 拒绝。未知 id 以 `SessionPersistenceNotFoundError` 拒绝。成功后该 id 对之后的 `stat`、`list` 与 `open` 都视为未知，且可以再次创建。串行化来自这一所有权互斥，没有单独的删除队列。
 - JSONL 后端：占用写槽后，`delete` 获取会话目录的内核租约，因此其他进程的写者会以 `SessionAlreadyOwnedError` 拒绝。随后删除会话目录并丢弃冷日志缓存。租约与写槽在任何结果下都会释放；只有删除成功后才发出 `session-persistence/deleted`。
-- 工作区：注册表监听 `session-persistence/deleted`，从 header 索引、每个工作区记账和归档集合中忘掉该 id。工作区注册删除仍然绝不触碰会话日志（[工作区注册删除](2026-07-27-workspace-registration-deletion.zh.md)）。
+- 工作区：注册表监听 `session-persistence/deleted`，从 header 索引、每个工作区记账和归档集合中忘掉该 id。工作区注册删除仍然绝不触碰会话日志（[工作区注册删除](../../archived/feature/2026-07-27-workspace-registration-deletion.md)）。
 
 ## 已考虑的替代方案
 

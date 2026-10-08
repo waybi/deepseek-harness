@@ -93,7 +93,6 @@ This section explains the design decisions behind expiry; the observable behavio
 | [`src/index.ts`](src/index.ts) | Plugin entry: `ToolResultExpiry` service, `expireSession` / `expireContent` / `isCold` / `measureContent`, the `agent/pre-step` listener |
 | [`src/config.ts`](src/config.ts) | `expiredStub`, defaults, code-point counting, policy validation |
 | [`src/types.ts`](src/types.ts) | `ToolResultExpiryConfig`, `ResolvedConfig`, `ExpiredEntry`, `ExpiryResult` |
-| — | No runtime invariant companion is published; Session validates each content-only rewrite and its companion owns cross-event enclosure. |
 
 </details>
 

@@ -1277,7 +1277,7 @@ describe('built-in conversation node Definitions', () => {
       blocks: [
         { kind: 'text', text: '   \tanswer' },
         { kind: 'reasoning', text: 'thinking' },
-        { kind: 'tool-call', callId: 'call-1', name: '', argsRaw: '{"x":1}' },
+        { kind: 'tool-call', callId: 'call-1', name: '', argsRaw: '' },
       ],
     })
     expect(snapshot(packed).legacy.partial).toBeNull()

@@ -16,7 +16,7 @@ The earlier [session archive decision](../../archived/feature/2026-07-31-session
 
 - Persistence: `delete(id)` claims the in-process write slot for the id, so an active write handle or a pending creator rejects with `SessionAlreadyOwnedError`. An unknown id rejects with `SessionPersistenceNotFoundError`. After success the id is unknown to every later `stat`, `list`, and `open`, and the id can be created again. Serialization comes from this ownership exclusion; there is no separate delete queue.
 - JSONL backend: after the claim, `delete` takes the session directory's kernel lease, so another process's writer rejects with `SessionAlreadyOwnedError`. It then removes the session directory and drops the cold-log memo. The lease and claim are released in every outcome; `session-persistence/deleted` is emitted only after a successful removal.
-- Workspace: the registry listens for `session-persistence/deleted` and forgets the id from the header index, every workspace account, and the archive set. Workspace registration delete still never touches session logs ([workspace registration deletion](2026-07-27-workspace-registration-deletion.md)).
+- Workspace: the registry listens for `session-persistence/deleted` and forgets the id from the header index, every workspace account, and the archive set. Workspace registration delete still never touches session logs ([workspace registration deletion](../../archived/feature/2026-07-27-workspace-registration-deletion.md)).
 
 ## Alternatives considered
 

@@ -121,7 +121,10 @@ export class ToolResultExpiry extends Service {
     }, { prepend: true })
   }
 
-  /** Current wall-clock time in milliseconds; overridable for tests. */
+  /**
+   * Reads the clock that time-based expiry compares against; tests override it.
+   * @returns Current wall-clock time in epoch milliseconds.
+   */
   now(): number {
     return Date.now()
   }
