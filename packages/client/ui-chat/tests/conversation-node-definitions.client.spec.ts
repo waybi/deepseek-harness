@@ -1421,6 +1421,7 @@ describe('built-in conversation node Definitions', () => {
         isError: true,
         error: { name: 'AutoReviewDeniedError', code: 'AUTO_REVIEW_DENIED', reason: 'blocked' },
         content: [{ type: 'text', text: 'contents' }],
+        meta: { cwd: '/selected', path: '/selected/README.md' },
       }),
       at(16, 'tool/result', {
         turn: 2,
@@ -1433,6 +1434,7 @@ describe('built-in conversation node Definitions', () => {
       {
         kind: 'tool-result', callId: 'child', parentCallId: 'history-root', call: { name: 'read' },
         error: { name: 'AutoReviewDeniedError', code: 'AUTO_REVIEW_DENIED', reason: 'blocked' },
+        meta: { cwd: '/selected', path: '/selected/README.md' },
       },
     ])
 
@@ -1455,6 +1457,7 @@ describe('built-in conversation node Definitions', () => {
       {
         kind: 'tool-result', callId: 'child', parentCallId: 'history-root', call: { name: 'read' },
         error: { name: 'AutoReviewDeniedError', code: 'AUTO_REVIEW_DENIED', reason: 'blocked' },
+        meta: { cwd: '/selected', path: '/selected/README.md' },
       },
     ])
 
