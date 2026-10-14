@@ -7,7 +7,7 @@ import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-sess
 import type {
   WorkspaceId, WorkspaceSnapshot, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
-import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionPendingInteraction, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -785,7 +785,7 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByRole('button', { name: '展开其余 2 个会话' })).toBeTruthy()
   })
 
-  it('keeps running sessions outside every batch quota and preserves their order after collapse', () => {
+  it('keeps running sessions ahead of idle rows and outside every batch quota after collapse', () => {
     const idle = Array.from({ length: 12 }, (_, index) => summary(`idle-${index + 1}`, 12 - index))
     const first = summary('running-first', 14, { running: true })
     const last = summary('running-last', 0, { running: true })
@@ -798,7 +798,7 @@ describe('WorkspaceBrowser', () => {
     const expectRows = (count: number) => {
       expect(screen.getAllByRole('treeitem').map(row =>
         within(row).getByText(/^(alpha|新会话|running-(first|last)|idle-\d+)$/u).textContent)).toEqual([
-        'alpha', '新会话', 'running-first', ...idle.slice(0, count).map(item => item.displayTitle), 'running-last',
+        'alpha', '新会话', 'running-first', 'running-last', ...idle.slice(0, count).map(item => item.displayTitle),
       ])
     }
     expectRows(5)
@@ -836,6 +836,24 @@ describe('WorkspaceBrowser', () => {
     })
     expect(screen.queryByText('session-12')).toBeNull()
     expect(screen.getByRole('button', { name: '展开其余 7 个会话' })).toBeTruthy()
+  })
+
+  it('lifts a session awaiting the user above idle rows and outside the idle-session quota', () => {
+    const items = Array.from({ length: 7 }, (_, index) => summary(`session-${index + 1}`, 7 - index))
+    mount({
+      useSessions: hook(sessionState(items)),
+      useWorkspaces: hook(workspaceState([workspace('alpha', items.map(item => item.id))])),
+      useSessionStatus: hook<SessionStatusSnapshot>(new Map([[sid('session-7'), {
+        running: false,
+        pendingInteraction: { key: 'q:1', kind: 'question', sessionId: sid('session-7') } as SessionPendingInteraction,
+        completionUnread: false,
+      }]])),
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    const titles = screen.getAllByRole('treeitem').map(row => row.textContent ?? '')
+    expect(titles.findIndex(text => text.includes('session-7'))).toBe(1)
+    expect(screen.queryByText('session-6')).toBeNull()
+    expect(screen.getByRole('button', { name: '展开其余 1 个会话' })).toBeTruthy()
   })
 
   it('keeps a parent with a running child visible outside the idle-session quota', () => {

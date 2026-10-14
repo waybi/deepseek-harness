@@ -94,6 +94,34 @@ describe('Session ordering', () => {
     expect(rows.map(row => row.id)).toEqual([sid('blank'), sid('pin'), sid('ordinary')])
   })
 
+  it.each(['workspace', 'flat'] as const)('lifts active rows below pins and above idle rows in %s', (mode) => {
+    const sessions = {
+      ...list(
+        summary('idle-new', 60),
+        summary('pin', 50),
+        summary('waiting', 40),
+        summary('delegating', 30),
+        { ...summary('running', 20), running: true },
+        { ...summary('archived-running', 15), running: true },
+        summary('idle-old', 10),
+        { ...summary('child', 5), origin: 'subagent' as const },
+      ),
+      projectionsBySession: { [sid('delegating')]: catalog('child') },
+    }
+    const statuses: SessionStatusSnapshot = new Map([
+      [sid('waiting'), status({ key: 'q:1', kind: 'question', sessionId: sid('waiting') } as SessionPendingInteraction)],
+      [sid('child'), status(undefined, { running: true })],
+    ])
+    const state = rowState({ pinned: ['pin'], archived: ['archived-running'], archivedFilter: 'show' })
+    const order = orderByRecency(sessions.ids, sessions.byId)
+    const rows = mode === 'flat'
+      ? deriveFlat(sessions, order, state, statuses)
+      : deriveGroups(sessions, [workspace('alpha', order)], state, statuses, view(['alpha']))[0]!.sessions
+    expect(rows.map(row => row.id)).toEqual([
+      'pin', 'waiting', 'delegating', 'running', 'idle-new', 'archived-running', 'idle-old',
+    ].map(sid))
+  })
+
   it('orders known members by recency with a stable identity tie-break', () => {
     const summaries = list(summary('tie-b', 20), summary('older', 10), summary('tie-a', 20)).byId
     expect(orderByRecency(

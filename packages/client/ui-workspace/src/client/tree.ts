@@ -267,23 +267,35 @@ export interface SessionRowState {
 }
 
 /**
- * Keep the visible New Session placeholder first, then partition pinned and
- * ordinary rows without changing either partition's caller order.
+ * Whether a row is working or awaiting the user: the Session runs, a direct
+ * subagent runs, or a pending interaction (approval, plan review, question)
+ * waits on it.
+ * @param node - derived row status facts.
+ * @returns true when the row belongs to the active block of its section.
  */
-function sectionMembers(
-  members: readonly SessionSummary[],
-  pinned: ReadonlySet<SessionId>,
-  archived: ReadonlySet<SessionId>,
-): SessionSummary[] {
-  const placeholders: SessionSummary[] = []
-  const leading: SessionSummary[] = []
-  const rest: SessionSummary[] = []
-  for (const member of members) {
-    if (member.blank) placeholders.push(member)
-    else if (!archived.has(member.id) && pinned.has(member.id)) leading.push(member)
-    else rest.push(member)
+export function sessionActive(
+  node: Pick<SessionNode, 'running' | 'runningSubagentCount' | 'pendingInteraction'>,
+): boolean {
+  return node.running || node.runningSubagentCount > 0 || node.pendingInteraction !== undefined
+}
+
+/**
+ * Keep the visible New Session placeholder first, then pinned rows, then
+ * unarchived active rows ({@link sessionActive}), then the remaining rows,
+ * without changing any partition's caller order.
+ */
+function sectionRows(rows: readonly SessionNode[]): SessionNode[] {
+  const placeholders: SessionNode[] = []
+  const leading: SessionNode[] = []
+  const active: SessionNode[] = []
+  const rest: SessionNode[] = []
+  for (const row of rows) {
+    if (row.blank) placeholders.push(row)
+    else if (row.pinned) leading.push(row)
+    else if (!row.archived && sessionActive(row)) active.push(row)
+    else rest.push(row)
   }
-  return [...placeholders, ...leading, ...rest]
+  return [...placeholders, ...leading, ...active, ...rest]
 }
 
 /**
@@ -422,7 +434,8 @@ function sessionNode(
  *
  * Every group shows, except that the archived-only filter drops groups
  * without visible members; sessions populate under expanded groups with
- * pinned rows leading in the selected local order. Blank sessions are
+ * pinned rows leading, then active rows ({@link sessionActive}), each block
+ * in the selected local order. Blank sessions are
  * excluded except for the selected provisional New Session row; archived
  * sessions keep their slots and appear per the archived filter. Content
  * search lives outside this derivation (see {@link deriveSearchResults}).
@@ -460,8 +473,7 @@ export function deriveGroups(
       expanded,
       containsCurrent: g.key === currentGroup,
       sessions: expanded
-        ? sectionMembers(g.sessions, pinned, archived)
-          .map(session => sessionNode(session, list, statuses, pinned, archived))
+        ? sectionRows(g.sessions.map(session => sessionNode(session, list, statuses, pinned, archived)))
         : [],
     })
   }
@@ -499,7 +511,8 @@ export function visibleSessionIds(
 
 /**
  * Derive flat rows from the browser's complete ordered Session ids, with
- * pinned rows fronted ahead of the supplied order.
+ * pinned rows, then active rows ({@link sessionActive}), fronted ahead of the
+ * supplied order.
  * @param list - sessions list snapshot used to select the ids.
  * @param sessionIds - complete account members in the selected order, including hidden archives.
  * @param rowState - registry-global pin and archive sets plus the archived filter.
@@ -521,8 +534,7 @@ export function deriveFlat(
       ? [session]
       : []
   })
-  return sectionMembers(members, pinned, archived)
-    .map(session => sessionNode(session, list, statuses, pinned, archived))
+  return sectionRows(members.map(session => sessionNode(session, list, statuses, pinned, archived)))
 }
 
 /**

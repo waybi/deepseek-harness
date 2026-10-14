@@ -34,7 +34,7 @@ import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { ArchivedFilter, GroupNode, SessionNode, SessionOrderBy, SessionRowState } from '../tree.ts'
 import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
-  pinCurrentBlank, reconcileManualOrder, sessionMemberIds, UNGROUPED_KEY,
+  pinCurrentBlank, reconcileManualOrder, sessionActive, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { AnimatedRows } from './AnimatedRows.tsx'
@@ -55,8 +55,9 @@ const SEARCH_QUERY_MAX_CODE_UNITS = 500
 const COLLAPSED_SESSION_LIMIT = 5
 
 /**
- * Keep provisional and running rows outside the idle-session quota, including
- * parents with running children. The current session always stays in `rows`:
+ * Keep provisional and active rows ({@link sessionActive}: running, running
+ * children, or awaiting the user) outside the idle-session quota. The current
+ * session always stays in `rows`:
  * when it sits past the idle quota it takes the last visible idle seat, so a
  * selection made from outside the tree (toast, inbox, search) is never hidden
  * behind the overflow button and the visible row count does not change.
@@ -69,7 +70,7 @@ function collapsedSessionRows(
   rows: readonly SessionNode[]
   hiddenCount: number
 } {
-  const exempt = (session: SessionNode): boolean => session.blank || session.running || session.runningSubagentCount > 0
+  const exempt = (session: SessionNode): boolean => session.blank || sessionActive(session)
   const idle = sessions.filter(session => !exempt(session))
   const currentIndex = current === undefined ? -1 : idle.findIndex(session => session.id === current)
   const currentBeyondLimit = currentIndex >= limit
