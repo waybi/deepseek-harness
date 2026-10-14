@@ -286,7 +286,8 @@ function bench(options: BenchOptions = {}) {
   ctx.effect(() => locale.register('workspace', { en, zh }))
   ctx.provide('locale', locale)
   const requestDraftInitialization = vi.fn<SessionInputResolver['requestDraftInitialization']>(() => 'applied')
-  if (options.conversation !== false) ctx.provide('conversation', { input: { requestDraftInitialization } })
+  const adoptSavedDraft = vi.fn<SessionInputResolver['adoptSavedDraft']>(() => undefined)
+  if (options.conversation !== false) ctx.provide('conversation', { input: { requestDraftInitialization, adoptSavedDraft } })
   const layout = new LayoutController({
     selectPanel: vi.fn(), retainMainPanels: vi.fn(),
     setSidebar: vi.fn(), toggleSidebar: vi.fn(), setViewportWidth: vi.fn(),
@@ -310,7 +311,10 @@ function bench(options: BenchOptions = {}) {
     view.actions,
     notify,
   )
-  return { ctx, directoryPicker, sessions, uiWorkspace, workspaces, layout, selectPanel, view, notify, requestDraftInitialization }
+  return {
+    ctx, directoryPicker, sessions, uiWorkspace, workspaces, layout, selectPanel, view, notify,
+    requestDraftInitialization, adoptSavedDraft,
+  }
 }
 
 function lastOpening(open: MockInstance<UiWorkspaceService['openWorkspace']>): Promise<void> {
@@ -692,6 +696,51 @@ describe('UiWorkspaceService', () => {
       expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a') })
     })
     await vi.waitFor(() => { expect(b.sessions.retain).toHaveBeenCalledWith(sid('created-a'), expect.anything()) })
+  })
+
+  it('offers hidden unarchived blanks of the target Workspace as draft sources, newest first', async () => {
+    const b = bench({
+      sessions: sessionState([
+        summary('old-blank', { blank: true, cwd: '/w/a', updatedAt: 1 }),
+        summary('history', { cwd: '/w/a', updatedAt: 9 }),
+        summary('new-blank', { blank: true, cwd: '/w/a', updatedAt: 5 }),
+        summary('archived-blank', { blank: true, cwd: '/w/a', updatedAt: 7 }),
+        summary('other-blank', { blank: true, cwd: '/w/b', updatedAt: 8 }),
+      ], 'pending'),
+      workspaces: workspaceState([
+        workspace('a', [sid('old-blank'), sid('history'), sid('new-blank'), sid('archived-blank')]),
+        workspace('b', [sid('other-blank')]),
+      ], [sid('archived-blank')]),
+    })
+    b.adoptSavedDraft.mockImplementation((binding, sources) => {
+      expect(binding.sessionId).toBe(sid('created-a'))
+      return sources[0]
+    })
+
+    b.uiWorkspace.startSession(wid('a'))
+
+    await vi.waitFor(() => { expect(b.sessions.retain).toHaveBeenCalledWith(sid('created-a'), { source: 'mainView' }) })
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a') })
+    expect(b.adoptSavedDraft).toHaveBeenCalledExactlyOnceWith(
+      b.sessions.retained[0]!.reference.binding, [sid('new-blank'), sid('old-blank')],
+    )
+    expect(b.requestDraftInitialization).not.toHaveBeenCalled()
+  })
+
+  it('skips draft adoption without blank candidates or a Conversation input', async () => {
+    const lone = bench({ sessions: sessionState([summary('history', { cwd: '/w/a' })]), workspaces: workspaceState([workspace('a', [sid('history')])]) })
+    lone.uiWorkspace.startSession(wid('a'))
+    await vi.waitFor(() => { expect(lone.sessions.retain).toHaveBeenCalledWith(sid('created-a'), { source: 'mainView' }) })
+    expect(lone.adoptSavedDraft).not.toHaveBeenCalled()
+
+    const headless = bench({
+      conversation: false,
+      sessions: sessionState([summary('blank', { blank: true, cwd: '/w/a' })], 'pending'),
+      workspaces: workspaceState([workspace('a', [sid('blank')])]),
+    })
+    headless.uiWorkspace.startSession(wid('a'))
+    await vi.waitFor(() => { expect(headless.sessions.retain).toHaveBeenCalledWith(sid('created-a'), { source: 'mainView' }) })
+    expect(headless.notify).not.toHaveBeenCalled()
   })
 
   it('reports a refused explicit Session creation through the Workspace notice', async () => {

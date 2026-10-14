@@ -212,6 +212,72 @@ it('imports reference chips on the first Hub shell and preserves them without an
   expect(b.hub.shellFor(b.binding).draftSnapshot).toEqual({ text: '', references: [] })
 })
 
+function storedDraft(key: string): unknown {
+  const stored = JSON.parse(localStorage.getItem(key) ?? 'null') as { readonly draft?: unknown } | null
+  return stored?.draft
+}
+
+function savedSource(draft: unknown, view = 'trajectory'): { id: SessionId; key: string } {
+  const id = SessionId(`draft-source-${randomUUID()}`)
+  const key = `dsh.conversation.${id}`
+  localStorage.setItem(key, JSON.stringify({ draft, view, viewRequest: null }))
+  onTestFinished(() => { localStorage.removeItem(key) })
+  return { id, key }
+}
+
+it('moves the first non-empty unretained saved draft into an empty target and empties only its draft', async () => {
+  const b = await fixture('')
+  const empty = savedSource({ text: '', references: [] })
+  const source = savedSource(saved, 'files')
+  const later = savedSource('later draft')
+
+  expect(b.hub.adoptSavedDraft(b.binding, [b.id, empty.id, source.id, later.id])).toBe(source.id)
+
+  expect(b.shell.draftSnapshot).toEqual(saved)
+  expect(b.shell.editor.getEditorState().read(() => $nodesOfType(ReferenceChipNode).length)).toBe(1)
+  expect(JSON.parse(localStorage.getItem(source.key)!)).toEqual({
+    draft: { text: '', references: [] }, view: 'files', viewRequest: null,
+  })
+  expect(storedDraft(later.key)).toBe('later draft')
+})
+
+it('moves nothing into a non-empty target or out of a retained source', async () => {
+  const target = await fixture('typed here')
+  const source = savedSource('waiting draft')
+  expect(target.hub.adoptSavedDraft(target.binding, [source.id])).toBeUndefined()
+  expect(target.shell.draftSnapshot.text).toBe('typed here')
+  expect(storedDraft(source.key)).toBe('waiting draft')
+
+  const empty = await fixture('')
+  await empty.sessions.add({ id: source.id })
+  const retained = empty.sessions.retain(source.id)
+  onTestFinished(() => { retained.release() })
+  await retained.ready
+  expect(empty.hub.adoptSavedDraft(empty.binding, [source.id])).toBeUndefined()
+  expect(empty.shell.draftSnapshot.text).toBe('')
+  expect(storedDraft(source.key)).toBe('waiting draft')
+
+  const missing = SessionId(`draft-missing-${randomUUID()}`)
+  expect(empty.hub.adoptSavedDraft(empty.binding, [missing])).toBeUndefined()
+  expect(localStorage.getItem(`dsh.conversation.${missing}`)).toBeNull()
+})
+
+it('keeps the source draft when its record cannot be rewritten', async () => {
+  const b = await fixture('')
+  const source = savedSource('cannot clear')
+  const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
+  expect(b.hub.adoptSavedDraft(b.binding, [source.id])).toBeUndefined()
+  setItem.mockRestore()
+  expect(b.shell.draftSnapshot.text).toBe('')
+  expect(storedDraft(source.key)).toBe('cannot clear')
+})
+
+it('refuses draft adoption for a released binding', async () => {
+  const b = await fixture('')
+  b.reference.release()
+  expect(() => b.hub.adoptSavedDraft(b.binding, [])).toThrow('retained Session binding')
+})
+
 it('subscribes when a provider arrives and disconnects each withdrawn provider', async () => {
   const b = await fixture(saved)
   expect(b.shell.actions.insertText('/current', {

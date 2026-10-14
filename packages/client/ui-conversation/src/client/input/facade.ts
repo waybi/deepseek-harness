@@ -254,6 +254,18 @@ export class SessionInputShell implements SessionInput {
     return 'applied'
   }
 
+  /**
+   * Adopt another Session's saved semantic draft when this input has no text or attachments.
+   * @param draft - non-empty saved content from the source Session.
+   * @returns whether the draft replaced this input's empty content.
+   */
+  adoptDraft(draft: DraftSnapshot): boolean {
+    if (this.draftInitializationBlocked()) return false
+    if (this.snapshot.draft !== '' || this.attachmentIds.length > 0) return false
+    this.setDraft(draft)
+    return true
+  }
+
   private draftInitializationBlocked(): boolean {
     const { phase } = this.core.state
     return this.disposed || phase === 'adjudicating' || phase === 'submitting'

@@ -11,6 +11,7 @@ import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/cli
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
 import type { ObservableSnapshot, SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ArbitrateKey, ArbitrateOutcome, Occurrence, ReferenceInsert, TokenSpan } from './draft-editor.ts'
 import type { InputSubmitMode, MessageSubmission } from './composer-submission.ts'
 
@@ -220,6 +221,16 @@ export interface SessionInputResolver {
    * @throws when binding is not the currently retained Session generation.
    */
   requestDraftInitialization(binding: SessionBinding, options: DraftInitializationOptions): DraftInitializationResult
+  /**
+   * Move the first non-empty saved draft among unretained Sessions into an empty retained target.
+   * Text and inline references move; the source keeps its View preference and the target keeps
+   * attachments. A retained source, a non-empty target, or a submission-blocked target moves nothing.
+   * @param binding - target Session generation, already retained by the caller.
+   * @param sources - candidate Sessions in preference order.
+   * @returns the Session whose draft moved, or undefined when nothing moved.
+   * @throws when binding is not the currently retained Session generation.
+   */
+  adoptSavedDraft(binding: SessionBinding, sources: readonly SessionId[]): SessionId | undefined
 }
 
 /** Initial text for a target Session; attachments remain under their existing owner. */

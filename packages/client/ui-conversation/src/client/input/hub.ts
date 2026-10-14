@@ -25,7 +25,7 @@ import type { InputSubmitMode } from '../contract/composer-submission.ts'
 import type { PopupDismissFace } from './facade.ts'
 import { SessionInputShell } from './facade.ts'
 import { reportMessageSubmission } from './submission-analytics.ts'
-import { readConversationDraft } from '../stores.ts'
+import { clearConversationDraft, readConversationDraft } from '../stores.ts'
 
 /** Structural command face for per-session popup resolution. */
 interface CommandFace {
@@ -84,6 +84,26 @@ export class InputHub implements SessionInputResolver {
       throw new Error('conversation.input.requestDraftInitialization requires a retained Session binding')
     }
     return this.shellFor(binding).requestDraftInitialization(options)
+  }
+
+  adoptSavedDraft(binding: SessionBinding, sources: readonly SessionId[]): SessionId | undefined {
+    const sessions = this.sessions()
+    if (sessions.binding(binding.sessionId) !== binding) {
+      throw new Error('conversation.input.adoptSavedDraft requires a retained Session binding')
+    }
+    for (const source of sources) {
+      // A retained source owns a live store that would write its old draft back.
+      if (source === binding.sessionId || sessions.binding(source) !== undefined) continue
+      const draft = readConversationDraft(source)
+      if (draft.text === '') continue
+      if (!this.shellFor(binding).adoptDraft(draft)) return undefined
+      if (!clearConversationDraft(source)) {
+        this.shellFor(binding).setDraft('')
+        return undefined
+      }
+      return source
+    }
+    return undefined
   }
 
   /**

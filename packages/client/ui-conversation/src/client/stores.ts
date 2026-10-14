@@ -56,6 +56,27 @@ export function readConversationDraft(sessionId: SessionId): DraftSnapshot {
 }
 
 /**
+ * Empty an unretained Session's saved draft while keeping its other persisted fields.
+ * @param sessionId - Session-scoped persistence suffix.
+ * @returns whether the stored record now holds an empty draft; false leaves storage unchanged.
+ */
+export function clearConversationDraft(sessionId: SessionId): boolean {
+  if (typeof localStorage === 'undefined') return false
+  const key = `${CONVERSATION_STORE_KEY}.${sessionId}`
+  try {
+    const raw = localStorage.getItem(key)
+    if (raw === null) return true
+    const stored: unknown = JSON.parse(raw)
+    if (typeof stored !== 'object' || stored === null) return false
+    localStorage.setItem(key, JSON.stringify({ ...stored, draft: { text: '', references: [] } }))
+    return true
+  } catch (_error: unknown) {
+    // Unavailable browser storage or malformed JSON cannot be cleared; the caller keeps the source draft.
+    return false
+  }
+}
+
+/**
  * Read the persisted View preference before the Slot store is materialized.
  * @param sessionId - Session-scoped persistence suffix.
  * @returns the preferred View id, or null when storage has no usable value.

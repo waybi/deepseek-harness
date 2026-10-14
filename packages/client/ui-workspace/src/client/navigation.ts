@@ -274,7 +274,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       return
     }
     const opening = draftOptions === undefined
-      ? this.openWorkspaceSession(target, undefined, false)
+      ? this.openWorkspaceSession(target, (id) => { this.adoptHiddenBlankDraft(target, id) }, false)
       : this.openWorkspace(target, initializeDraft ? (id) => {
         const binding = this.sessions.binding(id)
         if (binding === undefined) this.draftPreparationFailed()
@@ -283,6 +283,29 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     void opening.catch(
       (reason: unknown) => { console.warn('new session failed:', reason) },
     )
+  }
+
+  /**
+   * Carry a draft left in a hidden blank of the same Workspace into a fresh Session, because a
+   * fresh New Session no longer reopens that blank and its row stays hidden.
+   */
+  private adoptHiddenBlankDraft(workspaceId: WorkspaceId, sessionId: SessionId): void {
+    const workspace = this.workspaces.list.getSnapshot()
+    const members = workspace.items.find(item => item.workspaceId === workspaceId)?.sessionIds ?? []
+    const sessions = this.sessions.list.getSnapshot()
+    const sources = members
+      .flatMap((id) => {
+        const summary = sessions.byId[id]
+        return summary?.blank === true && id !== sessionId && !workspace.archivedSessionIds.includes(id)
+          ? [summary]
+          : []
+      })
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map(summary => summary.id)
+    if (sources.length === 0) return
+    const binding = this.sessions.binding(sessionId)
+    if (binding === undefined) return
+    this.ctx.get('conversation')?.input.adoptSavedDraft(binding, sources)
   }
 
   private prepareDraft(binding: SessionBinding, options: DraftInitializationOptions): void {

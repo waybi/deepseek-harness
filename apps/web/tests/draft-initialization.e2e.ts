@@ -427,6 +427,40 @@ it('restores repeated file, folder and Session capsules across edits, Workspace 
   expect(console.warnings).toEqual([])
 })
 
+it('carries a draft left in a hidden blank into the fresh Session of a sidebar New session click', async () => {
+  const { scaffold, page, console, first, firstId, second } = await launchDraftFixture()
+  await mkdir(join(first.path, '目录'))
+  await writeFile(join(first.path, FILE_NAME), FILE_BODY)
+  const saved = structuredDraft(firstId, '留在空白会话')
+  await restoreStoredDrafts(page, [{ sessionId: firstId, draft: saved }])
+  await assertDraft(page, firstId, saved)
+  await composer(page).click()
+  await page.keyboard.press(EDITOR_END)
+  const suffix = ' · 切走前补的字 🧪'
+  await page.keyboard.insertText(suffix)
+  const draft = { ...saved, text: saved.text + suffix }
+  await assertDraft(page, firstId, draft)
+
+  await initialize(page, '', second.id)
+  await expect.poll(() => second.sessionIds.length, SETTLE).toBe(1)
+  const secondId = second.sessionIds[0]!
+  await assertDraft(page, secondId, EMPTY)
+
+  // The group action appears on hover, as it does for a pointer user.
+  await page.getByText('Draft origin', { exact: true }).first().hover()
+  await page.locator('button[aria-label="New session in Draft origin"]').click()
+  await expect.poll(() => first.sessionIds.length, SETTLE).toBe(2)
+  const freshId = first.sessionIds.find(id => id !== firstId)!
+  await assertDraft(page, freshId, draft)
+  await expect.poll(() => storedDraft(page, firstId), SETTLE).toEqual(EMPTY)
+
+  await page.reload({ waitUntil: 'load' })
+  await assertDraft(page, freshId, draft)
+  await assertUnsubmitted(scaffold, [firstId, secondId, freshId])
+  expect(console.pageErrors).toEqual([])
+  expect(console.warnings).toEqual([])
+})
+
 it('reads a legacy string from the existing conversation key and saves ordinary edits as a structured draft', async () => {
   const { scaffold, page, console, firstId } = await launchDraftFixture()
   const legacy = '旧字符串草稿 🧭\n普通 @notes，不是胶囊'
