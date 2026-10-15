@@ -59,9 +59,15 @@ export function apply(ctx) {
     writeFileSync(join(installedPlugin, 'bundle.yml'), `- insert:\n    - id: ${installedName}\n      name: ${installedName}\n      inject: [webServer]\n`)
     appendFileSync(join(profile, 'pnpm-workspace.yaml'), 'offline: true\nupdateNotifier: false\n')
     const cli = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
+    // The CLI hands pnpm its own descriptors, so pnpm's error reaches only this child's stdout;
+    // the diagnostics log it names lives in the home that teardown deletes.
     const runCli = (args: string[]) => promisify(execFile)(node,
       ['--expose-internals', cli, 'plugin', '--profile', 'desktop', ...args],
       { cwd: home, env: { ...hostEnvironment, ELECTRON_RUN_AS_NODE: '1' }, timeout: 120_000, windowsHide: true })
+      .catch((error: unknown) => {
+        const output = error instanceof Error && 'stdout' in error && typeof error.stdout === 'string' ? error.stdout.trim() : ''
+        throw new Error(`desktop runtime: CLI plugin ${args[0] ?? ''} failed${output === '' ? '' : `; pnpm output:\n${output}`}`, { cause: error })
+      })
     await runCli(['add', `file:${installedPlugin}`, '--offline', '--ignore-scripts'])
     const installedEntry = join(profile, 'node_modules', installedName, 'index.js')
     if (readFileSync(installedEntry, 'utf8') !== readFileSync(join(installedPlugin, 'index.js'), 'utf8')) {
