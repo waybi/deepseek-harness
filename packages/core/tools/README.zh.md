@@ -81,6 +81,7 @@ ctx.tools.register(defineTool({
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tools)是每个受支持字段的穷尽式真源。非原生模式要求已组合的 `ctx.ptcRuntime` 且其语言有已注册的 SDK 渲染器；agent preset 通过 [`dsh-agent-tool-presentation`](../agent-tool-presentation/README.zh.md) 自行选择呈现方式，单个 agent 可用 `presentAs(mode)` 遮蔽默认值。
 
+<a id="defer-rarely-used-tools"></a>
 ### 延迟声明不常用工具
 
 工具很多的部署要在每次请求里为每个 schema 付费。把不常用的工具列进 `deferred`，或在你拥有的定义上设置 `exposure: 'deferred'`（显式的 `exposure: 'direct'` 优先于匹配的模式）：

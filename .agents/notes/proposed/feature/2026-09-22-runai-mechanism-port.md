@@ -44,7 +44,7 @@ The existing `subagent`/`subagent_fork` rows stay as the default tier. A rule in
 
 ### Batch B — one external hook script (mechanism A)
 
-`hooks-claude-code` already runs an external command on `PostToolUse` and merges its `additionalContext` into the tool result ([index.ts](../../../../packages/hooks/hooks-claude-code/src/index.ts)); the payload carries `session_id`, `tool_name`, `tool_use_id`. The user's patch already mounts the plugin with `configPath: ~/.dsh/hooks-claude-code.json` for `skill-radar`.
+`hooks-claude-code` already runs an external command on `PostToolUse` and merges its `additionalContext` into the tool result ([index.ts](../../../../packages/experimental/hooks-claude-code/src/index.ts)); the payload carries `session_id`, `tool_name`, `tool_use_id`. The user's patch already mounts the plugin with `configPath: ~/.dsh/hooks-claude-code.json` for `skill-radar`.
 
 Add `~/.dsh/hooks/cadence-audit.py`, registered on `UserPromptSubmit` and `PostToolUse`:
 

@@ -81,6 +81,7 @@ The `mode` config decides what the model sees: `native` (every visible schema) o
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tools) is the exhaustive source for every accepted field. Non-native modes require a composed `ctx.ptcRuntime` whose language has a registered SDK renderer; an agent preset selects its own presentation with [`dsh-agent-tool-presentation`](../agent-tool-presentation/README.md), and one agent can shadow the default with `presentAs(mode)`.
 
+<a id="defer-rarely-used-tools"></a>
 ### Defer rarely used tools
 
 A deployment with many tools pays for every schema on every request. List the rarely needed ones under `deferred`, or set `exposure: 'deferred'` on a definition you own (an explicit `exposure: 'direct'` wins over a matching pattern):

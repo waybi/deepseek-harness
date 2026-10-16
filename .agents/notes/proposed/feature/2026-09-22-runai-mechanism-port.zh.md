@@ -44,7 +44,7 @@ subagent_awaiter   persona: wait for the named job/command and report its termin
 
 ### B 批——一个外部 hook 脚本（机制 A）
 
-`hooks-claude-code` 已能在 `PostToolUse` 运行外部命令并把其 `additionalContext` 合并进工具结果（[index.ts](../../../../packages/hooks/hooks-claude-code/src/index.ts)）；payload 带 `session_id`、`tool_name`、`tool_use_id`。用户 patch 已为 `skill-radar` 挂了该插件，`configPath: ~/.dsh/hooks-claude-code.json`。
+`hooks-claude-code` 已能在 `PostToolUse` 运行外部命令并把其 `additionalContext` 合并进工具结果（[index.ts](../../../../packages/experimental/hooks-claude-code/src/index.ts)）；payload 带 `session_id`、`tool_name`、`tool_use_id`。用户 patch 已为 `skill-radar` 挂了该插件，`configPath: ~/.dsh/hooks-claude-code.json`。
 
 新增 `~/.dsh/hooks/cadence-audit.py`，注册在 `UserPromptSubmit` 和 `PostToolUse`：
 
