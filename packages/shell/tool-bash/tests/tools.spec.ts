@@ -450,14 +450,12 @@ describe('bash tool', () => {
     })
     const assembly = await ctx.systemPrompt.assemble()
     const section = assembly.sections.find(s => s.name === 'tool:bash')
-    expect(assembly.sections.map(s => s.name)).toEqual([
-      'harness:identity',
-      'deployment:persona-prefix',
-      'test:before-bash',
-      'tool:bash',
-      'test:after-bash',
-      'deployment:persona-suffix',
-    ])
+    // Other plugins' sections (system-prompt built-ins, `tools:search`) are not
+    // this tool's contract; assert only placement at the TOOL_BASH order.
+    const names = assembly.sections.map(s => s.name)
+    const positions = ['test:before-bash', 'tool:bash', 'test:after-bash'].map(name => names.indexOf(name))
+    expect(positions.every(position => position >= 0)).toBe(true)
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
     expect(section?.text).toContain('[exit code: N]')
   })
 
@@ -471,11 +469,13 @@ describe('bash tool', () => {
     await ctx.plugin(BashEnvPlugin)
     const fiber = await ctx.plugin(ToolBash)
     expect(ctx.tools.schemas()).toHaveLength(1)
-    expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona-prefix', 'tool:bash', 'deployment:persona-suffix'])
+    const before = (await ctx.systemPrompt.assemble()).sections.map(s => s.name)
+    expect(before).toContain('tool:bash')
     await fiber.dispose()
     expect(ctx.tools.schemas()).toHaveLength(0)
-    // Only the system-prompt plugin's own built-in sections remain.
-    expect((await ctx.systemPrompt.assemble()).sections.map(s => s.name)).toEqual(['harness:identity', 'deployment:persona-prefix', 'deployment:persona-suffix'])
+    // Disposal removes exactly the bash section; other plugins' sections remain.
+    const after = (await ctx.systemPrompt.assemble()).sections.map(s => s.name)
+    expect(after).toEqual(before.filter(name => name !== 'tool:bash'))
   })
 
   it('tools depend on the executor: no registration without ctx.shell', async () => {
