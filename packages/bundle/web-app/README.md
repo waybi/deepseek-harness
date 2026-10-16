@@ -148,15 +148,15 @@ Read these pages when you want to go deeper into the shared core, the browser re
 
 #### What the model sees
 
-When `surfaceContext` is true, the `harness:source` section identifies the on-disk Harness implementation without claiming it is the working directory, and the `app:web-surface` global section (first-party order 10100, after reusable instructions) orients the model to the GUI: the advertised application URL (defined under Listening, trust, and public deployments above), the "this page" referent, the update contract (the reload receiver is always on; no-refresh reloads additionally need the `pnpm run dev:web` watcher), and the instruction not to start replacement servers. `DSH_WEB_URL` additionally appears in the managed bash environment with its description, resolved per invocation from the live server. When it is false, neither section nor the variable is registered.
+When `surfaceContext` is true, the `harness:source` section identifies the on-disk Harness implementation without claiming it is the working directory, and the `app:web-surface` global section (first-party order 10100, after reusable instructions) orients the model to the GUI: the "this page" referent, the update contract (the reload receiver is always on; no-refresh reloads additionally need the `pnpm run dev:web` watcher), and the instruction not to start replacement servers. The section contains no URL; it points the model to the runtime context. The required `app:web-surface-url` runtime context (context order 130) carries the line `DeepSeek Harness Web GUI URL: <url>` with the advertised application URL (defined under Listening, trust, and public deployments above), so disabling optional runtime context keeps it. `DSH_WEB_URL` additionally appears in the managed bash environment with its description, resolved per invocation from the live server. When it is false, neither section, the runtime context, nor the variable is registered.
 
 #### Token effect
 
-One source line and one prompt paragraph per session plus two managed-environment variable lines; constant per process.
+One source line and one prompt paragraph per session, one runtime-context line, and two managed-environment variable lines; constant per process.
 
 #### KV Cache effect
 
-Source and Web sections follow first-party reusable instructions. Different checkout paths or application URLs leave that preceding prefix unchanged when tools and configuration match; provider cache reuse is not guaranteed.
+Source and Web sections follow first-party reusable instructions. Different checkout paths leave that preceding prefix unchanged when tools and configuration match. A different application URL, such as a new port after a restart or another `publicUrl`, leaves the whole system prompt and the existing history unchanged; it appends one runtime-context snapshot at the end of the conversation. Provider cache reuse is not guaranteed.
 
 ## Known Limitations and Deferred Work
 

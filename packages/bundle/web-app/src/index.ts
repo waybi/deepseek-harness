@@ -4,8 +4,9 @@
  * manifest field). The plugin owns the browser-surface glue: it resolves
  * the built frontend dist (workspace knowledge of this bundle, never user
  * config), mounts the `frontend-static` fallback owner over it, registers the
- * harness-source and web-surface prompt sections, the bash-visible web runtime
- * variable, the process-token URL line, and the default-browser handoff. An
+ * harness-source and web-surface prompt sections, the web-surface URL runtime
+ * context, the bash-visible web runtime variable, the process-token URL line,
+ * and the default-browser handoff. An
  * advertised `publicUrl` replaces the published bind-address URL. Non-loopback
  * HTTP binds trigger an exposure warning. App command-line values arrive
  * through the `webStartup` service expressions in the bundle patch.
@@ -47,14 +48,14 @@ export interface Config {
   printUrl: boolean
   /**
    * Register the model-visible surface context (the `app:web-surface` prompt
-   * section and the `DSH_WEB_URL` bash variable). A one-shot non-interactive
-   * layer can turn it off when its user is not in the GUI, so the
-   * orientation text would be false.
+   * section, the `app:web-surface-url` runtime context, and the `DSH_WEB_URL`
+   * bash variable). A one-shot non-interactive layer can turn it off when its
+   * user is not in the GUI, so the orientation text would be false.
    */
   surfaceContext: boolean
   /**
    * Canonical HTTP(S) root to advertise in the printed and opened URL,
-   * `DSH_WEB_URL`, and the web-surface orientation, e.g.
+   * `DSH_WEB_URL`, and the web-surface URL runtime context, e.g.
    * `https://app.example/ui/`, normalized to end in `/`. Configures no routing
    * or authentication; see [public deployments](../README.md#public-deployments).
    * Absent or YAML `null` advertises the bind-address URL.
@@ -148,18 +149,28 @@ function appRootUrl(ctx: Context, publicUrl: string | undefined): string {
   return localWebUrl(ctx)
 }
 
-/** Model-visible orientation and acceptance boundary for sessions created through `dsh web`. */
-function webSurfacePrompt(webUrl: string): string {
+/**
+ * Model-visible orientation and acceptance boundary for sessions created
+ * through `dsh web`. The text carries no URL, so it stays byte-identical
+ * across restarts that bind a different port; {@link webSurfaceUrlContext}
+ * carries the URL.
+ */
+function webSurfacePrompt(): string {
   const updateContract = 'The client-plugin HMR receiver is active, but client-plugin changes reload without a refresh only while '
     + '`pnpm run dev:web` is also running from this same checkout to rebuild their bundles; verify that watcher before promising automatic updates. '
     + 'Every other change — the apps/web shell and plain packages — requires rebuilding the affected Web artifacts and verifying this existing URL after a page refresh. '
-  return `You are interacting with the user through the DeepSeek Harness Web GUI at ${webUrl}. `
+  return 'You are interacting with the user through the DeepSeek Harness Web GUI; the runtime context states its current URL. '
     + 'When the user refers to "this page", "this GUI", or "this app" without naming another target, they mean this GUI. '
     + 'The browser provides no implicit DOM, route, or screenshot context. '
     + updateContract
     + 'Starting another server does not update this GUI. '
     + 'The apps/web Vite entry builds the shell but is not a standalone application because only dsh web injects window.__DSH_BOOT__. '
     + 'Do not start a replacement server unless the user asks; if one is needed, use a managed background job and verify its exact URL.'
+}
+
+/** Runtime-context line naming the advertised URL of this Web GUI. */
+function webSurfaceUrlContext(webUrl: string): string {
+  return `DeepSeek Harness Web GUI URL: ${webUrl}`
 }
 
 /**
@@ -251,7 +262,14 @@ export function apply(ctx: Context, config: Config): void {
       promptCtx.systemPrompt.section({
         name: 'app:web-surface',
         order: promptCtx.systemPrompt.getSectionOrder('WEB_SURFACE'),
-        text: () => webSurfacePrompt(appRootUrl(promptCtx, publicUrl)),
+        text: webSurfacePrompt(),
+      })
+      promptCtx.systemPrompt.context({
+        name: 'app:web-surface-url',
+        order: promptCtx.systemPrompt.getContextOrder('WEB_SURFACE_URL'),
+        required: true,
+        interpolate: false,
+        text: () => webSurfaceUrlContext(appRootUrl(promptCtx, publicUrl)),
       })
     })
     ctx.inject(['shellEnv'], (runtimeCtx) => {

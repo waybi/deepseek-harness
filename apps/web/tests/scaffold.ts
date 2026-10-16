@@ -958,7 +958,7 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
             [...observedSessions.values()],
             replayFixture,
             compareReplaySession === 'read-only' ? 'replay' : mode,
-            `http://${browserHost}:${port}`,
+            [baseUrl, `http://${browserHost}:${port}`],
             harnessHome,
           )
         } catch (error) {
@@ -1139,11 +1139,23 @@ export function normalizeWebSessionVolatiles(log: string, workspaceCwd?: string)
   }).join('\n')
 }
 
+/**
+ * Replace this run's advertised Web URLs, longest first, with `{{webUrl}}`.
+ * @param value - session log or prompt text.
+ * @param webUrls - the public-mount and bind-address roots of this run.
+ * @returns the text with every advertised root tokenized.
+ */
+function tokenizeWebUrls(value: string, webUrls: readonly string[]): string {
+  return [...new Set(webUrls)].filter(url => url !== '').sort((left, right) => right.length - left.length)
+    .reduce((text, url) => text.split(url).join('{{webUrl}}'), value)
+}
+
 function stableSessionFixture(
   session: Session,
   existing: string,
   workspaceCwd: string,
   harnessHome: string,
+  webUrls: readonly string[],
 ): string {
   const prepared = prepareSessionSnapshotFixtureForComparison(
     normalizeWebSessionVolatiles(rawSessionLog(session), workspaceCwd),
@@ -1157,7 +1169,7 @@ function stableSessionFixture(
   const fresh = scrubSessionSnapshot(stabilized)
     .split(session.id).join('{{session:1}}')
     .split(harnessHome).join('{{harnessHome}}')
-  const stable = redactSessionSnapshotIds(stabilizeFixtureMessageIds([fresh], [existing]))[0]
+  const stable = redactSessionSnapshotIds(stabilizeFixtureMessageIds([tokenizeWebUrls(fresh, webUrls)], [existing]))[0]
   if (stable === undefined) throw new Error('session harvest produced no stabilized fixture')
   return stable
 }
@@ -1166,7 +1178,7 @@ async function assertReplaySession(
   sessions: readonly Session[],
   fixturePath: string,
   mode: WebSnapshotMode,
-  webUrl: string,
+  webUrls: readonly string[],
   harnessHome: string,
 ): Promise<void> {
   let expected = await readFile(fixturePath, 'utf8')
@@ -1190,7 +1202,7 @@ async function assertReplaySession(
   if (sessionCwd === undefined) throw new Error(`${fixturePath}: replayed session has no cwd`)
   const actual = rawSessionLog(session)
   if (mode === 'refresh' && writesCurrentSessionFixtures(manifest, mode)) {
-    expected = stableSessionFixture(session, expected, sessionCwd, harnessHome)
+    expected = stableSessionFixture(session, expected, sessionCwd, harnessHome, webUrls)
     expectedPath = recordedSessionFixturePath(fixturePath, session.header.version)
     await writeFile(expectedPath, expected)
   }
@@ -1205,14 +1217,14 @@ async function assertReplaySession(
   }
   const actualSnapshot = normalizeSessionSnapshots([normalizeWebSessionVolatiles(actual)], actualContext)[0]
     ?.split(harnessHome).join('{{harnessHome}}')
+  const tokenizedActual = actualSnapshot === undefined ? undefined : tokenizeWebUrls(actualSnapshot, webUrls)
   const expectedSnapshot = normalizeSessionSnapshots([normalizeWebSessionVolatiles(expected)], expectedContext)[0]
     ?.split(harnessHome).join('{{harnessHome}}')
-  expect(actualSnapshot, `${fixturePath}: persisted replay`).toBe(expectedSnapshot)
+  expect(tokenizedActual, `${fixturePath}: persisted replay`).toBe(expectedSnapshot)
 
   if (manifest.header?.pin !== true) return
   const normalizePrompt = (value: string): string => value
     .split(REPO_ROOT).join('{{sourceRoot}}')
-    .split(webUrl).join('{{webUrl}}')
   const prompts = normalizedSystemPrompts(actual, actualContext).map(normalizePrompt)
   const schemas = normalizedToolSchemas(actual, actualContext)
   const promptPath = join(fixtureDir, 'system-prompt.expected.md')
@@ -1250,6 +1262,7 @@ export async function recordFixture(scaffold: WebScaffold, sessionId: SessionId,
     existing,
     scaffold.workspaceCwd,
     scaffold.harnessHome,
+    [scaffold.baseUrl],
   ))
 }
 

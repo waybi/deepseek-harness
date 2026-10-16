@@ -86,7 +86,7 @@ describe('minimal agent preset', () => {
       ? [event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')]
       : [])
     expect(runtimeContexts).toEqual([
-      `Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent working directory: ${JSON.stringify(agentHandle.agent.session.header.cwd)}.`,
+      `Current runtime context. This snapshot supersedes earlier runtime-context snapshots.\n\nCurrent working directory: ${JSON.stringify(agentHandle.agent.session.header.cwd)}.\n\nDeepSeek Harness Web GUI URL: ${scaffold.baseUrl}`,
     ])
     expect(scaffold.ctx.agentPresets.serviceFor(agentHandle.agent, 'fs')).toBeUndefined()
     expect(scaffold.ctx.agentPresets.serviceFor(agentHandle.agent, 'compaction')).toBeUndefined()

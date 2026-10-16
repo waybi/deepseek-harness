@@ -230,10 +230,11 @@ describe('web e2e: fresh round trip through the real assembly', () => {
     const userText = agent.session.deriveMessages().filter(message => message.role === 'user')
       .flatMap(message => message.content.flatMap(block => block.type === 'text' ? [block.text] : []))
     expect(userText.some(text => text.includes(`Current working directory: ${JSON.stringify(cwd)}.`))).toBe(true)
+    expect(system).not.toContain(scaffold.baseUrl)
+    expect(userText.some(text => text.includes(`DeepSeek Harness Web GUI URL: ${scaffold.baseUrl}`))).toBe(true)
     const suffix = paragraphs.slice(-2).join('\n\n')
       .split(REPO_ROOT).join('{{sourceRoot}}')
       .split(join(scaffold.workspaceCwd, 'workspace')).join('{{cwd}}')
-      .split(scaffold.baseUrl).join('{{webUrl}}')
     await compareOrRefreshGolden(WEB_CONTEXT_EXPECTED, suffix, MODE)
   })
 
