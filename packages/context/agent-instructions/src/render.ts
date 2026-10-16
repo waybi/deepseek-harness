@@ -5,6 +5,7 @@
  */
 
 import { basename, dirname, sep } from 'node:path'
+import { structuredPatch } from 'diff'
 import {
   AGENTS_HOME_ENV,
   DEFAULT_AGENTS_HOME_DISPLAY,
@@ -55,12 +56,24 @@ export interface AgentInstructionChange {
   scope: string
   path: string
   digest?: string
+  /**
+   * Complete file text the model now holds for this scope, recorded on `set`
+   * and `replace` only when the rendered message conveyed it without
+   * truncation. A later `replace` diffs against it after verifying it against
+   * `digest`; an absent value makes that `replace` render the full file.
+   */
+  content?: string
 }
 
 /** One state transition paired with the content used to render it. */
 export interface ChangeRenderItem {
   change: AgentInstructionChange
   file: LoadedInstructionFile
+  /**
+   * Verified complete text the model last saw for this file. A `replace` with
+   * this value renders as a unified diff when that is smaller than the full file.
+   */
+  previousContent?: string
 }
 
 interface RenderStyle {
@@ -245,19 +258,67 @@ function baselineRenderStyle(files: LoadedInstructionFile[], replacePreviousBase
   }
 }
 
-function changedSectionText(item: ChangeRenderItem): string {
-  const { change, file } = item
+/** Context lines kept around each changed region of an instruction diff. */
+const INSTRUCTION_DIFF_CONTEXT = 3
+
+function fullReplacementSectionText(path: string, content: string): string {
+  return [
+    `Updated instructions from: ${path}`,
+    '',
+    'This file changed after it was loaded. Use the following content instead of the previously loaded instructions from this file.',
+    '',
+    content,
+  ].join('\n')
+}
+
+function diffReplacementSectionText(path: string, previousContent: string, content: string): string {
+  const patch = structuredPatch('', '', previousContent, content, undefined, undefined, { context: INSTRUCTION_DIFF_CONTEXT })
+  const hunks = patch.hunks.map(hunk => [
+    `@@ -${String(hunk.oldStart)},${String(hunk.oldLines)} +${String(hunk.newStart)},${String(hunk.newLines)} @@`,
+    ...hunk.lines,
+  ].join('\n'))
+  return [
+    `Updated instructions from: ${path}`,
+    '',
+    'This file changed after it was loaded. Apply the following unified diff to the previously loaded instructions from this file.',
+    '',
+    ...hunks,
+  ].join('\n')
+}
+
+/**
+ * Render one `replace` as the smaller of a unified diff and the full file.
+ * A diff is only correct for the complete file, so a truncated `file` always
+ * renders the full-content form that the shared budget logic may truncate.
+ */
+function replacementSectionText(item: ChangeRenderItem, file: LoadedInstructionFile): string {
+  const full = fullReplacementSectionText(item.change.path, file.content)
+  if (item.previousContent === undefined || file !== item.file) return full
+  const diff = diffReplacementSectionText(item.change.path, item.previousContent, file.content)
+  return byteLength(diff) < byteLength(full) ? diff : full
+}
+
+function changedSectionText(item: ChangeRenderItem, file: LoadedInstructionFile): string {
+  const { change } = item
   if (change.action === 'set') return additionalSectionText(file)
   if (change.action === 'remove') {
     return `Instructions removed: ${change.path}\n\nThe previously loaded instructions from this file no longer apply.`
   }
-  return [
-    `Updated instructions from: ${change.path}`,
-    '',
-    'This file changed after it was loaded. Use the following content instead of the previously loaded instructions from this file.',
-    '',
-    file.content,
-  ].join('\n')
+  return replacementSectionText(item, file)
+}
+
+/**
+ * Drop `content` from a change whose file the rendered text truncated, so a
+ * later diff never targets text the model did not see.
+ */
+function withVisibleContent(
+  change: AgentInstructionChange,
+  truncatedPaths: ReadonlySet<string>,
+): AgentInstructionChange {
+  if (change.content === undefined || !truncatedPaths.has(change.path)) return change
+  const visible = { ...change }
+  delete visible.content
+  return visible
 }
 
 /**
@@ -276,16 +337,17 @@ export function renderInstructionChanges(
     section(file) {
       const item = byAbsolutePath.get(file.absolutePath)
       /* v8 ignore next -- the renderer receives exactly the files used to construct this map. */
-      return item === undefined ? '' : changedSectionText({ ...item, file })
+      return item === undefined ? '' : changedSectionText(item, file)
     },
   }
   const rendered = renderInstructionContext(items.map(item => item.file), maxBytes, style)
   const represented = new Set(rendered.represented.map(file => file.absolutePath))
+  const truncatedPaths = new Set(rendered.truncated.map(item => item.displayPath))
   return {
     text: rendered.text,
     changes: items
       .filter(item => represented.has(item.file.absolutePath))
-      .map(item => item.change),
+      .map(item => withVisibleContent(item.change, truncatedPaths)),
   }
 }
 

@@ -54,7 +54,10 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-/** Per-scope metadata cache; instruction prose is deliberately not retained. */
+/**
+ * Per-scope metadata cache; instruction prose is deliberately not retained here.
+ * The diff base for a later update is the `content` of the visible session change.
+ */
 export interface InstructionVersionState {
   path: string
   version: FsVersion
@@ -125,6 +128,8 @@ function workspaceInstructionChanges(source: { changes: unknown[] }): AgentInstr
       scope: value.scope,
       path: value.path,
       ...value.digest !== undefined ? { digest: value.digest } : {},
+      // A malformed `content` only costs the diff base; the transition itself stays visible.
+      ...typeof value.content === 'string' ? { content: value.content } : {},
     })
   }
   return changes
@@ -161,11 +166,24 @@ function visibleInstructionChanges(
 }
 
 /**
+ * Verified diff base for a `replace`: the complete text recorded by the
+ * visible change of the same path, when it still matches that change's digest.
+ * @param previous - latest visible change for the scope.
+ * @param path - display path of the replacement file.
+ * @returns the full text the model last saw, or undefined when unknown.
+ */
+function verifiedPreviousContent(previous: AgentInstructionChange, path: string): string | undefined {
+  if (previous.path !== path || previous.content === undefined) return undefined
+  return instructionContentSha1(previous.content) === previous.digest ? previous.content : undefined
+}
+
+/**
  * Convert retained baseline files into comparison and metadata-cache state.
  * @param files - baseline files that survived rendering.
+ * @param truncatedPaths - display paths the baseline rendered with partial content; their changes omit `content`.
  * @returns latest baseline changes and provider versions keyed by logical scope.
  */
-export function baselineInstructionState(files: LoadedInstructionFile[]): {
+export function baselineInstructionState(files: LoadedInstructionFile[], truncatedPaths: ReadonlySet<string> = new Set()): {
   changes: Map<string, AgentInstructionChange>
   versions: Map<string, InstructionVersionState>
 } {
@@ -178,6 +196,7 @@ export function baselineInstructionState(files: LoadedInstructionFile[]): {
       scope: instructionScopeKey(file.displayPath),
       path: file.displayPath,
       digest,
+      ...truncatedPaths.has(file.displayPath) ? {} : { content: file.content },
     }
     changes.set(change.scope, change)
     if (file.version !== undefined) {
@@ -438,8 +457,12 @@ export async function reconcileInstructionContext(
         scope,
         path: file.displayPath,
         digest: currentDigest,
+        content: file.content,
       }
-      items.push({ change, file })
+      const previousContent = action === 'replace' && previous !== undefined
+        ? verifiedPreviousContent(previous, file.displayPath)
+        : undefined
+      items.push({ change, file, ...previousContent === undefined ? {} : { previousContent } })
       versionUpdates.push({ change, state: nextVersion })
     }
   }

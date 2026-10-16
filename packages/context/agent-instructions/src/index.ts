@@ -152,7 +152,10 @@ export function apply(ctx: Context, config: Config): void {
         replacePreviousBaseline,
         signal,
       }, fileSystem)
-      const baseline = baselineInstructionState(instructions?.included ?? [])
+      const baseline = baselineInstructionState(
+        instructions?.included ?? [],
+        new Set(instructions?.rendered.truncated.map(item => item.displayPath)),
+      )
       const observedBaseline = baselineInstructionState(instructions?.observed ?? [])
       const includedDigestsByGroup = new Map<string, Set<string>>()
       for (const file of instructions?.included ?? []) {

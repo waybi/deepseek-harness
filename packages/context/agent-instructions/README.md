@@ -189,7 +189,23 @@ Append-only; newly visible content follows the reusable request prefix and does 
 
 #### What the model sees
 
-A changed file produces `Updated instructions from: <path>` plus its replacement content. A candidate that disappears or becomes a per-directory duplicate of an earlier candidate produces the removal notice below.
+A changed file produces `Updated instructions from: <path>` followed by a unified diff against the complete text the model last saw for that file, with three context lines around each change. The plugin renders the complete replacement content instead, after `Use the following content instead of the previously loaded instructions from this file.`, when the diff is not smaller, when the earlier text was truncated by `maxBytes`, when the session log holds no verified earlier text for that path, or when the update itself must be truncated. A candidate that disappears or becomes a per-directory duplicate of an earlier candidate produces the removal notice below.
+
+##### Update diff
+
+```markdown
+<system-reminder>
+Updated instructions from: packages/app/AGENTS.md
+
+This file changed after it was loaded. Apply the following unified diff to the previously loaded instructions from this file.
+
+@@ -12,7 +12,7 @@
+ <unchanged line>
+-<previous line>
++<current line>
+ <unchanged line>
+</system-reminder>
+```
 
 ##### Removal notice
 
@@ -203,7 +219,7 @@ The previously loaded instructions from this file no longer apply.
 
 #### Token effect
 
-Each confirmed change or removal is one retained history message bounded by `maxBytes`. Provider failures add no message, and an update omitted by the budget remains eligible for a later filesystem touch.
+Each confirmed change or removal is one retained history message bounded by `maxBytes`. A one-line edit adds only its diff hunk, so repeated edits of a large file no longer add one complete copy per edit. Provider failures add no message, and an update omitted by the budget remains eligible for a later filesystem touch.
 
 #### KV Cache effect
 
@@ -223,6 +239,7 @@ These limits define when instruction loading is a poor fit or needs operational 
 - **One candidate group shares failure fate** — when metadata or content cannot be read for any candidate, including a hidden duplicate, the group keeps its last-good state for that pass. An unreadable shared agents root therefore also postpones a harness-home change notice until a later pass observes both roots.
 - **A byte-budget omission does not re-enter reconciliation** — a candidate the baseline dropped for budget reasons, including any content duplicate of that candidate, is not probed again while that visible baseline holds; it becomes visible only after the baseline is rebuilt.
 - **Symlinked instruction files are followed across the trust boundary** — a candidate whose final component is a symlink is resolved and its target loaded, so a cloned repository can surface off-tree file content as lower-authority workspace guidance (it never overrides system, developer, or direct user instructions). Confine `ctx.fs` with the filesystem policy gate or an OS sandbox when loading untrusted repositories.
+- **The session log stores each delivered instruction file in full** — every `set` or `replace` change records the complete untruncated file text in its message source so a later update can diff against it after resume. The text never enters a model request, but each edit of a large file adds one complete copy to the log.
 - **Instruction content is bounded, not summarized** — over-budget broad files are omitted and the most-specific file may be truncated; the plugin never asks a model to compress instruction prose.
 
 <a id="dev-note"></a>

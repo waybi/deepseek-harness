@@ -189,7 +189,23 @@ These instructions apply to work under `packages/app`. Use them as guidance when
 
 #### 模型看到的内容
 
-已改变的文件会产生 `Updated instructions from: <path>` 加替换内容。消失或成为同一目录中较早候选文件重复项的候选文件会产生下方移除通知。
+已改变的文件会产生 `Updated instructions from: <path>`，其后是相对模型上次看到的该文件全文的统一差异（unified diff），每处改动前后各带三行上下文。差异不比全文小、先前文本被 `maxBytes` 截断、会话日志中没有该路径经过校验的先前文本，或本次更新本身需要截断时，插件改为在 `Use the following content instead of the previously loaded instructions from this file.` 之后呈现完整替换内容。消失或成为同一目录中较早候选文件重复项的候选文件会产生下方移除通知。
+
+##### 更新差异
+
+```markdown
+<system-reminder>
+Updated instructions from: packages/app/AGENTS.md
+
+This file changed after it was loaded. Apply the following unified diff to the previously loaded instructions from this file.
+
+@@ -12,7 +12,7 @@
+ <unchanged line>
+-<previous line>
++<current line>
+ <unchanged line>
+</system-reminder>
+```
 
 ##### 移除通知
 
@@ -203,7 +219,7 @@ The previously loaded instructions from this file no longer apply.
 
 #### Token 影响
 
-每项已确认变更或移除都是一条受 `maxBytes` 限制的保留历史消息。提供方失败不添加消息，预算省略的更新仍可在后续文件系统 touch 中处理。
+每项已确认变更或移除都是一条受 `maxBytes` 限制的保留历史消息。单行编辑只增加其差异块，因此反复编辑大文件不再每次增加一份完整副本。提供方失败不添加消息，预算省略的更新仍可在后续文件系统 touch 中处理。
 
 #### KV Cache 影响
 
@@ -223,6 +239,7 @@ The previously loaded instructions from this file no longer apply.
 - **同一候选组共享失败命运**：组内任一候选（包括隐藏的重复项）的元数据或内容无法读取时，整个组在该轮保留最后一次成功状态。因此共享 agents 根目录不可读时，harness home 的变更通知也会推迟到之后某一轮同时观测到两个根目录时。
 - **字节预算省略的候选不重新进入对账**：基线因预算丢弃的候选及其内容重复项在可见基线存续期间不再被探测，只有基线重建后才会重新可见。
 - **Symlink 指令文件会跨越信任边界跟随**：最终组件是 symlink 的候选文件会被解析并加载其目标，因此克隆仓库可以将树外文件内容呈现为较低优先级的工作区指引（它绝不覆盖 system、developer 或用户直接下达的指令）。加载不受信任仓库时，请用文件系统策略门禁或 OS 沙箱限制 `ctx.fs`。
+- **会话日志保存每个已送达指令文件的全文**：每条 `set` 或 `replace` 变更都在消息 source 中记录未截断的完整文件文本，使恢复会话后的更新仍能对照它计算差异。该文本不会进入模型请求，但每次编辑大文件都会让日志多一份完整副本。
 - **指令内容受限但不会被摘要**：超出预算的宽泛文件会被省略，最具体文件可能被截断；该插件绝不请求模型压缩指令文本。
 
 <a id="dev-note"></a>

@@ -43,6 +43,7 @@ import {
   type InstructionVersionCache,
 } from '../src/state.ts'
 import { resolveConfig } from '../src/config.ts'
+import { instructionContentSha1 } from '../src/digest.ts'
 import { AGENTS_GLOBAL_DIRECTORY, candidateScopeKey, renderInstructionChanges, renderAgentInstructionSet, USER_GLOBAL_DIRECTORY, USER_GLOBAL_FILE } from '../src/render.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import {
@@ -297,6 +298,18 @@ function stubToolExecution(
 
 function blocksText(blocks: readonly { type: string; text?: string }[] | undefined): string {
   return blocks?.map(block => block.type === 'text' ? block.text ?? '' : '').join('\n') ?? ''
+}
+
+const INSTRUCTION_DIFF_SENTENCE = 'This file changed after it was loaded. Apply the following unified diff to the previously loaded instructions from this file.'
+
+/** One numbered rule line of {@link largeRuleFile}. */
+function largeRuleLine(index: number): string {
+  return `rule ${String(index).padStart(3, '0')}: keep this workspace convention exactly as written`
+}
+
+/** A 120-line instruction file of at least 4 KiB with selected lines replaced. */
+function largeRuleFile(overrides: Readonly<Record<number, string>> = {}): string {
+  return Array.from({ length: 120 }, (_, index) => overrides[index + 1] ?? largeRuleLine(index + 1)).join('\n') + '\n'
 }
 
 async function agentInstructionsOf(agent: Agent): Promise<UserMessage> {
@@ -1142,6 +1155,90 @@ describe('workspace context rendering', () => {
 
     expect(rendered.text).toContain('Updated instructions from: pkg/AGENTS.md')
     expect(rendered.changes).toEqual([change])
+  })
+
+  it('renders a replacement as a unified diff against the previously seen content when that is smaller', () => {
+    const lines = Array.from({ length: 40 }, (_, index) => `L${String(index + 1).padStart(2, '0')}`)
+    const previousContent = lines.join('\n') + '\n'
+    const content = lines.map(line => line === 'L20' ? 'L20 changed' : line).join('\n') + '\n'
+    const change = {
+      action: 'replace' as const,
+      scope: sk('pkg', 'AGENTS.md'),
+      path: 'pkg/AGENTS.md',
+      digest: 'digest',
+      content,
+    }
+    const rendered = renderInstructionChanges([{
+      change,
+      file: { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content },
+      previousContent,
+    }], 65536)
+
+    expect(rendered.text).toBe([
+      '<system-reminder>',
+      'Updated instructions from: pkg/AGENTS.md',
+      '',
+      INSTRUCTION_DIFF_SENTENCE,
+      '',
+      '@@ -17,7 +17,7 @@',
+      ' L17',
+      ' L18',
+      ' L19',
+      '-L20',
+      '+L20 changed',
+      ' L21',
+      ' L22',
+      ' L23',
+      '</system-reminder>',
+    ].join('\n'))
+    expect(rendered.changes).toEqual([change])
+  })
+
+  it('renders a replacement as full content when the diff is not smaller', () => {
+    const change = {
+      action: 'replace' as const,
+      scope: sk('pkg', 'AGENTS.md'),
+      path: 'pkg/AGENTS.md',
+      digest: 'digest',
+      content: 'completely new rule',
+    }
+    const rendered = renderInstructionChanges([{
+      change,
+      file: { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content: 'completely new rule' },
+      previousContent: 'old rule',
+    }], 65536)
+
+    expect(rendered.text).toBe([
+      '<system-reminder>',
+      'Updated instructions from: pkg/AGENTS.md',
+      '',
+      'This file changed after it was loaded. Use the following content instead of the previously loaded instructions from this file.',
+      '',
+      'completely new rule',
+      '</system-reminder>',
+    ].join('\n'))
+  })
+
+  it('renders a truncated replacement as partial full content and drops its recorded content', () => {
+    const content = largeRuleFile({ 60: 'rule 060: changed' })
+    const change = {
+      action: 'replace' as const,
+      scope: sk('pkg', 'AGENTS.md'),
+      path: 'pkg/AGENTS.md',
+      digest: 'digest',
+      content,
+    }
+    const rendered = renderInstructionChanges([{
+      change,
+      file: { absolutePath: '/repo/pkg/AGENTS.md', displayPath: 'pkg/AGENTS.md', content },
+      previousContent: largeRuleFile(),
+    }], 400)
+
+    expect(rendered.text).toContain('This file changed after it was loaded. Use the following content instead')
+    expect(rendered.text).not.toContain('@@')
+    expect(rendered.text).toContain(`truncated pkg/AGENTS.md from ${String(Buffer.byteLength(content, 'utf8'))} to`)
+    expect(Buffer.byteLength(rendered.text, 'utf8')).toBeLessThanOrEqual(400)
+    expect(rendered.changes).toEqual([{ action: 'replace', scope: sk('pkg', 'AGENTS.md'), path: 'pkg/AGENTS.md', digest: 'digest' }])
   })
 
   // Each prose-derived budget is the smallest current value that retains the named heading plus a zero-byte marker.
@@ -4152,6 +4249,264 @@ describe('dynamic nested workspace context injection', () => {
         'new package rule with more detail',
         '</system-reminder>',
       ].join('\n'))
+    } finally {
+      vi.unstubAllEnvs()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('presents each repeated edit of a large instruction file as a diff against the previous update', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      const versions = [
+        largeRuleFile(),
+        largeRuleFile({ 10: 'rule 010: first edit' }),
+        largeRuleFile({ 10: 'rule 010: first edit', 50: 'rule 050: second edit' }),
+        largeRuleFile({ 10: 'rule 010: first edit', 50: 'rule 050: second edit', 90: 'rule 090: third edit' }),
+      ]
+      await write(join(root, 'pkg/AGENTS.md'), versions[0]!)
+      await write(join(root, 'pkg/file.txt'), 'hello')
+      const ctx = new Context()
+      provideWorkingDirectoryFixture(ctx)
+      pinHarnessHome(home)
+      await mountFileToolsAndAgentInstructions(ctx, { maxBytes: 65536 })
+      const agent = await stubAgent(root)
+      const touch = async (callId: string): Promise<string> => {
+        await ctx.tools.execute({
+          signal: testToolSignal,
+          callId: ToolCallId(callId), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+        })
+        const text = blocksText((await syncedAgentInstructions(ctx, agent)).content)
+        await appendAdditionalContexts(ctx, agent)
+        return text
+      }
+
+      expect(await touch('read-initial')).toContain(versions[0])
+      const updates: string[] = []
+      for (const [index, version] of versions.slice(1).entries()) {
+        await write(join(root, 'pkg/AGENTS.md'), version)
+        updates.push(await touch(`read-after-edit-${String(index + 1)}`))
+      }
+
+      const fullBytes = Buffer.byteLength(versions[3]!, 'utf8')
+      expect(fullBytes).toBeGreaterThanOrEqual(4096)
+      for (const text of updates) {
+        expect(text).toContain(`Updated instructions from: ${join('pkg', 'AGENTS.md')}`)
+        expect(text).toContain(INSTRUCTION_DIFF_SENTENCE)
+        expect(Buffer.byteLength(text, 'utf8')).toBeLessThan(fullBytes / 2)
+      }
+      expect(updates[0]).toContain(`-${largeRuleLine(10)}`)
+      expect(updates[0]).toContain('+rule 010: first edit')
+      expect(updates[2]).toContain(`-${largeRuleLine(90)}`)
+      expect(updates[2]).toContain('+rule 090: third edit')
+      expect(updates[2]).not.toContain('rule 010: first edit')
+      expect(updates[2]).not.toContain('rule 050: second edit')
+    } finally {
+      vi.unstubAllEnvs()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('records the full replacement content in the session change while rendering a diff', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), largeRuleFile())
+      await write(join(root, 'file.txt'), 'hello')
+      const ctx = new Context()
+      provideWorkingDirectoryFixture(ctx)
+      pinHarnessHome(home)
+      await mountFileToolsAndAgentInstructions(ctx, { maxBytes: 65536 })
+      const agent = await stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline?.type === 'user/message' && baseline.data.source).toMatchObject({
+        changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md', content: largeRuleFile() }],
+      })
+
+      const edited = largeRuleFile({ 30: 'rule 030: edited baseline rule' })
+      await write(join(root, 'AGENTS.md'), edited)
+      await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: ToolCallId('read-after-baseline-edit'), name: 'read', arguments: { file_path: 'file.txt' }, agent,
+      })
+      const update = await syncedAgentInstructions(ctx, agent)
+
+      expect(update.source).toEqual({
+        kind: 'agent-instructions',
+        form: 'instructions',
+        changes: [{
+          action: 'replace',
+          scope: sk('.', 'AGENTS.md'),
+          path: 'AGENTS.md',
+          digest: instructionContentSha1(edited),
+          content: edited,
+        }],
+      })
+      const text = blocksText(update.content)
+      expect(text).toContain(INSTRUCTION_DIFF_SENTENCE)
+      expect(text).toContain(`-${largeRuleLine(30)}`)
+      expect(text).toContain('+rule 030: edited baseline rule')
+    } finally {
+      vi.unstubAllEnvs()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to the complete replacement text when the whole file is rewritten', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), 'first package rule\nsecond package rule\n')
+      await write(join(root, 'pkg/file.txt'), 'hello')
+      const ctx = new Context()
+      provideWorkingDirectoryFixture(ctx)
+      pinHarnessHome(home)
+      await mountFileToolsAndAgentInstructions(ctx, { maxBytes: 65536 })
+      const agent = await stubAgent(root)
+      await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: ToolCallId('read-before-rewrite'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+      await appendAdditionalContexts(ctx, agent)
+      await write(join(root, 'pkg/AGENTS.md'), 'rewritten rule one\nrewritten rule two\n')
+      await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: ToolCallId('read-after-rewrite'), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+      })
+
+      expect(blocksText((await syncedAgentInstructions(ctx, agent)).content)).toBe([
+        '<system-reminder>',
+        `Updated instructions from: ${join('pkg', 'AGENTS.md')}`,
+        '',
+        'This file changed after it was loaded. Use the following content instead of the previously loaded instructions from this file.',
+        '',
+        'rewritten rule one\nrewritten rule two\n',
+        '</system-reminder>',
+      ].join('\n'))
+    } finally {
+      vi.unstubAllEnvs()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('diffs against the content recorded in the resumed session log', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    const resumedCtx = new Context()
+    provideWorkingDirectoryFixture(resumedCtx)
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'pkg/AGENTS.md'), largeRuleFile())
+      await write(join(root, 'pkg/file.txt'), 'hello')
+      const ctx = new Context()
+      provideWorkingDirectoryFixture(ctx)
+      pinHarnessHome(home)
+      await mountFileToolsAndAgentInstructions(ctx, { maxBytes: 65536 })
+      const original = await stubAgent(root)
+      const touch = async (owner: Context, agent: Agent, callId: string): Promise<string> => {
+        await owner.tools.execute({
+          signal: testToolSignal,
+          callId: ToolCallId(callId), name: 'read', arguments: { file_path: join('pkg', 'file.txt') }, agent,
+        })
+        const text = blocksText((await syncedAgentInstructions(owner, agent)).content)
+        await appendAdditionalContexts(owner, agent)
+        return text
+      }
+      await touch(ctx, original, 'read-before-edit')
+      await write(join(root, 'pkg/AGENTS.md'), largeRuleFile({ 10: 'rule 010: edited before resume' }))
+      expect(await touch(ctx, original, 'read-after-first-edit')).toContain('+rule 010: edited before resume')
+      await ctx.fiber.dispose()
+
+      // A fresh plugin instance has no in-process state; the base comes from the log alone.
+      await mountFileToolsAndAgentInstructions(resumedCtx, { maxBytes: 65536 })
+      const resumed = await stubAgent(root, original.session.snapshotEvents())
+      await write(join(root, 'pkg/AGENTS.md'), largeRuleFile({ 10: 'rule 010: edited before resume', 70: 'rule 070: edited after resume' }))
+      const text = await touch(resumedCtx, resumed, 'read-after-resume')
+
+      expect(text).toContain(INSTRUCTION_DIFF_SENTENCE)
+      expect(text).toContain(`-${largeRuleLine(70)}`)
+      expect(text).toContain('+rule 070: edited after resume')
+      expect(text).not.toContain('rule 010: edited before resume')
+    } finally {
+      vi.unstubAllEnvs()
+      await resumedCtx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    { label: 'absent', content: undefined },
+    { label: 'malformed', content: 42 },
+    { label: 'inconsistent with its digest', content: 'text the model never saw' },
+  ])('renders the complete replacement when the recorded base is $label', async ({ content }) => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), largeRuleFile())
+      const ctx = new Context()
+      provideWorkingDirectoryFixture(ctx)
+      pinHarnessHome(home)
+      await mountAgentInstructions(ctx, { maxBytes: 65536 })
+      const original = await stubAgent(root)
+      await composeBaselinePrefix(ctx, original)
+      const events = original.session.snapshotEvents().map((event) => {
+        if (event.type !== 'user/message' || event.data.source.kind !== 'agent-instructions') return event
+        const changes = event.data.source.changes.map(({ content: _recorded, ...change }) => (
+          content === undefined ? change : { ...change, content }
+        ))
+        return { ...event, data: { ...event.data, source: { ...event.data.source, changes } } } as SessionEvent
+      })
+      const edited = largeRuleFile({ 30: 'rule 030: edited offline' })
+      await write(join(root, 'AGENTS.md'), edited)
+      const resumed = await stubAgent(root, events)
+      await composeBaselinePrefix(ctx, resumed)
+
+      const update = resumed.session.snapshotEvents().findLast(event => event.type === 'user/message'
+        && event.data.source.kind === 'agent-instructions')
+      expect(update?.type === 'user/message' && update.data.source).toMatchObject({
+        changes: [{ action: 'replace', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md', content: edited }],
+      })
+      expect(update?.type === 'user/message' && blocksText(update.data.content)).toContain(
+        `Use the following content instead of the previously loaded instructions from this file.\n\n${edited}`,
+      )
+    } finally {
+      vi.unstubAllEnvs()
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
+  it('does not record a diff base for a budget-truncated baseline file', async () => {
+    const root = await tempRepo()
+    const home = await tempRepo()
+    try {
+      await mkdir(join(root, '.git'), { recursive: true })
+      await write(join(root, 'AGENTS.md'), largeRuleFile())
+      const ctx = new Context()
+      provideWorkingDirectoryFixture(ctx)
+      pinHarnessHome(home)
+      await mountAgentInstructions(ctx, { maxBytes: 2048 })
+      const agent = await stubAgent(root)
+      await composeBaselinePrefix(ctx, agent)
+
+      const baseline = baselineEvents(agent)[0]
+      expect(baseline?.type === 'user/message' && blocksText(baseline.data.content)).toContain('truncated AGENTS.md')
+      expect(baseline?.type === 'user/message' && baseline.data.source).toMatchObject({
+        changes: [{ action: 'set', scope: sk('.', 'AGENTS.md'), path: 'AGENTS.md' }],
+      })
+      expect(baseline?.type === 'user/message' && baseline.data.source.kind === 'agent-instructions'
+        && baseline.data.source.changes[0]).not.toHaveProperty('content')
     } finally {
       vi.unstubAllEnvs()
       await rm(root, { recursive: true, force: true })

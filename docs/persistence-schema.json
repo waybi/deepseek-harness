@@ -406,7 +406,7 @@
       "kind": "event",
       "event": "agent/inbox/spliced",
       "surface": false,
-      "digest": "9a36727716d0e73f681f3b725e7f28f89417c68174c8af0ff2b1ef52b08326a0",
+      "digest": "243f35de57d7d099de733ccda54a30191927287c4e5f55f11502fd6c82cce64f",
       "schema": {
         "root": 0,
         "nodes": [
@@ -2576,6 +2576,11 @@
                 "name": "action",
                 "type": 159,
                 "optional": false
+              },
+              {
+                "name": "content",
+                "type": 7,
+                "optional": true
               },
               {
                 "name": "digest",
@@ -6597,7 +6602,7 @@
       "kind": "event",
       "event": "developer/message",
       "surface": true,
-      "digest": "ba5b10ea77d68f4a29439a9bd2a14f6a560acf55731749d57237757cc72fbc06",
+      "digest": "30d01cf8c827013e15dbfb12582aa4bf5677149240823a8486843975f4d7b1b7",
       "schema": {
         "root": 0,
         "nodes": [
@@ -8772,6 +8777,11 @@
                 "name": "action",
                 "type": 159,
                 "optional": false
+              },
+              {
+                "name": "content",
+                "type": 7,
+                "optional": true
               },
               {
                 "name": "digest",
@@ -11916,7 +11926,7 @@
       "kind": "event",
       "event": "session/title-llm-request",
       "surface": false,
-      "digest": "b33545b3244861bcbf73b407d24b53402710f5acacab7ae939537e5504a68dc6",
+      "digest": "515cb51ffaaa7ffcf8cad2ee9b12ce4e4669472b3728da5a832c7bf536edd8f7",
       "schema": {
         "root": 0,
         "nodes": [
@@ -12981,6 +12991,11 @@
                 "name": "action",
                 "type": 86,
                 "optional": false
+              },
+              {
+                "name": "content",
+                "type": 10,
+                "optional": true
               },
               {
                 "name": "digest",
@@ -18957,7 +18972,7 @@
       "kind": "event",
       "event": "user/message",
       "surface": true,
-      "digest": "2ace3b8059b82b6d9837fed518ca97a99eb37c4482df7aad0e71c85489428ade",
+      "digest": "5009cf4b46e10aad5fc4889a0580e6a526373c66a454f720b435d8328b115910",
       "schema": {
         "root": 0,
         "nodes": [
@@ -20941,6 +20956,11 @@
                 "optional": false
               },
               {
+                "name": "content",
+                "type": 5,
+                "optional": true
+              },
+              {
                 "name": "digest",
                 "type": 5,
                 "optional": true
@@ -22152,15 +22172,6 @@
       "sources": []
     },
     {
-      "digest": "045926475a46f625f84ae2be292b384817059f16927c69a9adab93717923ac19",
-      "names": [
-        "packages/session/session-title-llm/src/index.ts#SessionTitleLlmRequestEventData"
-      ],
-      "sources": [
-        "packages/session/session-title-llm/src/index.ts:37"
-      ]
-    },
-    {
       "digest": "05a2796621b1ee6c03ef7abe560b25116bb4da4d592312117242a78415a32b04",
       "names": [],
       "sources": []
@@ -22218,6 +22229,15 @@
       "names": [],
       "sources": [
         "packages/core/session/src/types.ts:141"
+      ]
+    },
+    {
+      "digest": "0a69a2d68c1a07296d8cd3166d6558c18d593b22cbcd933d6e80c3bc95397f88",
+      "names": [
+        "packages/context/agent-instructions/src/render.ts#AgentInstructionChange"
+      ],
+      "sources": [
+        "packages/context/agent-instructions/src/render.ts:54"
       ]
     },
     {
@@ -22606,15 +22626,6 @@
       ]
     },
     {
-      "digest": "1fa156c85450ca31063d0e0d2853028e6dac9687f2d3191fa811648210118154",
-      "names": [
-        "packages/llm/llm/src/message.ts#MessageSource"
-      ],
-      "sources": [
-        "packages/llm/llm/src/message.ts:136"
-      ]
-    },
-    {
       "digest": "1fdad624334d354820dfb3a26e28d0bc9fc1b62a33f87bab63f715b3f4391bfd",
       "names": [],
       "sources": []
@@ -22625,6 +22636,11 @@
       "sources": [
         "packages/plan/plan-mode/src/index.ts:52"
       ]
+    },
+    {
+      "digest": "20ec37262a44fe0dedaaaa2e9a425214d7e929be70ce860de9f743dd3805da55",
+      "names": [],
+      "sources": []
     },
     {
       "digest": "2142e391b9ccb60d487afcf373ce74db98d952f69e8289eddb352a7e16e996c5",
@@ -22669,6 +22685,11 @@
     },
     {
       "digest": "23af3759678a30de1d11d946772da8c051c63caa67997c5da05d30d7a9fe8a97",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "243f35de57d7d099de733ccda54a30191927287c4e5f55f11502fd6c82cce64f",
       "names": [],
       "sources": []
     },
@@ -22749,21 +22770,11 @@
       "sources": []
     },
     {
-      "digest": "2ab12a0e345658f9342816d773fe610f049982bcad82631f43b9205abe43e5ee",
-      "names": [],
-      "sources": []
-    },
-    {
       "digest": "2abb711460e6238d851c30f3e4bdd87a2aa1887ee70575b3d3b7b25610673095",
       "names": [],
       "sources": [
         "packages/llm/llm/src/types.ts:455"
       ]
-    },
-    {
-      "digest": "2ace3b8059b82b6d9837fed518ca97a99eb37c4482df7aad0e71c85489428ade",
-      "names": [],
-      "sources": []
     },
     {
       "digest": "2aed07493b1c65b6d00de5586da1e743cf501684b9ad43a1765fb4007d4ea456",
@@ -22839,7 +22850,7 @@
       ]
     },
     {
-      "digest": "2fef90def36aa758ca096c5f6ad0e00dbb2101943e19ca54b05618801974894a",
+      "digest": "30d01cf8c827013e15dbfb12582aa4bf5677149240823a8486843975f4d7b1b7",
       "names": [],
       "sources": []
     },
@@ -22873,6 +22884,15 @@
       ],
       "sources": [
         "packages/llm/llm/src/call-config.ts:54"
+      ]
+    },
+    {
+      "digest": "3294cab5d653ea3266a79b53e164e734d09eabd9d6f12cf29fa039cd1045f14a",
+      "names": [
+        "packages/llm/llm/src/message.ts#UserMessage"
+      ],
+      "sources": [
+        "packages/llm/llm/src/message.ts:162"
       ]
     },
     {
@@ -23203,11 +23223,6 @@
       ]
     },
     {
-      "digest": "4be8fd28fefa5534675ea9aabd0a24efc2838b989bbc74da20a1efbd0daede8c",
-      "names": [],
-      "sources": []
-    },
-    {
       "digest": "4cd48f3e5108bd6ebedf7301c3638839b8b2b9db8dbd493974177fbdeb91a01b",
       "names": [
         "packages/api/session-controller/src/types.ts#SessionRequestId",
@@ -23312,12 +23327,22 @@
       "sources": []
     },
     {
+      "digest": "5009cf4b46e10aad5fc4889a0580e6a526373c66a454f720b435d8328b115910",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "50cf02d875f8a1f1411f4a6fbcffab9120ccef5f74a47331fbf29480e5f68f48",
       "names": [],
       "sources": []
     },
     {
       "digest": "511801b0a6470d98566e8385d3dffddb2b67f79fcf73ed6056f46c3cc0a245a7",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "515cb51ffaaa7ffcf8cad2ee9b12ce4e4669472b3728da5a832c7bf536edd8f7",
       "names": [],
       "sources": []
     },
@@ -23333,6 +23358,15 @@
       ],
       "sources": [
         "packages/experimental/agent-team/src/types.ts:41"
+      ]
+    },
+    {
+      "digest": "51f744c9baeab78e1b1a4f78d2ff79b1676b354c7afa9c7264254721367002fa",
+      "names": [
+        "packages/session/session-title-llm/src/index.ts#SessionTitleLlmRequestEventData"
+      ],
+      "sources": [
+        "packages/session/session-title-llm/src/index.ts:37"
       ]
     },
     {
@@ -23460,13 +23494,6 @@
       "digest": "5b232a9b9bfcc0fc6794dab7865bcf203a65785c5de5aa647a51228bff628413",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "5b55817a403569fbb2d379496df2e3f3f71107f6c577a218028ce187c60b61e6",
-      "names": [],
-      "sources": [
-        "packages/core/session/src/types.ts:248"
-      ]
     },
     {
       "digest": "5b6fb1f226ff56402db08a6aae82af76100b14056271875f69ec526a1ae05d51",
@@ -23761,15 +23788,6 @@
       "sources": []
     },
     {
-      "digest": "6f22a9d02b9a1f1157f3b0e7bdccd7e7b12b085c4efdb709dfc74a465cd4e590",
-      "names": [
-        "packages/context/agent-instructions/src/state.ts#AgentInstructionSource"
-      ],
-      "sources": [
-        "packages/context/agent-instructions/src/state.ts:40"
-      ]
-    },
-    {
       "digest": "6f44f32be9bcd9a8bf075c3b575b06c8ed63446386e5b0995c7b73762e68ddae",
       "names": [],
       "sources": []
@@ -24033,25 +24051,9 @@
       "sources": []
     },
     {
-      "digest": "83a665476a9ee9af05cb1fdded12dd647d1b97b491200d7f12ef1af7cdac4428",
-      "names": [],
-      "sources": [
-        "packages/core/agent/src/types.ts:96"
-      ]
-    },
-    {
       "digest": "83d6916021eede8f2d83a1872716caa1efdec39a3681890996c55147187fdd12",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "83da72c6857601c75da11212ef847f57d457b9c99f0a82246dcdff3e26700239",
-      "names": [
-        "packages/context/agent-instructions/src/render.ts#AgentInstructionChange"
-      ],
-      "sources": [
-        "packages/context/agent-instructions/src/render.ts:53"
-      ]
     },
     {
       "digest": "8465ece5e9d9007c038b357015d849c15262cb0bc25abc59e47692d87ee01a15",
@@ -24139,15 +24141,6 @@
       "names": [],
       "sources": [
         "packages/llm/llm/src/types.ts:456"
-      ]
-    },
-    {
-      "digest": "89b2edff547be1ecfcd78ef18aeeb3cf507fcbf7d6093ec04fb111ef4c8e8a97",
-      "names": [
-        "packages/llm/llm/src/message.ts#UserMessage"
-      ],
-      "sources": [
-        "packages/llm/llm/src/message.ts:162"
       ]
     },
     {
@@ -24372,11 +24365,6 @@
       ]
     },
     {
-      "digest": "9a36727716d0e73f681f3b725e7f28f89417c68174c8af0ff2b1ef52b08326a0",
-      "names": [],
-      "sources": []
-    },
-    {
       "digest": "9a410ddf56792b2b7cd4a224a2e54dc4dee30a8e8e6b1c2b9a1d19992b217adc",
       "names": [
         "packages/workflow/tool-workflow/src/types.ts#ToolWorkflowAgentStartData"
@@ -24406,6 +24394,11 @@
     },
     {
       "digest": "9b4fd974c124c83743efe030ba4e1250e087505f3f74588716a521fb8d453267",
+      "names": [],
+      "sources": []
+    },
+    {
+      "digest": "9c58e2f8910d49c5e329540e87c9cfa4cbbee83208e4cf4ac5d39c7c816cde6b",
       "names": [],
       "sources": []
     },
@@ -24668,6 +24661,15 @@
       ]
     },
     {
+      "digest": "ad0d1c46f68fd796fcfe16fe213990905701fc6b705507ddb11b485ca9403a9d",
+      "names": [
+        "packages/context/agent-instructions/src/state.ts#AgentInstructionSource"
+      ],
+      "sources": [
+        "packages/context/agent-instructions/src/state.ts:40"
+      ]
+    },
+    {
       "digest": "ad22a5ca5bbaab2e1440779cd3648e85ddfc6f73b5207394eda699555cf31430",
       "names": [],
       "sources": []
@@ -24721,15 +24723,6 @@
       "sources": []
     },
     {
-      "digest": "af99c95d46bed802870f1ebefe0ea11f92a03cb37b8e0cbe3f94b7aaaf509b08",
-      "names": [
-        "packages/llm/llm/src/message.ts#DeveloperMessage"
-      ],
-      "sources": [
-        "packages/llm/llm/src/message.ts:157"
-      ]
-    },
-    {
       "digest": "aff60ef947c18b012644852bdd0d5bfe72065e061dd563787c76c646b4a10f6b",
       "names": [],
       "sources": []
@@ -24751,6 +24744,15 @@
       ],
       "sources": [
         "packages/attachment/attachment/src/types.ts:11"
+      ]
+    },
+    {
+      "digest": "b0e034bbbc65489a4e473922533ca8f07b66b637556aed8daab0a646ada287d2",
+      "names": [
+        "packages/llm/llm/src/message.ts#MessageSource"
+      ],
+      "sources": [
+        "packages/llm/llm/src/message.ts:136"
       ]
     },
     {
@@ -24802,11 +24804,6 @@
       "sources": [
         "packages/experimental/agent-team/src/types.ts:38"
       ]
-    },
-    {
-      "digest": "b33545b3244861bcbf73b407d24b53402710f5acacab7ae939537e5504a68dc6",
-      "names": [],
-      "sources": []
     },
     {
       "digest": "b3681c026a0b98e98b103f057dfd217fbe904129c090efd668253ec9aea7fece",
@@ -24961,11 +24958,6 @@
       "sources": []
     },
     {
-      "digest": "ba5b10ea77d68f4a29439a9bd2a14f6a560acf55731749d57237757cc72fbc06",
-      "names": [],
-      "sources": []
-    },
-    {
       "digest": "ba77b58995e36f14bb13886b0493d0a1a63d5db10b1a6cd9f6ac65a72cf832ec",
       "names": [],
       "sources": []
@@ -25059,6 +25051,13 @@
       ]
     },
     {
+      "digest": "c3612760abb94cf1d3f4896ddedfed16b8458e26c4986487a32070196927d83d",
+      "names": [],
+      "sources": [
+        "packages/core/session/src/types.ts:248"
+      ]
+    },
+    {
       "digest": "c43b119ce579b3e9983a0d3adc4ba402ebb9ba773d89738a2dab01ecf5813943",
       "names": [],
       "sources": []
@@ -25108,6 +25107,13 @@
       "digest": "c99e20441bf15341e9db54385e558e5c03d21dff2eb1ac08ccbf47c2d8747954",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "c9a7c431370d72de6db4bf66f2e6721d34fb8197caf9e017412225daaf9395e1",
+      "names": [],
+      "sources": [
+        "packages/core/agent/src/types.ts:96"
+      ]
     },
     {
       "digest": "ca085dba2c877feceebf3c62f9d39c6c2a4d2314d97b94b3927a780fe8fe2bb2",
@@ -25232,15 +25238,6 @@
       "digest": "d85590a5675c6e2fd8164e5792a6cceac714605b8ac228adae5ee668facb1490",
       "names": [],
       "sources": []
-    },
-    {
-      "digest": "d901c4f5e856591c3217af983caa15bba568d580700f0958bab56b88004eced9",
-      "names": [
-        "packages/llm/llm/src/message.ts#Message"
-      ],
-      "sources": [
-        "packages/llm/llm/src/message.ts:196"
-      ]
     },
     {
       "digest": "d9196086e41e4dd5c2ce87f5c25529c8112a1731d258cf0728747d41a9ee3241",
@@ -25489,6 +25486,11 @@
       "sources": []
     },
     {
+      "digest": "ec35ee718b5031f1f5084a0686cdc1dc46e84a3d1b4504dba16c2ca565313451",
+      "names": [],
+      "sources": []
+    },
+    {
       "digest": "ec38b5949af8eacaf00df002f4acbe344f934f8a061e9cdc65a52a48e5f6dd93",
       "names": [],
       "sources": []
@@ -25498,6 +25500,15 @@
       "names": [],
       "sources": [
         "packages/core/session/src/types.ts:165"
+      ]
+    },
+    {
+      "digest": "ed55b156928fdcf4a612808f9a9603557487b29bbde7bff5737208561d4f0334",
+      "names": [
+        "packages/llm/llm/src/message.ts#Message"
+      ],
+      "sources": [
+        "packages/llm/llm/src/message.ts:196"
       ]
     },
     {
@@ -25590,6 +25601,15 @@
       "digest": "f230c0b583e23b25ee0a61dbe4c05e95c1e2ae44b27939501eb9e03696f0c278",
       "names": [],
       "sources": []
+    },
+    {
+      "digest": "f25120b328c5dbb6077871a1fe01e374afc0bd57b7eb57dccaf8071f73a0e365",
+      "names": [
+        "packages/llm/llm/src/message.ts#DeveloperMessage"
+      ],
+      "sources": [
+        "packages/llm/llm/src/message.ts:157"
+      ]
     },
     {
       "digest": "f29d63336e8266d80dd7baeab219436db86341304f6be1cd0edb36f5134c4a47",
