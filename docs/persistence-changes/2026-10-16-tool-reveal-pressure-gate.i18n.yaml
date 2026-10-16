@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-16-tool-reveal-pressure-gate.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-10-16-tool-reveal-pressure-gate.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-10-16-tool-reveal-pressure-gate:
+  en: 07bea50332e24ba2
+  zh: 99cb81efadd8cd06
+/2026-10-16-tool-reveal-pressure-gate/summary:
+  en: 6a31c61e11ba3e78
+  zh: e71857a81f53d33c
+/2026-10-16-tool-reveal-pressure-gate/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-10-16-tool-reveal-pressure-gate/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-10-16-tool-reveal-pressure-gate/compatibility:
+  en: 85eb72afbee83c4a
+  zh: 625384450fdd2813
+/2026-10-16-tool-reveal-pressure-gate/verification:
+  en: 2535858fc45d12a4
+  zh: 6cb775fe7070b5a2
+/2026-10-16-tool-reveal-pressure-gate/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

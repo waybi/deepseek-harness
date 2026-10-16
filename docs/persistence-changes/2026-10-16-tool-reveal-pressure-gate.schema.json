@@ -1,0 +1,197 @@
+{
+  "formatVersion": 2,
+  "roots": [
+    {
+      "key": "event:compaction/start",
+      "kind": "event",
+      "event": "compaction/start",
+      "surface": false,
+      "digest": "03f828a8bd704f93d79fb62889c2854940522762a61a4b1f05a88755df3d5e2f",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 7,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 8,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "compactionId",
+                "type": 2,
+                "optional": false
+              },
+              {
+                "name": "pressureGate",
+                "type": 3,
+                "optional": true
+              },
+              {
+                "name": "sourceCommandId",
+                "type": 2,
+                "optional": true
+              },
+              {
+                "name": "turn",
+                "type": 4,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "growthTokens",
+                "type": 4,
+                "optional": false
+              },
+              {
+                "name": "reclaimTokens",
+                "type": 6,
+                "optional": false
+              },
+              {
+                "name": "turnsSinceLast",
+                "type": 4,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "union",
+            "types": [
+              5,
+              6
+            ]
+          },
+          {
+            "kind": "primitive",
+            "type": "null"
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "literal",
+            "value": "compaction/start"
+          }
+        ]
+      }
+    },
+    {
+      "key": "event:tools/reveal",
+      "kind": "event",
+      "event": "tools/reveal",
+      "surface": false,
+      "digest": "7f8f9df3947c286eb63d943fdb341b8d615fa862fdb23b15e659398a02662dc3",
+      "schema": {
+        "root": 0,
+        "nodes": [
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "data",
+                "type": 1,
+                "optional": false
+              },
+              {
+                "name": "ignorable",
+                "type": 4,
+                "optional": true
+              },
+              {
+                "name": "seq",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "time",
+                "type": 5,
+                "optional": false
+              },
+              {
+                "name": "type",
+                "type": 6,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "object",
+            "properties": [
+              {
+                "name": "names",
+                "type": 2,
+                "optional": false
+              }
+            ],
+            "indices": []
+          },
+          {
+            "kind": "array",
+            "element": 3
+          },
+          {
+            "kind": "primitive",
+            "type": "string"
+          },
+          {
+            "kind": "literal",
+            "value": true
+          },
+          {
+            "kind": "primitive",
+            "type": "number"
+          },
+          {
+            "kind": "literal",
+            "value": "tools/reveal"
+          }
+        ]
+      }
+    }
+  ],
+  "types": []
+}
