@@ -116,9 +116,7 @@ This section explains the design decisions behind expiry; the observable behavio
 
 #### What the model sees
 
-From the first sweep of a turn `coldTurns` or more after a result's turn, that result appears as `[<tool> output from an earlier turn expired: <N> characters removed; rerun the tool to see it again]` in place of its text. Non-text blocks keep their order. Results from the current and recent turns are verbatim.
-
-When the original text ends with a spill-policy notice (`(Omitted … Full formatted result stored at: <path>. …)`), the stub instead reads `[<tool> output from an earlier turn expired: <N> characters removed; the complete result is still stored at the path below, read that file instead of rerunning the tool]` and the notice follows it verbatim, so the stored path survives expiry.
+From the first sweep of a turn `coldTurns` or more after a result's turn, that result appears as `[<tool> output from an earlier turn expired: <N> characters removed; rerun the tool to see it again]` in place of its text. Non-text blocks keep their order. Results from the current and recent turns are verbatim. When the original text ends with a spill-policy notice (`(Omitted … Full formatted result stored at: <path>. …)`), the stub instead reads `[<tool> output from an earlier turn expired: <N> characters removed; the complete result is still stored at the path below, read that file instead of rerunning the tool]` and the notice follows it verbatim, so the stored path survives expiry.
 
 #### Token effect
 

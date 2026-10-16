@@ -116,9 +116,7 @@ kind: "package-reference"
 
 #### 模型看到的内容
 
-从某结果所在轮之后至少 `coldTurns` 轮的第一次清扫起，该结果显示为 `[<tool> output from an earlier turn expired: <N> characters removed; rerun the tool to see it again]`，而非其文本。非文本块保持顺序。当前轮与最近几轮的结果为原文。
-
-若原文末尾带有 spill 策略通知（`(Omitted … Full formatted result stored at: <path>. …)`），占位改为 `[<tool> output from an earlier turn expired: <N> characters removed; the complete result is still stored at the path below, read that file instead of rerunning the tool]`，通知原样跟在其后，因此存储路径在过期后仍然保留。
+从某结果所在轮之后至少 `coldTurns` 轮的第一次清扫起，该结果显示为 `[<tool> output from an earlier turn expired: <N> characters removed; rerun the tool to see it again]`，而非其文本。非文本块保持顺序。当前轮与最近几轮的结果为原文。若原文末尾带有 spill 策略通知（`(Omitted … Full formatted result stored at: <path>. …)`），占位改为 `[<tool> output from an earlier turn expired: <N> characters removed; the complete result is still stored at the path below, read that file instead of rerunning the tool]`，通知原样跟在其后，因此存储路径在过期后仍然保留。
 
 #### Token 影响
 
