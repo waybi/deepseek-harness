@@ -571,6 +571,7 @@ ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才�
 
 ### `tool_search`
 
+```text
 Reveal tools that are registered but not declared yet. The tools below exist but their full schemas are
 not loaded; when a task needs one of them, call tool_search with a short query (tool name, or words
 from its purpose). Matching tools become callable from the next step and stay available for the rest of
@@ -578,6 +579,7 @@ the session. Do not call tool_search for a tool that is already declared.
 
 Available deferred tools:
 - catalog_fixture_deferred: Fixture deferred tool for the catalog harvest.
+```
 
 ```json
 {

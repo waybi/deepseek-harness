@@ -9,6 +9,7 @@
 import { globSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import type { Nodes } from 'mdast'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -81,6 +82,7 @@ import * as ToolRalph from '@deepseek-ai/dsh-tool-ralph'
 import * as ToolWorkflow from '@deepseek-ai/dsh-tool-workflow'
 import * as ToolWorkspaceDependencies from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import { githubSlug } from './verify-md-links.ts'
+import { parseMarkdown, visitMarkdown } from './markdown.ts'
 
 /** Attachment seam marker that makes the attachments-conditional `read_image` schema harvestable. */
 class CatalogAttachmentStore extends AttachmentStore {
@@ -800,10 +802,33 @@ function toolSource(entry: ToolPackage, toolName: string): string {
   return source
 }
 
-/** Render one tool's entry: name, description, JSON-Schema parameters, source. */
+/**
+ * Whether Markdown would parse a model-facing description into a prose
+ * paragraph spanning several physical lines, which `verify-md-wrap` rejects.
+ * @param text - the description exactly as the model receives it.
+ * @returns true when the text contains a hard-wrapped paragraph.
+ */
+function hasHardWrappedParagraph(text: string): boolean {
+  let wrapped = false
+  visitMarkdown(parseMarkdown(text), (node: Nodes): boolean | void => {
+    if (node.type !== 'paragraph' || !node.position) return
+    if (node.position.end.line > node.position.start.line) wrapped = true
+    return false
+  })
+  return wrapped
+}
+
+/**
+ * Render one tool's entry: name, description, JSON-Schema parameters, source.
+ * A description whose own line breaks wrap a paragraph is shown verbatim in a
+ * `text` fence, so the page keeps the model's exact text and stays unwrapped prose.
+ */
 function renderTool(schema: ToolSchema, source: string): string[] {
   const out = [`### \`${schema.name}\``, '']
-  if (schema.description) out.push(schema.description, '')
+  if (schema.description) {
+    if (hasHardWrappedParagraph(schema.description)) out.push('```text', schema.description, '```', '')
+    else out.push(schema.description, '')
+  }
   out.push('```json', JSON.stringify(schema.parameters, null, 2), '```', '')
   out.push(`Source: [\`${source}\`](../${source})`, '')
   return out
