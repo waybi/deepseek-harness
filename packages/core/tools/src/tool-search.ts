@@ -290,7 +290,12 @@ export function createToolSearchTool(options: ToolSearchBridgeOptions): ToolDefi
   return definition
 }
 
-/** Scope-aware description installer; separate so the registry owns the view. */
+/**
+ * Scope-aware description installer; separate so the registry owns the view.
+ * @param definition - the `tool_search` definition; mutated in place.
+ * @param describe - renders the current description each time it is read.
+ * @returns the same definition with `description` replaced by a getter.
+ */
 export function withSearchDescription(
   definition: ToolDefinition,
   describe: () => string,
