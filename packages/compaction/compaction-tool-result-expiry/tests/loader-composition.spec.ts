@@ -15,7 +15,14 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
-import ToolResultExpiry, { DEFAULTS, expiredStub } from '@deepseek-ai/dsh-compaction-tool-result-expiry'
+import { SpillLocator } from '@deepseek-ai/dsh-spill'
+import { formatSpillNotice } from '@deepseek-ai/dsh-spill-policy/notice'
+import ToolResultExpiry, {
+  codePointLength,
+  DEFAULTS,
+  expiredStub,
+  expiredStubWithSpill,
+} from '@deepseek-ai/dsh-compaction-tool-result-expiry'
 
 let root: string | undefined
 const contexts: Context[] = []
@@ -187,6 +194,52 @@ describe('compaction-tool-result-expiry real Loader composition', () => {
     // requests 3 and 4, so a provider prefix cache keeps matching there.
     const head = (request: GenerateOptions) => JSON.stringify(request.messages.slice(0, 3))
     expect(head(adapter.requests[3]!)).toBe(head(adapter.requests[2]!))
+
+    const types = agent.session.snapshotEvents().map(event => event.type)
+    expect(types.filter(type => type === 'compaction/prune')).toHaveLength(1)
+  })
+
+  it('keeps the spill path after the stub in the request the production loop sends', async () => {
+    const notice = formatSpillNotice({ kind: 'exact', count: 9000 }, {
+      locator: SpillLocator('/tmp/spill/result.txt'),
+      retrievalHint: 'Use read to retrieve the complete output',
+    })
+    const preview = 'p'.repeat(600)
+    const spilled = `${preview}\n\n${notice}`
+    const adapter = new ScriptedAdapter([
+      toolCallResponse('c1', 600), textResponse('turn 1 done'),
+      textResponse('turn 2 done'),
+      textResponse('turn 3 done'),
+    ])
+    const ctx = new Context()
+    contexts.push(ctx)
+    await mountAgentLoopTestDependencies(ctx)
+    await ctx.plugin(TokenMeter)
+    await ctx.plugin(ToolResultExpiry, { coldTurns: 2, thresholdChars: 30, sweepEvery: 1 })
+    const loop = await mountAgentLoopTestHarness(ctx)
+    ctx.llm.registerAdapter(['mock'], adapter)
+    ctx.tools.register(defineContentToolFixture({
+      name: 'dump',
+      description: 'dump bytes with a spill notice',
+      parameters: { size: { type: 'number' } },
+      async execute() {
+        return [{ type: 'text', text: spilled }]
+      },
+    }))
+    const agent = await loop.create(SessionId('expire-loop-spill'), { provider: 'mock', model: 'mock' })
+
+    for (const text of ['dump it', 'again', 'once more']) {
+      agent.followup(createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } }))
+      await waitForIdle(ctx, agent)
+    }
+
+    expect(adapter.requests).toHaveLength(4)
+    expect(toolTexts(adapter.requests[1]!)).toEqual([spilled])
+    expect(toolTexts(adapter.requests[2]!)).toEqual([spilled])
+    // The removed span is the preview plus the blank line before the notice.
+    const [expired] = toolTexts(adapter.requests[3]!)
+    expect(expired).toBe(`${expiredStubWithSpill('dump', codePointLength(preview) + 2)}\n\n${notice}`)
+    expect(expired).toContain('/tmp/spill/result.txt')
 
     const types = agent.session.snapshotEvents().map(event => event.type)
     expect(types.filter(type => type === 'compaction/prune')).toHaveLength(1)
