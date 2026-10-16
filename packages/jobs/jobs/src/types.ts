@@ -9,7 +9,6 @@ import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { JobId } from './brand.ts'
 import type { JobChannel, JobChunk, JobKind, JobView } from './view.ts'
 
-export { JobId } from './brand.ts'
 export type { JobChannel, JobChunk, JobKind, JobKindMap, JobStatus, JobView } from './view.ts'
 
 /** Terminal result supplied by a producer through {@link JobHooks.done}. */

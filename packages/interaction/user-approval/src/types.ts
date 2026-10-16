@@ -5,25 +5,12 @@
  * @module @deepseek-ai/dsh-user-approval/types
  */
 
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Agent } from '@deepseek-ai/dsh-agent/types'
 import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
+import type { ApprovalRequestId } from './ids.ts'
 
-/**
- * Pairs one `approval/asked` audit event with its `approval/decided`.
- * Service-issued (one fresh id per {@link ApprovalService.request} call).
- */
-export type ApprovalRequestId = Branded<'ApprovalRequestId'>
-
-/**
- * Brand a string as an {@link ApprovalRequestId}.
- * @param id - the raw id string to brand.
- * @returns the same string carrying the brand.
- */
-export function ApprovalRequestId(id: string): ApprovalRequestId {
-  return id as ApprovalRequestId
-}
+export type { ApprovalRequestId } from './ids.ts'
 
 /**
  * Closed approval outcomes: a one-shot grant, explicit rejection, withdrawn

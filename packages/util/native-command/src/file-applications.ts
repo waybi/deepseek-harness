@@ -4,7 +4,8 @@ import { linuxFileApplications } from './file-applications-linux.ts'
 import { windowsFileApplications } from './file-applications-windows.ts'
 import { nativeFileManager } from './path-opener.ts'
 import type { PathOpenerInternals } from './path-opener.ts'
-import { parseNativeFileApplications, type NativeFileApplication } from './types.ts'
+import { parseNativeFileApplications } from './parse.ts'
+import type { NativeFileApplication } from './types.ts'
 
 /** AppKit runs inside the system JXA host; paths arrive as argv, never executable source. */
 const MAC_APPLICATIONS = `

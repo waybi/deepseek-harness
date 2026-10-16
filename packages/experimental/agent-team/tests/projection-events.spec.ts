@@ -6,7 +6,7 @@ import type { SessionEvent, SessionEventMap, SessionEventType } from '@deepseek-
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { teamProjectionDefinition, teamProjectionView } from '../src/projection.ts'
 import type { TeamProjectionState, TeamState } from '../src/projection.ts'
-import { TeamId, TeamMessageId, TeamTaskId } from '../src/types.ts'
+import { TeamId, TeamMessageId, TeamTaskId } from '../src/ids.ts'
 import type { TeamMemberSnapshot, TeamMessageSnapshot, TeamTaskSnapshot } from '../src/types.ts'
 
 const ROOT = SessionId('team-root')

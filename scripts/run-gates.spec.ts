@@ -357,7 +357,7 @@ describe('gate graph validation', () => {
       'rescope-vendor', 'publint', 'constraints', 'default-product-isolation', 'product-use', 'official-bundle-catalog', 'package-dependencies', 'application-entrypoints',
       'dsh-package-licenses', 'node-next-types',
       'optional-dependency-imports', 'client-packages', 'client-ui-i18n', 'client-route-resolution', 'no-bare-dispatcher',
-      'plugin-record-callers', 'no-unknown-casts',
+      'plugin-record-callers', 'no-unknown-casts', 'types-only',
       'cordis-config', 'runtime-closure',
     ])
   })
@@ -405,6 +405,16 @@ describe('gate graph validation', () => {
       const gate = withPnpmEntrypoint(() => gatesForMode(mode).find(subject => subject.id === 'no-unknown-casts'))
 
       expect(gate?.args).toContain('verify-no-unknown-casts')
+      expect(gate?.allowFailure).not.toBe(true)
+    },
+  )
+
+  it.each(['ci-primary', 'ci-static', 'check-all', 'hygiene'] as const)(
+    'rejects runtime code in types.ts in %s',
+    (mode) => {
+      const gate = withPnpmEntrypoint(() => gatesForMode(mode).find(subject => subject.id === 'types-only'))
+
+      expect(gate?.args).toContain('verify-types-only')
       expect(gate?.allowFailure).not.toBe(true)
     },
   )

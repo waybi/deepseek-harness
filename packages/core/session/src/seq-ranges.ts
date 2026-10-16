@@ -1,6 +1,6 @@
 /** Lossless range encoding for JSONL `sourceEventSeqs` arrays. */
 
-import { SessionSeq } from './types.ts'
+import { SessionSeq } from './ids.ts'
 import type { SessionSeq as SessionSeqType } from './types.ts'
 
 /** A stored source sequence or inclusive consecutive range. */

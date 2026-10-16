@@ -75,6 +75,7 @@ The service owns everything except terminal mechanics: session identity, publica
 |---|---|
 | [`src/index.ts`](src/index.ts) | `TerminalSessionService`: backend registry, spawn/send/read/signal/kill/list, owner cleanups, disposal |
 | [`src/types.ts`](src/types.ts) | Shared contracts: backend interface, session types, wait reasons, signal set, error codes |
+| [`src/errors.ts`](src/errors.ts) | `TerminalBackendCleanupError` for failed setup cleanup |
 
 ### Data model and lifecycle
 

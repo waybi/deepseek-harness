@@ -10,21 +10,6 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 /** Internal exported basis for the public `TerminalSessionId` type/value pair. */
 export type TerminalSessionIdValue = Branded<'TerminalSessionId'>
 
-/**
- * Backend-reported failure to clean partial resources after unpublished setup failed.
- * @param spawnError - original setup or cancellation failure.
- * @param cleanupError - failure that may leave backend-owned resources alive.
- */
-export class TerminalBackendCleanupError extends AggregateError {
-  constructor(
-    readonly spawnError: unknown,
-    readonly cleanupError: unknown,
-  ) {
-    super([spawnError, cleanupError], 'PTY backend startup and cleanup both failed')
-    this.name = 'TerminalBackendCleanupError'
-  }
-}
-
 /** Why one interactive send returned control to its caller. */
 export type TerminalWaitReason = 'stdin_read' | 'inferred_idle' | 'timeout' | 'session_exit'
 

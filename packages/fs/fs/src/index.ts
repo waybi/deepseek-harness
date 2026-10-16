@@ -10,7 +10,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SandboxExecutionPolicy, SandboxMode } from '@deepseek-ai/dsh-sandbox'
-import { FsError } from './types.ts'
+import { FsError } from './errors.ts'
 import type {
   FsDirEntry,
   FsEditOutcome,
@@ -24,11 +24,8 @@ import type {
   FsWriteOutcome,
 } from './types.ts'
 
-export {
-  FsError,
-  FsTargetKey,
-  FsVersion,
-} from './types.ts'
+export { FsError } from './errors.ts'
+export { FsTargetKey, FsVersion } from './ids.ts'
 export type {
   FsEditOutcome,
   FsEditRequest,

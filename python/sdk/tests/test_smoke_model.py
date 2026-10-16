@@ -15,7 +15,7 @@ from deepseek_harness import RunResult
 ROOT = Path(__file__).resolve().parents[3]
 SMOKE = runpy.run_path(ROOT / "scripts" / "smoke-python-runtime.py")
 SESSION_FORMAT_VERSION = int(
-    (ROOT / "packages/core/session/src/types.ts").read_text(encoding="utf-8")
+    (ROOT / "packages/core/session/src/format-version.ts").read_text(encoding="utf-8")
     .split("export const SESSION_FORMAT_VERSION = ", 1)[1].splitlines()[0]
 )
 

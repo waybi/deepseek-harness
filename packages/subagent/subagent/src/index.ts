@@ -80,7 +80,7 @@ import { deliverSubagentPrompt } from './internal.ts'
 export type {} from './catalog.ts'
 export * from './out-of-process.ts'
 export { AssistantOutputFold, finalAssistantOutput } from './assistant-output.ts'
-export { SubagentRunId } from './types.ts'
+export { SubagentRunId } from './ids.ts'
 export type {
   ContinuableCreateRequest,
   ContinuableCreateSpec,

@@ -75,6 +75,7 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | `TerminalSessionService`：后端注册表、spawn/send/read/signal/kill/list、所有者清理与 dispose |
 | [`src/types.ts`](src/types.ts) | 共享约定：后端接口、会话类型、等待原因、信号集合、错误码 |
+| [`src/errors.ts`](src/errors.ts) | 启动清理失败时的 `TerminalBackendCleanupError` |
 
 ### 数据模型与生命周期
 

@@ -4,7 +4,7 @@
  */
 
 import { openTurnClosers } from './repair.ts'
-import { SessionSeq } from './types.ts'
+import { SessionSeq } from './ids.ts'
 import type { SessionEvent, SessionSeq as SessionSeqType } from './types.ts'
 
 /**

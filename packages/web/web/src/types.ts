@@ -5,8 +5,6 @@
  * @module @deepseek-ai/dsh-web/types
  */
 
-import { HarnessError } from '@deepseek-ai/dsh-llm'
-
 /**
  * What one search-capable backend is asked to search. Each request carries one
  * query; a consumer may issue several requests. `maxResults` is a
@@ -118,13 +116,3 @@ export interface WebFetchProvider {
   /** Retrieve one URL; honor `signal` for cancellation. */
   fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>
 }
-
-/**
- * Typed web error with a machine-routable, open-string `code` and chained `cause`.
- * Consumers must tolerate provider-specific codes. Shared codes cover unavailable,
- * missing, unusable, ambiguous, or duplicate providers, cancellation, and provider failure;
- * the local fetch provider additionally distinguishes invalid or blocked URLs, redirects,
- * size and timeout limits, and unsupported content types. Tool execution exposes the code in
- * structured error metadata.
- */
-export class WebError extends HarnessError {}

@@ -162,6 +162,9 @@ interface SessionFormatRelease {
   evidenceTag: string
 }
 
+/** Writer paths accepted in tagged evidence: the writer at the evidence tag, then its current module. */
+const taggedWriterPaths = ['packages/core/session/src/types.ts', 'packages/core/session/src/format-version.ts']
+
 /** Validate release metadata and tagged writer evidence; throw on malformed or inconsistent input. */
 function validateSessionFormatRelease(source: string, currentWriterVersion: number): SessionFormatRelease {
   const normalized = source.replaceAll('\r\n', '\n')
@@ -190,7 +193,7 @@ function validateSessionFormatRelease(source: string, currentWriterVersion: numb
     throw new Error('evidenceTag must be a non-empty dsh-v version tag without URL delimiters')
   }
   const hasEvidence = normalized.split('\n').some(line =>
-    line.includes(`\`${evidenceTag}\``) && line.includes('`packages/core/session/src/types.ts`'))
+    line.includes(`\`${evidenceTag}\``) && taggedWriterPaths.some(path => line.includes(`\`${path}\``)))
   if (!hasEvidence) throw new Error('Missing matching evidence tag and tagged writer path')
   return { latestReleasedVersion, evidenceTag }
 }
@@ -294,6 +297,12 @@ describe('Session format release authority', () => {
       expect(() => validateSessionFormatRelease(releaseDocument(body, invalid), record.latestReleasedVersion), invalid)
         .toThrow('Missing matching evidence tag and tagged writer path')
     }
+  })
+
+  it('accepts the current writer module as tagged writer evidence', () => {
+    const { record, body, evidence } = sessionFormatReleaseFixture()
+    const current = evidence.replace('packages/core/session/src/types.ts', 'packages/core/session/src/format-version.ts')
+    expect(validateSessionFormatRelease(releaseDocument(body, current), record.latestReleasedVersion)).toEqual(record)
   })
 })
 

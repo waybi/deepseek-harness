@@ -607,12 +607,12 @@
     {
       "doc": "docs/subsystems/session.md",
       "symbol": "SessionSeq",
-      "source": "packages/core/session/src/types.ts"
+      "source": "packages/core/session/src/ids.ts"
     },
     {
       "doc": "docs/subsystems/session.md",
       "symbol": "SessionLogOffset",
-      "source": "packages/core/session/src/types.ts"
+      "source": "packages/core/session/src/ids.ts"
     },
     {
       "doc": "docs/subsystems/session.md",
@@ -1114,7 +1114,7 @@
     {
       "doc": "docs/subsystems/approval.md",
       "symbol": "ApprovalRequestId",
-      "source": "packages/interaction/user-approval/src/types.ts"
+      "source": "packages/interaction/user-approval/src/ids.ts"
     },
     {
       "doc": "docs/subsystems/approval.md",
@@ -1399,12 +1399,12 @@
     {
       "doc": "docs/subsystems/filesystem.md",
       "symbol": "FsTargetKey",
-      "source": "packages/fs/fs/src/types.ts"
+      "source": "packages/fs/fs/src/ids.ts"
     },
     {
       "doc": "docs/subsystems/filesystem.md",
       "symbol": "FsVersion",
-      "source": "packages/fs/fs/src/types.ts"
+      "source": "packages/fs/fs/src/ids.ts"
     },
     {
       "doc": "docs/subsystems/filesystem.md",
@@ -1684,7 +1684,7 @@
     {
       "doc": "docs/subsystems/spill.md",
       "symbol": "SpillLocator",
-      "source": "packages/spill/spill/src/types.ts"
+      "source": "packages/spill/spill/src/ids.ts"
     },
     {
       "doc": "docs/subsystems/workflow.md",

@@ -88,7 +88,8 @@ const ref = await ctx.spillStore.saveText({
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：抽象 `SpillStore` 服务及其 `saveText` 约定 |
-| [`src/types.ts`](src/types.ts) | 词汇：`SaveTextSpill`、`SpillRef`、带品牌类型 `SpillLocator`、`SpillOwner`、`SpillSource` |
+| [`src/types.ts`](src/types.ts) | 词汇：`SaveTextSpill`、`SpillRef`、`SpillOwner`、`SpillSource` |
+| [`src/ids.ts`](src/ids.ts) | 带品牌类型 `SpillLocator` 及其构造函数 |
 
 ### 数据模型
 

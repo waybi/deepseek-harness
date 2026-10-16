@@ -17,7 +17,7 @@
 <a id="sources-of-truth"></a>
 ## 单一真源
 
-- **工作区写入器：**[核心 Session 类型](../packages/core/session/src/types.ts)中的 `SESSION_FORMAT_VERSION` 是代码中唯一手工维护的当前写入器版本号。[目录生成器](../scripts/gen-session-format-catalog.ts)推导 codec 顺序，并检查相邻迁移是否到达该版本。包版本、codec 导出名称、fixture（测试前置数据）文件名或投影缓存版本都不是写入器版本的权威来源。
+- **工作区写入器：**[核心 Session 格式版本](../packages/core/session/src/format-version.ts)中的 `SESSION_FORMAT_VERSION` 是代码中唯一手工维护的当前写入器版本号。[目录生成器](../scripts/gen-session-format-catalog.ts)推导 codec 顺序，并检查相邻迁移是否到达该版本。包版本、codec 导出名称、fixture（测试前置数据）文件名或投影缓存版本都不是写入器版本的权威来源。
 - **最新已发布格式：**下方记录中的 `latestReleasedVersion` 标识已发布的 Session 格式。`evidenceTag` 指定一个已发布的产品版本，其标签对应的写入器具有该值；它不必是首次携带该格式的发布。双语副本按同一记录校验，不作为独立决策维护。
 - **发布状态：**比较写入器常量与已核实的发布记录。相等表示写入器格式已经发布。写入器版本更高表示发布记录尚未收录它；独立的定稿记录标识已接受的兼容性基线。用较新分支中已核实的记录对比旧工作区时，较低的写入器版本表示较旧的写入器格式；本地一致性门禁会拒绝同一工作区内的这种大小关系。不另行维护 released 布尔值。在声明更高版本尚未发布前，必须核实是否已有产品发布推进了记录。
 

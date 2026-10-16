@@ -6,7 +6,7 @@
 
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { TerminalBackendCleanupError } from './types.ts'
+import { TerminalBackendCleanupError } from './errors.ts'
 import type {
   TerminalBackend,
   TerminalBackendSession,
@@ -40,7 +40,7 @@ export type {
   TerminalSpawnResult,
   TerminalWaitReason,
 } from './types.ts'
-export { TerminalBackendCleanupError } from './types.ts'
+export { TerminalBackendCleanupError } from './errors.ts'
 
 /** Opaque identity minted by {@link TerminalSessionService} for one live PTY session. */
 export type TerminalSessionId = TerminalSessionIdValue

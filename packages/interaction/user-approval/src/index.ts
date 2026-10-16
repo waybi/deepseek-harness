@@ -45,10 +45,10 @@ declare module '@deepseek-ai/dsh-session/types' {
   }
 }
 
-import { ApprovalRequestId } from './types.ts'
+import { ApprovalRequestId } from './ids.ts'
 import type { ApprovalOutcome, ApprovalRequestEvent } from './types.ts'
 
-export { ApprovalRequestId } from './types.ts'
+export { ApprovalRequestId } from './ids.ts'
 export type { ApprovalOutcome } from './types.ts'
 
 /** Every {@link ApprovalOutcome}, for runtime normalization of answerer returns. */

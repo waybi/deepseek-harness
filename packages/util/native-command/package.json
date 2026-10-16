@@ -21,8 +21,8 @@
     "./src/*": "./src/*",
     "./package.json": "./package.json",
     "./types": {
-      "types": "./lib/types/types.d.ts",
-      "default": "./lib/types/types.js"
+      "types": "./lib/types/types-entry.d.ts",
+      "default": "./lib/types/types-entry.js"
     }
   },
   "files": [

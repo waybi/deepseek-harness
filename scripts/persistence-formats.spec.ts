@@ -83,7 +83,7 @@ function fixture(currentVersion = 3): string {
   temporary.push(root)
   mkdirSync(join(root, 'packages/core/session/src'), { recursive: true })
   mkdirSync(join(root, 'docs/persistence-changes/historical-formats'), { recursive: true })
-  write(root, 'packages/core/session/src/types.ts', `export const SESSION_FORMAT_VERSION = ${currentVersion} as const\n`)
+  write(root, 'packages/core/session/src/format-version.ts', `export const SESSION_FORMAT_VERSION = ${currentVersion} as const\n`)
   for (let version = 0; version <= currentVersion; version += 1) saveReference(root, version, currentVersion)
   return root
 }
@@ -137,7 +137,7 @@ describe('archive current persistence format', () => {
     expect(existsSync(join(root, 'docs/persistence-changes/historical-formats/v3.md'))).toBe(false)
 
     saveReference(root, 3, 4, archived)
-    write(root, 'packages/core/session/src/types.ts', 'export const SESSION_FORMAT_VERSION = 4 as const\n')
+    write(root, 'packages/core/session/src/format-version.ts', 'export const SESSION_FORMAT_VERSION = 4 as const\n')
     saveReference(root, 4, 4)
     expect(loadPersistenceFormats(root).entries[3]?.inventory).toEqual(archived)
   })
@@ -238,7 +238,7 @@ describe('complete persistence format references', () => {
 
   it('requires a formerly current archive when the writer advances', () => {
     const root = fixture()
-    write(root, 'packages/core/session/src/types.ts', 'export const SESSION_FORMAT_VERSION = 4 as const\n')
+    write(root, 'packages/core/session/src/format-version.ts', 'export const SESSION_FORMAT_VERSION = 4 as const\n')
     saveReference(root, 4, 4)
     expect(() => loadPersistenceFormats(root)).toThrow('v3: missing persistence format artifact')
     saveReference(root, 3, 4)

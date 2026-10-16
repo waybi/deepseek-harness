@@ -14,7 +14,7 @@ import { teamProjectionDefinition } from './projection.ts'
 import { resolveActiveMember, TeamRoster } from './roster.ts'
 import type { TeamMembership } from './roster.ts'
 import { TeamTaskBoard } from './task-board.ts'
-import { TeamId, TeamTaskId } from './types.ts'
+import { TeamId, TeamTaskId } from './ids.ts'
 import type {
   Config,
   CreateTeamTaskRequest,
@@ -30,7 +30,7 @@ import type {
 
 export type * from './types.ts'
 export type { TeamMembership } from './roster.ts'
-export { TeamId, TeamMessageId, TeamTaskId } from './types.ts'
+export { TeamId, TeamMessageId, TeamTaskId } from './ids.ts'
 export { TeamError } from './error.ts'
 
 declare module '@deepseek-ai/cordis' {

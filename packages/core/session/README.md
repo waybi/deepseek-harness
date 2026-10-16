@@ -109,6 +109,8 @@ The package is built on event sourcing: a `Session` is an append-only log of typ
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `SessionStore` service, store lifecycle, `fork`, `flush` |
 | [`src/types.ts`](src/types.ts) | `SessionEventMap`, `SessionEvent`, `UserMessage`, `SessionHeader`, `TurnEndReasonMap` |
+| [`src/ids.ts`](src/ids.ts) | Branded `SessionId`, `SessionSeq`, `SessionLogOffset` and their constructors |
+| [`src/format-version.ts`](src/format-version.ts) | `SESSION_FORMAT_VERSION` |
 | [`src/surface.ts`](src/surface.ts) | Ordered surface projection, replacement validation, `deriveEventMessage` |
 | [`src/request-header.ts`](src/request-header.ts) | `request/header` folding and reconstruction |
 | [`dsh-util-values`](../../util/values/README.md) | Shared lossless JSON validation and detached snapshots |

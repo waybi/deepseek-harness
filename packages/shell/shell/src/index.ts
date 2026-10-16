@@ -9,7 +9,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
 import type { ShellExecRequest, ShellExecSpec, ShellExecution } from './types.ts'
 
-export { DSH_ENV_PREFIX } from './types.ts'
+export { DSH_ENV_PREFIX } from '@deepseek-ai/dsh-subprocess'
 export type {
   ShellExecRequest,
   ShellExecSpec,

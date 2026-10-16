@@ -15,11 +15,7 @@ import type {
   TeamTaskSnapshot,
   TeamTaskView,
 } from './types.ts'
-import {
-  TeamId as toTeamId,
-  TeamMessageId as toTeamMessageId,
-  TeamTaskId as toTeamTaskId,
-} from './types.ts'
+import { TeamId as toTeamId, TeamMessageId as toTeamMessageId, TeamTaskId as toTeamTaskId } from './ids.ts'
 import { assertTaskGraphCandidate } from './task-graph.ts'
 import { projectTaskView } from './task-view.ts'
 

@@ -5,6 +5,8 @@
  * @module @deepseek-ai/dsh-hook-protocol/types
  */
 
+import type {} from '@deepseek-ai/dsh-session/types'
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**

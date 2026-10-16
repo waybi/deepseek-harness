@@ -104,7 +104,8 @@ const page = await ctx.web.fetch({ url: 'https://example.com' })
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`WebRuntime` 服务、两个提供方注册表与执行时选择 |
-| [`src/types.ts`](src/types.ts) | 词汇：请求／结果类型、封闭的 `WebFetchBody` 联合与 `WebError` 分类体系 |
+| [`src/types.ts`](src/types.ts) | 词汇：请求／结果类型与封闭的 `WebFetchBody` 联合 |
+| [`src/errors.ts`](src/errors.ts) | `WebError` 分类体系 |
 
 ### 数据模型
 

@@ -61,7 +61,9 @@ kind: "package-reference"
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 服务定义：抽象 `FileSystem` 类、`ctx.fs` 声明与 `fs/*` 事件词汇 |
-| [`src/types.ts`](src/types.ts) | 词汇：`FsTarget`/`FsTargetKey`、`FsVersion`、`FsObservation`、`FsWriteIntent`、`FsError` 及其错误码 |
+| [`src/types.ts`](src/types.ts) | 词汇：`FsTarget`、`FsObservation`、`FsWriteIntent` 与 `FsErrorCode` 错误码集合 |
+| [`src/ids.ts`](src/ids.ts) | 带品牌的 `FsTargetKey`、`FsVersion` 及其构造函数 |
+| [`src/errors.ts`](src/errors.ts) | 类型化的 `FsError` |
 
 ### 调用流程
 

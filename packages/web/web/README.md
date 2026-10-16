@@ -104,7 +104,8 @@ The package is built on one deliberate separation:
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: the `WebRuntime` service, both provider registries, and execution-time selection |
-| [`src/types.ts`](src/types.ts) | Vocabulary: request/result types, the closed `WebFetchBody` union, and the `WebError` taxonomy |
+| [`src/types.ts`](src/types.ts) | Vocabulary: request/result types and the closed `WebFetchBody` union |
+| [`src/errors.ts`](src/errors.ts) | The `WebError` taxonomy |
 
 ### Data model
 

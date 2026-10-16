@@ -102,7 +102,8 @@ The seam is built on one separation: the service owns process coordinates and li
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: abstract `SubprocessRuntime`, `ctx.subprocess` registration, the shared `scrubbedParentEnv` scrub |
-| [`src/types.ts`](src/types.ts) | Vocabulary: spawn spec, stdio modes, handles, readers, outcomes, `DSH_*` namespace |
+| [`src/types.ts`](src/types.ts) | Vocabulary: spawn spec, stdio modes, handles, readers, outcomes, `DSH_*` environment keys |
+| [`src/constants.ts`](src/constants.ts) | `DSH_ENV_PREFIX` namespace prefix |
 
 ### Data model and flow
 

@@ -12,9 +12,10 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { installJobArchiveAdmission } from './archive-admission.ts'
-import type { JobEvents, JobId, JobOutputRead, JobRead, JobSpec, JobView } from './types.ts'
+import type { JobId } from './brand.ts'
+import type { JobEvents, JobOutputRead, JobRead, JobSpec, JobView } from './types.ts'
 
-export { JobId } from './types.ts'
+export { JobId } from './brand.ts'
 export type {
   JobAppendOptions,
   JobChannel,

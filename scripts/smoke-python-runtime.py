@@ -2107,7 +2107,7 @@ def session_header_version(content: str, label: str) -> int:
 
 def assert_current_session_version(version: int, label: str) -> None:
     """Require generated logs to use the source writer generation, independent of goldens."""
-    source = Path(__file__).resolve().parents[1] / "packages/core/session/src/types.ts"
+    source = Path(__file__).resolve().parents[1] / "packages/core/session/src/format-version.ts"
     declarations = re.findall(
         r"^export const SESSION_FORMAT_VERSION = ([0-9]+)$",
         source.read_text(encoding="utf-8"),

@@ -88,7 +88,8 @@ The package is built on one separation and a deliberate minimum:
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: the abstract `SpillStore` service and its `saveText` contract |
-| [`src/types.ts`](src/types.ts) | Vocabulary: `SaveTextSpill`, `SpillRef`, branded `SpillLocator`, `SpillOwner`, `SpillSource` |
+| [`src/types.ts`](src/types.ts) | Vocabulary: `SaveTextSpill`, `SpillRef`, `SpillOwner`, `SpillSource` |
+| [`src/ids.ts`](src/ids.ts) | Branded `SpillLocator` and its constructor |
 
 ### Data model
 

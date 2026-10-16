@@ -14,7 +14,7 @@ import type {
 } from './types.ts'
 import type { WorkflowRun, WorkflowStartRequest } from './runtime-types.ts'
 
-export { WorkflowRunId } from './types.ts'
+export { WorkflowRunId } from './ids.ts'
 export type {
   WorkflowAgentEndInfo,
   WorkflowAgentInfo,

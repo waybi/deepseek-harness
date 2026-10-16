@@ -19,8 +19,8 @@
       "default": "./lib/index.js"
     },
     "./types": {
-      "types": "./lib/types/types.d.ts",
-      "default": "./lib/types/types.js"
+      "types": "./lib/types/types-entry.d.ts",
+      "default": "./lib/types/types-entry.js"
     },
     "./remote-events": {
       "types": "./lib/types/remote-events.d.ts",

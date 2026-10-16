@@ -17,7 +17,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SaveTextSpill, SpillRef } from './types.ts'
 
-export { SpillLocator } from './types.ts'
+export { SpillLocator } from './ids.ts'
 export type { SaveTextSpill, SpillOwner, SpillRef, SpillSource } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {

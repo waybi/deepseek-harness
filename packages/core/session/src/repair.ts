@@ -8,7 +8,7 @@
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { MessageId, ToolCallId, ToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { deepFreeze } from '@deepseek-ai/dsh-util-values'
-import { SessionSeq } from './types.ts'
+import { SessionSeq } from './ids.ts'
 import type { SessionEvent, SessionSeq as SessionSeqType } from './types.ts'
 
 /** Recovery code for an assistant tool request that never reached a recorded call start. */

@@ -70,7 +70,8 @@ kind: "package-reference"
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | `ApprovalService`：请求分发、策略折叠与写入路径、运行时上下文贡献 |
-| [`src/types.ts`](src/types.ts) | `ApprovalRequestId` brand 与结果类型 |
+| [`src/types.ts`](src/types.ts) | 结果类型与审批事件 |
+| [`src/ids.ts`](src/ids.ts) | `ApprovalRequestId` brand 与构造函数 |
 
 ### 分发
 

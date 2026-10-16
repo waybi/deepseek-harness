@@ -70,7 +70,8 @@ The observable behavior is covered in [Use this package](#use-this-package); thi
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | `ApprovalService`: request dispatch, policy fold and write path, runtime-context contribution |
-| [`src/types.ts`](src/types.ts) | `ApprovalRequestId` brand and outcome types |
+| [`src/types.ts`](src/types.ts) | Outcome types and approval events |
+| [`src/ids.ts`](src/ids.ts) | `ApprovalRequestId` brand and constructor |
 
 ### Dispatch
 

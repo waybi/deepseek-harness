@@ -61,7 +61,9 @@ The contract is built on one separation and three commitments:
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Service definition: the abstract `FileSystem` class, the `ctx.fs` declaration, and the `fs/*` event vocabulary |
-| [`src/types.ts`](src/types.ts) | Vocabulary: `FsTarget`/`FsTargetKey`, `FsVersion`, `FsObservation`, `FsWriteIntent`, `FsError` and its codes |
+| [`src/types.ts`](src/types.ts) | Vocabulary: `FsTarget`, `FsObservation`, `FsWriteIntent`, and the `FsErrorCode` set |
+| [`src/ids.ts`](src/ids.ts) | Branded `FsTargetKey` and `FsVersion` with their constructors |
+| [`src/errors.ts`](src/errors.ts) | Typed `FsError` |
 
 ### How a call flows
 

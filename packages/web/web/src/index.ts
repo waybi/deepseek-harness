@@ -16,11 +16,9 @@ import type {
   WebSearchRequest,
   WebSearchResult,
 } from './types.ts'
-import { WebError } from './types.ts'
+import { WebError } from './errors.ts'
 
-export {
-  WebError,
-} from './types.ts'
+export { WebError } from './errors.ts'
 export type {
   WebFetchBody,
   WebFetchProvider,

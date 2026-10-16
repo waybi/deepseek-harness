@@ -8,7 +8,7 @@ import type { TeamState } from './projection.ts'
 import { resolveActiveMember } from './roster.ts'
 import { assertTaskGraphCandidate, TeamTaskGraphError } from './task-graph.ts'
 import type { TeamTaskGraphViolation } from './task-graph.ts'
-import { TeamId, TeamTaskId } from './types.ts'
+import { TeamId, TeamTaskId } from './ids.ts'
 import type {
   CreateTeamTaskRequest,
   TeamTaskSnapshot,

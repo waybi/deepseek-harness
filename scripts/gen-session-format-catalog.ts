@@ -67,7 +67,7 @@ function nonempty(value: unknown, label: string): string {
  * @returns the current non-negative Session format version.
  */
 export function readCurrentSessionFormatVersion(scanRoot: string = root): number {
-  const source = readFileSync(resolve(scanRoot, 'packages/core/session/src/types.ts'), 'utf8')
+  const source = readFileSync(resolve(scanRoot, 'packages/core/session/src/format-version.ts'), 'utf8')
   const match = source.match(/export const SESSION_FORMAT_VERSION = (\d+)\b/)
   if (match === null) throw new Error('gen-session-format-catalog: cannot read SESSION_FORMAT_VERSION')
   return safeVersion(Number(match[1]), 'SESSION_FORMAT_VERSION')

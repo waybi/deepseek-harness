@@ -32,7 +32,7 @@ import { assertSessionWireEvent } from './session-wire-event.ts'
 export {
   SESSION_SEARCH_RESULT_LIMIT,
   SESSION_SEARCH_SNIPPET_MAX_CODE_POINTS,
-} from '../types.ts'
+} from '../constants.ts'
 
 /** Pagination fields bound to an already-addressed Session journal. */
 export type ClientSessionPageRequest = Omit<SessionPageRequest, 'address' | 'throughSeq'>

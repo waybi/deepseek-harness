@@ -39,7 +39,7 @@ Follow the package checklist to create a library for N→N+1, not a mounted plug
 
 Declare `dsh.sessionFormatMigration` with numeric `from: N` and `to: N+1`, an export path, and the exported migration, source codec, target codec, target-header validator, and target restorer. Reuse the source codec exported by the preceding edge package and depend on that package; do not copy or redefine a released codec. Export the target codec and validators from the new package. Add the edge as a direct dependency of the catalog and add the workspace’s TypeScript paths and project references.
 
-Set `SESSION_FORMAT_VERSION` in [core Session types](../../packages/core/session/src/types.ts) to N+1 alongside the new edge declarations, then generate the catalog. The command below generates only the declared chain; it does not implement a new version:
+Set `SESSION_FORMAT_VERSION` in [core Session format version](../../packages/core/session/src/format-version.ts) to N+1 alongside the new edge declarations, then generate the catalog. The command below generates only the declared chain; it does not implement a new version:
 
 ```sh
 pnpm run gen-session-format-catalog

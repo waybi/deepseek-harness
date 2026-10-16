@@ -10,22 +10,12 @@
  */
 
 import type { Agent, AgentOptions } from '@deepseek-ai/dsh-agent'
-import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock, MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import type { ObjectJsonSchema, ToolRestriction } from '@deepseek-ai/dsh-tools'
+import type { SubagentRunId } from './ids.ts'
 
-/** Identifies one accepted subagent run across its lifecycle event pair. */
-export type SubagentRunId = Branded<'SubagentRunId'>
-
-/**
- * Brand a string as a {@link SubagentRunId}.
- * @param id - the raw run id.
- * @returns the same string, branded.
- */
-export function SubagentRunId(id: string): SubagentRunId {
-  return id as SubagentRunId
-}
+export type { SubagentRunId } from './ids.ts'
 
 /** One managed child execution and its result delivery policy. */
 export interface SubagentActivationSpec {

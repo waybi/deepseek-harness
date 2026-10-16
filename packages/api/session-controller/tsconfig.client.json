@@ -8,6 +8,8 @@
   "include": [
     "src/client/**/*.ts",
     "src/types.ts",
+    "src/types-entry.ts",
+    "src/constants.ts",
     "src/remote-events.ts"
   ],
   "references": [

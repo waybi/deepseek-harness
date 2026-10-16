@@ -18,7 +18,7 @@ function fixture(edges: Array<[number, number]>): string {
   const root = mkdtempSync(join(tmpdir(), 'dsh-session-format-catalog-'))
   fixtureRoots.push(root)
   mkdirSync(join(root, 'packages/core/session/src'), { recursive: true })
-  writeFileSync(join(root, 'packages/core/session/src/types.ts'), 'export const SESSION_FORMAT_VERSION = 2\n')
+  writeFileSync(join(root, 'packages/core/session/src/format-version.ts'), 'export const SESSION_FORMAT_VERSION = 2\n')
   const catalogDependencies: Record<string, string> = {}
   for (const [from, to] of edges) {
     const dir = join(root, `packages/session/session-format-v${from}-to-v${to}`)

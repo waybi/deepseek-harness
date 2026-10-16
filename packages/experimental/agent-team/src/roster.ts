@@ -13,7 +13,7 @@ import type { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { readPersistedSession } from './persisted.ts'
 import type { TeamState } from './projection.ts'
 import { messageAccepted } from './session-message.ts'
-import { TeamId } from './types.ts'
+import { TeamId } from './ids.ts'
 import type {
   SpawnTeammateRequest,
   SpawnTeammateResult,
