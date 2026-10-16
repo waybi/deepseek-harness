@@ -43,7 +43,7 @@ async function searchOnce(ctx: Context): Promise<{ url: string; body: Record<str
   fetchSpy.mockClear()
   await ctx.web.search({ query: 'anything' })
   const [input, init] = fetchSpy.mock.calls.at(-1) ?? []
-  const rawBody = (init as RequestInit | undefined)?.body
+  const rawBody = init?.body
   return {
     url: String((input as URL | string | undefined) ?? ''),
     body: typeof rawBody === 'string' ? JSON.parse(rawBody) as Record<string, unknown> : {},

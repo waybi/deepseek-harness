@@ -55,7 +55,8 @@ function recordedFetch(mock: Mock<typeof fetch>, index = 0): RecordedFetch {
   if (call === undefined) throw new Error(`fetch call ${index} was not recorded`)
   const [input, init = {}] = call
   const body: unknown = typeof init.body === 'string' ? JSON.parse(init.body) : undefined
-  return { url: String(input), init, headers: new Headers(init.headers), body }
+  const url = input instanceof Request ? input.url : input instanceof URL ? input.href : input
+  return { url, init, headers: new Headers(init.headers), body }
 }
 
 afterEach(() => {

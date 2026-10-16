@@ -26,3 +26,5 @@ create_goal may infer goal intent from a direct human request in any language. A
 Use the workflow tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
 
 Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run.
+
+Some tools are registered but not declared to save context. If no declared tool fits a task, call `tool_search` with a short description of what you need; its description lists every hidden tool by name. A revealed tool stays available for the rest of the session.

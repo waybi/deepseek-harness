@@ -255,13 +255,14 @@ const TOOL_PACKAGES: ToolPackage[] = [
     // so the harvest defers one fixture tool. `ptc` registers run_code and
     // `schemas()` still lists every declared tool, tool_search included.
     toolsConfig: { mode: 'ptc', deferred: ['catalog_fixture_deferred'] },
-    async mount(ctx) {
+    mount(ctx) {
       ctx.tools.register(defineContentToolFixture({
         name: 'catalog_fixture_deferred',
         description: 'Fixture deferred tool for the catalog harvest.',
         parameters: {},
         execute: () => Promise.resolve([]),
       }))
+      return Promise.resolve()
     },
     note:
       'run_code is owned by the tool registry as a reserved transport outside filterable capability layers under `mode: ptc` (see the PTC mode Agent Note). Under `ptc` it is the registry\'s only wire contribution; the other visible capabilities are declared in a generated SDK section in the loaded runtime\'s language, and a program calls them through bindings scheduled under the native concurrency contract (submission-ordered starts and policy; concurrency-safe bodies overlap up to `maxParallelSubCalls`) that re-enter the complete guarded tool pipeline and link each nested execution to this outer result. tool_search is the registry\'s reserved discovery transport, declared last in the native list only while a `deferred` (config pattern or `exposure: \'deferred\'`) tool is still hidden for the agent; its description embeds the live catalog of hidden tools (`- name: first sentence`), so the schema shown here carries the harvest fixture\'s line. A search returns up to five matching descriptions and logs `tools/reveal`; revealed tools are declared after the existing schemas for the rest of the session.',

@@ -90,7 +90,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
         denied('rm')
       }
       return actual.rm(...args)
-    }) as typeof actual.rm,
+    }),
   }
 })
 
