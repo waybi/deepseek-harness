@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/web.md
 /web-access:
-  en: 86d12e6e81fb63b8
-  zh: 52ed66dcacaf6d85
+  en: 43d507c073fa4dc8
+  zh: a8d23c45fe1f72d0
 /web-access/why-one-capability-has-two-operations:
   en: 380da3cd0aabd52b
   zh: 1317c26089c3ab07
