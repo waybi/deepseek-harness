@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HoverCard } from '../src/HoverCard.tsx'
 import { HoverCardGroup } from '../src/HoverCardGroup.tsx'
@@ -326,5 +327,12 @@ describe('HoverCardGroup', () => {
     expect(screen.getByText('details B')).toBeTruthy()
     view.unmount()
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('hands the physical list container to containerRef', () => {
+    const ref = createRef<HTMLDivElement>()
+    render(<HoverCardGroup className="list" containerRef={ref}><Card name="A" /></HoverCardGroup>)
+    expect(ref.current?.className).toBe('list')
+    expect(ref.current?.contains(screen.getByText('A'))).toBe(true)
   })
 })

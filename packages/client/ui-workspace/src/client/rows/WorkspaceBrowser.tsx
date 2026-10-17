@@ -690,24 +690,21 @@ function SessionTree({
 
   const groupRows = rootGroups.map(group => renderGroup(group, 0))
   return (
-    <HoverCardGroup className={clsx(css.treeBody, css.wide)}>
-      {/* Layout-neutral scope for locating the selected row to scroll it into view. */}
-      <div ref={treeBody} className={css.treeScope}>
-        {workspaceDropAtListStart && <span className={css.listTopDropIndicator} aria-hidden="true" />}
-        <AnimatedRows
-          className={clsx(css.list, workspaceDropAtListStart && css.listTopDropActive)}
-          label={t('section.sessions')}
-          rowKeys={rowKeys}
-          ready={list.phase === 'ready' && workspaceReady && !nativeDragActive}
-          resetKey={JSON.stringify([animationResetKey, watermarkMotionKey])}
-        >
-          {groups.length === 0 && (
-            <EmptySessions rowState={rowState} onLeaveArchivedOnly={onLeaveArchivedOnly} t={t} />
-          )}
-          {groupRows}
-        </AnimatedRows>
-        <span className={css.fade} />
-      </div>
+    <HoverCardGroup className={clsx(css.treeBody, css.wide)} containerRef={treeBody}>
+      {workspaceDropAtListStart && <span className={css.listTopDropIndicator} aria-hidden="true" />}
+      <AnimatedRows
+        className={clsx(css.list, workspaceDropAtListStart && css.listTopDropActive)}
+        label={t('section.sessions')}
+        rowKeys={rowKeys}
+        ready={list.phase === 'ready' && workspaceReady && !nativeDragActive}
+        resetKey={JSON.stringify([animationResetKey, watermarkMotionKey])}
+      >
+        {groups.length === 0 && (
+          <EmptySessions rowState={rowState} onLeaveArchivedOnly={onLeaveArchivedOnly} t={t} />
+        )}
+        {groupRows}
+      </AnimatedRows>
+      <span className={css.fade} />
     </HoverCardGroup>
   )
 }
