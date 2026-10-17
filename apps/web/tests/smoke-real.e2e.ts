@@ -477,11 +477,12 @@ describe('dsh web keyless CLI smoke', () => {
         .find(block => block.type === 'text' && block.text?.includes('web-workspace-context-probe'))
       const expectedWebSection = readFileSync(WEB_SURFACE_PROMPT, 'utf8').trimEnd()
       expect(captured.system).toContain(expectedWebSection)
-      const webOrigin = new URL(baseUrl).origin
-      expect(captured.system).not.toContain(webOrigin)
+      expect(captured.system).not.toContain(new URL(baseUrl).origin)
       expect(captured.messages?.filter(message => message.role === 'user')
         .flatMap(message => message.content ?? [])
-        .some(block => block.type === 'text' && block.text?.includes(`DeepSeek Harness Web GUI URL: ${webOrigin}`))).toBe(true)
+        .some(block => block.type === 'text'
+          && block.text?.includes(`Current DeepSeek Harness Web GUI URL: ${JSON.stringify(new URL(baseUrl).origin)}.`)))
+        .toBe(true)
       expect(workspaceMessage).toMatchInlineSnapshot(`
         {
           "text": "<system-reminder>

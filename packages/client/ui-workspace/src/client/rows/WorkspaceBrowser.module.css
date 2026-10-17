@@ -324,6 +324,11 @@
   position: relative;
 }
 
+/* Ref-only wrapper inside the hover group; contributes no box. */
+.treeScope {
+  display: contents;
+}
+
 /* Bottom fade: compact overlay pinned to the visible bottom,
    transparent -> sidebar fill so it tracks the theme. */
 .fade {
