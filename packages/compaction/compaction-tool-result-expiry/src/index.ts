@@ -258,6 +258,10 @@ export class ToolResultExpiry extends Service {
    * `content`, cites the shadowed node so replay can recover it, and is
    * immediately preceded by a `compaction/prune` shadow-price event pricing
    * the shadowed node through the injected token meter.
+   * A candidate is rewritten only while its seq is a current node of
+   * `session.surface`, checked before the `compaction/prune` is
+   * appended, so a projection node the Session no longer shows never leaves
+   * a prune without its replacement; such a node is skipped with a warning.
    * @param session - session whose current surface is rewritten.
    * @param currentTurn - turn whose request is being prepared.
    * @returns landed replacements and aggregate Unicode-code-point savings.
@@ -266,8 +270,20 @@ export class ToolResultExpiry extends Service {
    */
   expireSession(session: Session, currentTurn: number): ExpiryResult {
     const state = this.ctx.sessionProjections.stateOf(session, 'toolResultSurface') as ToolResultSurfaceState
-    const candidates: ToolResultSurfaceNode[] = state.nodes.filter(node => this.isCold(node.turn, currentTurn))
-    if (candidates.length === 0) return { expired: [], charsRemoved: 0 }
+    const cold: ToolResultSurfaceNode[] = state.nodes.filter(node => this.isCold(node.turn, currentTurn))
+    if (cold.length === 0) return { expired: [], charsRemoved: 0 }
+    // Each replacement shadows only its own node, so one snapshot of the
+    // current surface stays exact for every other candidate in this pass.
+    const current = new Set<number>(session.surface.nodes)
+    const candidates: ToolResultSurfaceNode[] = []
+    const stale: number[] = []
+    for (const node of cold) {
+      if (current.has(node.seq)) candidates.push(node)
+      else stale.push(node.seq)
+    }
+    if (stale.length > 0) {
+      this.ctx.logger.warn(`tool-result expiry: skipped seqs ${stale.join(', ')} that are not on the session surface`)
+    }
     // Current derived messages carry every logged message projection (image
     // offload and the like) that the stub must preserve; identities survive
     // projection, so the node's own message id finds its projected form.

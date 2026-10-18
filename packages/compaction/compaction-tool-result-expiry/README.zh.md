@@ -84,7 +84,7 @@ kind: "package-reference"
 
 ### 过期机制
 
-`expireSession` 单次遍历当前表层，从 assistant 的 `tool-call` 块收集工具名，并收集冷的 `tool/result` 节点。每个文本超过阈值的冷结果经会话已记录的消息投影派生，折叠为一行占位加其非文本块，并作为仅改内容的 `tool/result` 替换追加，前面紧跟 `compaction/prune`。pre-step 监听器以前置方式注册，因此先于 `dsh-compaction-basic` 运行；其中的失败会被记录，步骤继续。精确签名见 [`src/index.ts`](src/index.ts)。
+`expireSession` 读取仅宿主可见的 `toolResultSurface` 投影，它按表层顺序记录全部当前表层节点，并从 assistant 的 `tool-call` 块收集工具名；替换移除的是从起点到终点之间表层位置上的节点，不是 seq 数值落在两者之间的节点。已不在 Session 表层上的冷 `tool/result` 节点会在追加任何 `compaction/prune` 之前被跳过并记一条警告，因此每条 prune 后面都紧跟它的替换。每个文本超过阈值的冷结果经会话已记录的消息投影派生，折叠为一行占位加其非文本块，并作为仅改内容的 `tool/result` 替换追加，前面紧跟 `compaction/prune`。pre-step 监听器以前置方式注册，因此先于 `dsh-compaction-basic` 运行；其中的失败会被记录，步骤继续。精确签名见 [`src/index.ts`](src/index.ts)。
 
 ### 源码地图
 

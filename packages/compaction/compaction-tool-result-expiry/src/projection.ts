@@ -27,11 +27,16 @@ export interface ToolResultSurfaceNode {
 }
 
 /**
- * Projected state: current tool-result nodes in surface order plus the
- * call-id → tool-name map. Plain JSON for the persisted projection cache;
- * the fold never mutates a state it received.
+ * Projected state: every current surface node seq in surface order, the
+ * current tool-result nodes in that order, and the call-id → tool-name map.
+ * A replacement shadows the surface positions from `startSeq` through
+ * `endSeq`, so coverage is decided by position in `surface`, never by seq
+ * magnitude: a replacement node carries a later seq than untouched nodes
+ * after it. Plain JSON for the persisted projection cache; the fold never
+ * mutates a state it received.
  */
 export interface ToolResultSurfaceState {
+  surface: SessionSeq[]
   nodes: ToolResultSurfaceNode[]
   toolNames: Record<string, string>
 }
@@ -53,6 +58,7 @@ const turnNumber = z.number().int().positive()
  * from the durable log it was copied from.
  */
 const stateSchema = z.object({
+  surface: z.array(sessionSeq),
   nodes: z.array(z.object({
     seq: sessionSeq,
     turn: turnNumber,
@@ -71,7 +77,8 @@ export const UNNAMED_TOOL = 'tool'
 
 /**
  * Fold one committed event into the tool-result surface state. Returns the
- * same reference for events that change neither the node set nor the names.
+ * same reference for non-surface events; every surface event changes
+ * `surface`.
  */
 function fold(state: ToolResultSurfaceState, event: SessionEvent): ToolResultSurfaceState {
   if (!isSurfaceEvent(event)) return state
@@ -86,6 +93,7 @@ function fold(state: ToolResultSurfaceState, event: SessionEvent): ToolResultSur
   }
 
   const op = event.surfaceOp
+  let surface: SessionSeq[]
   let nodes = state.nodes
   let replacement: ToolResultSurfaceNode | undefined
   if (event.type === 'tool/result') {
@@ -99,15 +107,22 @@ function fold(state: ToolResultSurfaceState, event: SessionEvent): ToolResultSur
     }
   }
   if (op === 'append') {
+    surface = [...state.surface, event.seq]
     if (replacement !== undefined) nodes = [...nodes, replacement]
   } else {
-    // A replacement takes the surface position of the shadowed range. Order
-    // is tracked positionally, not by seq: an earlier replacement node carries
-    // a later seq than untouched nodes after it.
-    const inRange = (node: ToolResultSurfaceNode): boolean => node.seq >= op.startSeq && node.seq <= op.endSeq
-    const first = nodes.findIndex(inRange)
+    // Committed events passed Session surface validation, so both ends are
+    // current surface nodes with start at or before end.
+    const startIdx = state.surface.indexOf(op.startSeq)
+    const endIdx = state.surface.indexOf(op.endSeq)
+    /* v8 ignore next 3 -- Session rejects a replace whose range is not on the current surface. */
+    if (startIdx === -1 || endIdx < startIdx) {
+      throw new Error(`tool-result surface: replacement at seq ${event.seq} names no current surface span`)
+    }
+    const shadowed = new Set(state.surface.slice(startIdx, endIdx + 1))
+    surface = [...state.surface.slice(0, startIdx), event.seq, ...state.surface.slice(endIdx + 1)]
+    const first = nodes.findIndex(node => shadowed.has(node.seq))
     if (first !== -1) {
-      const kept = nodes.filter(node => !inRange(node))
+      const kept = nodes.filter(node => !shadowed.has(node.seq))
       nodes = replacement === undefined
         ? kept
         : [...kept.slice(0, first), replacement, ...kept.slice(first)]
@@ -116,15 +131,14 @@ function fold(state: ToolResultSurfaceState, event: SessionEvent): ToolResultSur
       throw new Error(`tool-result surface: replacement at seq ${event.seq} shadows no current tool-result node`)
     }
   }
-  if (nodes === state.nodes && toolNames === state.toolNames) return state
-  return { nodes, toolNames }
+  return { surface, nodes, toolNames }
 }
 
 /** Host-only projection definition registered by `ToolResultExpiry`. */
 export const toolResultSurfaceProjection = {
   key: 'toolResultSurface',
-  stateVersion: 1,
+  stateVersion: 2,
   stateSchema,
-  init: (): ToolResultSurfaceState => ({ nodes: [], toolNames: {} }),
+  init: (): ToolResultSurfaceState => ({ surface: [], nodes: [], toolNames: {} }),
   apply: fold,
 } satisfies Omit<ProjectionDefinition<'toolResultSurface', ToolResultSurfaceState>, 'wire'>

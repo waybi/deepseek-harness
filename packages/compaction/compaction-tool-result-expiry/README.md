@@ -84,7 +84,7 @@ This section explains the design decisions behind expiry; the observable behavio
 
 ### Expiry mechanics
 
-`expireSession` walks the current surface once, collecting tool names from assistant `tool-call` blocks and cold `tool/result` nodes. Each cold result whose text exceeds the threshold is derived through the session's logged message projections, collapsed into one stub plus its non-text blocks, and appended as a content-only `tool/result` replacement preceded by `compaction/prune`. The pre-step listener is prepended so it runs before `dsh-compaction-basic`; a failure inside it is logged and the step continues. Exact signatures are in [`src/index.ts`](src/index.ts).
+`expireSession` reads the host-only `toolResultSurface` projection, which tracks every current surface node in surface order and the tool names from assistant `tool-call` blocks; a replacement removes the nodes at the surface positions from its start through its end, not the nodes whose seqs fall between them. Cold `tool/result` nodes that are no longer on the Session surface are skipped with a warning before any `compaction/prune` is appended, so every prune is followed by its replacement. Each cold result whose text exceeds the threshold is derived through the session's logged message projections, collapsed into one stub plus its non-text blocks, and appended as a content-only `tool/result` replacement preceded by `compaction/prune`. The pre-step listener is prepended so it runs before `dsh-compaction-basic`; a failure inside it is logged and the step continues. Exact signatures are in [`src/index.ts`](src/index.ts).
 
 ### Source map
 
