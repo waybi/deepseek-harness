@@ -57,8 +57,11 @@ it('keeps an injected process local to the REPL while it runs and after it close
   }
 })
 
+// A parse diagnostic carries host stack frames whose absolute paths grow with the checkout directory.
+const DIAGNOSTIC_BUDGET = 65_536
+
 it('keeps an environment while capturing each evaluation and binding replies separately', async () => {
-  const h = await setup()
+  const h = await setup(DIAGNOSTIC_BUDGET)
   const declarations = [{ global: 'tools', names: ['echo'], errorClass: { name: 'ToolCallError', memberNameProperty: 'toolName' } }]
   expect(await h.run('let count = 1; const saved = tools.echo;', declarations)).toEqual({ type: 'done' })
   const result = await h.run('count++; process.stdout.write("raw"); console.log("value", count); await saved({})', declarations)
@@ -69,8 +72,28 @@ it('keeps an environment while capturing each evaluation and binding replies sep
   const failed = await h.run('throw new Error("failed")')
   expect(failed).toMatchObject({ error: { kind: 'exception' } })
   expect((failed.error as { message: string }).message).toContain('failed')
-  expect(await h.run('const =')).toMatchObject({ error: { kind: 'exception' } })
+  expect(await h.run('const =', [], DIAGNOSTIC_BUDGET)).toMatchObject({ error: { kind: 'exception' } })
   expect(decodePtcJsonWire((await h.run('count')).value)).toBe(2)
+})
+
+it('classifies a diagnostic by the evaluation budget independent of checkout path length', async () => {
+  const h = await setup(DIAGNOSTIC_BUDGET)
+  const overflow = { type: 'done', error: { kind: 'output-limit', message: 'outer output exceeded 1024 bytes' } }
+  const longSyntax = `/*${'x'.repeat(5000)}*/ const =`
+  const fitted = await h.run(longSyntax, [], DIAGNOSTIC_BUDGET)
+  expect(fitted).toMatchObject({ error: { kind: 'exception' } })
+  expect((fitted.error as { message: string }).message).toContain('SyntaxError')
+  expect(await h.run(longSyntax)).toEqual(overflow)
+  expect(await h.run('throw new Error("x".repeat(5000))')).toEqual(overflow)
+  expect(await h.run('await Promise.reject(new Error("x".repeat(5000)))')).toEqual(overflow)
+  expect(decodePtcJsonWire((await h.run('1')).value)).toBe(1)
+  const badDirectory = await setup(DIAGNOSTIC_BUDGET, () => {
+    const error = new Error('directory missing')
+    error.stack = `Error: directory missing\n    at /${'deep/'.repeat(1000)}bootstrap.js:1:1`
+    throw error
+  })
+  expect(await badDirectory.run('1', [], DIAGNOSTIC_BUDGET)).toMatchObject({ error: { kind: 'exception' } })
+  expect(await badDirectory.run('1')).toEqual(overflow)
 })
 
 it('does not let an old asynchronous exception finish a later evaluation', async () => {
