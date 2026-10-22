@@ -39,7 +39,7 @@ declare const MAX_TIMEOUT_MS: number
 const timeoutMs = clampTimeout(requested, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS, 'bash-local: request.timeoutMs')
 ```
 
-提示缺失时 `clampTimeout` 填入后端默认值，把结果限制在后端最大值以内，并以调用方提供的名字拒绝非正数或非有限值的提示。此处绝不接受 0：它不是公开的禁用超时值。
+提示缺失时 `clampTimeout` 填入后端默认值，把结果限制在后端最大值以内，并以调用方提供的名字拒绝非正数或非有限值的提示。默认值或最大值不是正的有限数时也会抛错，错误信息会点名是哪一个（`<name> default` 或 `<name> max`）。此处绝不接受 0：它不是公开的禁用超时值。
 
 ### 在 deadline 下运行工作
 

@@ -30,17 +30,28 @@ function assertTimerDelay(timeoutMs: number, name: string): void {
   }
 }
 
+function assertPositiveFinite(value: number, label: string): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${label} must be a positive finite number`)
+  }
+}
+
 /**
  * Validate a caller's optional timeout hint, use the backend default, then cap
  * it. Supplied values must be positive and finite; zero is not a public
  * disable-timeout sentinel.
  *
  * @param requested The caller's optional hint; validated when present.
- * @param def The backend default applied when `requested` is absent.
- * @param max The backend upper bound the result is capped to.
+ * @param def The backend default applied when `requested` is absent; must be a
+ *   positive finite number even when `requested` is present.
+ * @param max The backend upper bound the result is capped to; must be a
+ *   positive finite number. It is not limited to {@link MAX_TIMER_DELAY_MS}.
  * @param name Field name used in the thrown message (so the caller sees which input was
  *   bad).
  * @returns The effective timeout in milliseconds: `min(requested ?? def, max)`.
+ * @throws Error when `requested` (if present), `def`, or `max` is not a positive
+ *   finite number, checked in that order. The messages start with `${name}`,
+ *   `${name} default`, and `${name} max` respectively.
  */
 export function clampTimeout(
   requested: number | undefined,
@@ -48,9 +59,9 @@ export function clampTimeout(
   max: number,
   name = 'timeoutMs',
 ): number {
-  if (requested !== undefined && (!Number.isFinite(requested) || requested <= 0)) {
-    throw new Error(`${name} must be a positive finite number`)
-  }
+  if (requested !== undefined) assertPositiveFinite(requested, name)
+  assertPositiveFinite(def, `${name} default`)
+  assertPositiveFinite(max, `${name} max`)
   return Math.min(requested ?? def, max)
 }
 

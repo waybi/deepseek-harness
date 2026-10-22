@@ -39,7 +39,7 @@ declare const MAX_TIMEOUT_MS: number
 const timeoutMs = clampTimeout(requested, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS, 'bash-local: request.timeoutMs')
 ```
 
-`clampTimeout` fills the backend default when the hint is absent, caps the result at the backend maximum, and rejects a non-positive or non-finite hint with the caller-provided name. Zero is never accepted here: it is not a public disable-timeout value.
+`clampTimeout` fills the backend default when the hint is absent, caps the result at the backend maximum, and rejects a non-positive or non-finite hint with the caller-provided name. It also throws when the default or the maximum is not a positive finite number, and the message names which one (`<name> default` or `<name> max`). Zero is never accepted here: it is not a public disable-timeout value.
 
 ### Running work under a deadline
 

@@ -49,6 +49,62 @@ describe('clampTimeout', () => {
     expect(() => clampTimeout(0, 100, 200)).toThrow(/must be a positive finite number/)
     expect(() => clampTimeout(-1, 100, 200)).toThrow(/must be a positive finite number/)
   })
+
+  it.each([
+    Number.NaN,
+    0,
+    -1,
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+  ])('rejects an invalid default %s', (def) => {
+    expect(() => clampTimeout(undefined, def, 200))
+      .toThrow(/^timeoutMs default must be a positive finite number$/)
+  })
+
+  it('names an invalid default with the caller-provided name', () => {
+    expect(() => clampTimeout(undefined, Number.NaN, 200, 'x'))
+      .toThrow(/^x default must be a positive finite number$/)
+  })
+
+  it.each([
+    -1,
+    0,
+    Number.POSITIVE_INFINITY,
+    Number.NaN,
+  ])('rejects an invalid max %s', (max) => {
+    expect(() => clampTimeout(undefined, 100, max))
+      .toThrow(/^timeoutMs max must be a positive finite number$/)
+  })
+
+  it('validates the default and max even when a valid hint is supplied', () => {
+    expect(() => clampTimeout(50, Number.NaN, 200))
+      .toThrow(/^timeoutMs default must be a positive finite number$/)
+    expect(() => clampTimeout(50, 100, Number.POSITIVE_INFINITY))
+      .toThrow(/^timeoutMs max must be a positive finite number$/)
+  })
+
+  it('reports an invalid hint before the default, and the default before max', () => {
+    expect(() => clampTimeout(Number.NaN, Number.NaN, 0, 'bash-local: request.timeoutMs'))
+      .toThrow(/^bash-local: request\.timeoutMs must be a positive finite number$/)
+    expect(() => clampTimeout(0, 100, 200))
+      .toThrow(/^timeoutMs must be a positive finite number$/)
+    expect(() => clampTimeout(undefined, Number.NaN, 0))
+      .toThrow(/^timeoutMs default must be a positive finite number$/)
+  })
+
+  it('keeps results for valid bounds', () => {
+    expect(clampTimeout(undefined, 100, 200)).toBe(100)
+    expect(clampTimeout(300, 100, 200)).toBe(200)
+    expect(clampTimeout(undefined, 120_000, 600_000)).toBe(120_000)
+    expect(clampTimeout(30_000, 120_000, 600_000)).toBe(30_000)
+    expect(clampTimeout(900_000, 120_000, 600_000)).toBe(600_000)
+  })
+
+  it('accepts a max above the timer delay limit', () => {
+    expect(clampTimeout(undefined, 100, 2 ** 31)).toBe(100)
+    expect(clampTimeout(3_000_000_000, 100, 4_000_000_000)).toBe(3_000_000_000)
+    expect(clampTimeout(undefined, 100, Number.MAX_VALUE)).toBe(100)
+  })
 })
 
 describe('deadline — timeout arm', () => {
