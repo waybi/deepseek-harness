@@ -14,7 +14,10 @@
  * are slot entries with their own behavior, so this component threads no
  * action callbacks and hosts no action surface.
  */
-import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  defaultRangeExtractor, observeElementRect, type Range, useVirtualizer,
+} from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import {
   Button, HoverCardGroup, IconArchiveCheckOutlineRegular, IconArchiveOffOutlineRegular, IconArchiveOutlineRegular,
@@ -34,9 +37,10 @@ import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { ArchivedFilter, GroupNode, SessionNode, SessionOrderBy, SessionRowState } from '../tree.ts'
 import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
-  pinCurrentBlank, reconcileManualOrder, sessionActive, sessionMemberIds, UNGROUPED_KEY,
+  pinCurrentBlank, reconcileManualOrder, reuseSessionNodes, sessionActive, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
-import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
+import { ProjectRowItem, type RowDragProps, SearchResultItem, SessionNodeItem } from './Rows.tsx'
+import { minuteNow } from './minute-clock.ts'
 import { AnimatedRows } from './AnimatedRows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
@@ -438,7 +442,7 @@ function SessionTree({
     }
     return false
   }
-  const now = Date.now()
+  const now = minuteNow()
   const commitSessionDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
     if (sessionDropCommitted.current) return
     sessionDropCommitted.current = true
@@ -709,7 +713,35 @@ function SessionTree({
   )
 }
 
-/** The flat "In one list" body: every session is one draggable top-level row. */
+/** Fixed height of one Session row (Rows.module.css `.sessionRow`). */
+const FLAT_ROW_HEIGHT_PX = 32
+/** Vertical space between consecutive flat rows. */
+const FLAT_ROW_GAP_PX = 2
+/** Rows mounted beyond each edge of the visible window. */
+const FLAT_OVERSCAN = 8
+/**
+ * List height assumed until the scroll element reports a nonzero height,
+ * including environments without layout.
+ */
+const FLAT_INITIAL_HEIGHT_PX = 800
+
+/** Mount the visible window plus rows that must stay mounted outside it, in index order. */
+function withPinnedIndexes(range: Range, pinned: readonly number[]): number[] {
+  const indexes = new Set(defaultRangeExtractor(range))
+  for (const index of pinned) if (index >= 0 && index < range.count) indexes.add(index)
+  return [...indexes].sort((left, right) => left - right)
+}
+
+/** Report a list's height only when it has layout, so a zero-height read keeps the previous window. */
+const observeLaidOutRect: typeof observeElementRect = (instance, notify) =>
+  observeElementRect(instance, (rect) => { if (rect.height > 0) notify(rect) })
+
+/**
+ * The flat "In one list" body: every session is one draggable top-level row.
+ * Rows are virtualized: only the visible window, {@link FLAT_OVERSCAN} rows
+ * beyond each edge, the reveal target, the current Session, and the row
+ * holding focus are mounted; a spacer keeps the scroll range of every row.
+ */
 function FlatList({
   list, sessionIds, rowState, onLeaveArchivedOnly, useSessionStatus, open, onSessionRenameRequest,
   usePanelInfo, setSessionOrder, workspaceReady, animationResetKey,
@@ -735,9 +767,16 @@ function FlatList({
 }) {
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const statuses = useSessionStatus(s => s)
-  const rows = useMemo(
-    () => deriveFlat(list, sessionIds, rowState, statuses),
-    [list, sessionIds, rowState, statuses],
+  // Unchanged rows keep their node objects, so a status change re-renders only its own row.
+  const previousRows = useRef<readonly SessionNode[]>([])
+  const rows = useMemo(() => {
+    const next = reuseSessionNodes(previousRows.current, deriveFlat(list, sessionIds, rowState, statuses))
+    previousRows.current = next
+    return next
+  }, [list, sessionIds, rowState, statuses])
+  const rowKeys = useMemo(
+    () => rows.length === 0 ? ['empty'] : rows.map(row => `session:${row.id}`),
+    [rows],
   )
   const [drag, setDrag] = useState<DragState | null>(null)
   const dropCommitted = useRef(false)
@@ -745,67 +784,150 @@ function FlatList({
   const currentId = panelActive
     ? undefined
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
-  const commitDrag = (activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
+  // Row handlers keep their identities across renders and read the values current at event time.
+  const latest = useRef({ drag, rows, sessionIds, setSessionOrder, onSessionRevealed, offset: 0 })
+  latest.current = { ...latest.current, drag, rows, sessionIds, setSessionOrder, onSessionRevealed }
+  const commitDrag = useCallback((activeDrag: DragState, over: NonNullable<DragState['over']>): void => {
     if (dropCommitted.current) return
     dropCommitted.current = true
     setDrag(null)
-    const nextOrder = sessionDragOrder(sessionIds, rows, activeDrag, over)
-    if (nextOrder !== undefined) setSessionOrder(FLAT_SESSION_ORDER_KEY, nextOrder)
+    const { rows: currentRows, sessionIds: order, setSessionOrder: save } = latest.current
+    const nextOrder = sessionDragOrder(order, currentRows, activeDrag, over)
+    if (nextOrder !== undefined) save(FLAT_SESSION_ORDER_KEY, nextOrder)
+  }, [])
+  const dragProps = useRef(new Map<SessionId, { key: string; value: RowDragProps }>())
+  const rowDrag = (node: SessionNode): RowDragProps => {
+    const active = drag !== null && drag.pinned === node.pinned
+    const marker = active && drag.over?.id === node.id ? drag.over.half : null
+    const key = `${String(node.pinned)}/${String(node.blank)}/${String(active)}/${String(marker)}`
+    const cached = dragProps.current.get(node.id)
+    if (cached?.key === key) return cached.value
+    const { id, pinned, blank } = node
+    const normalizeHalf = (half: 'before' | 'after'): 'before' | 'after' => blank ? 'after' : half
+    const value: RowDragProps = {
+      start: () => {
+        dropCommitted.current = false
+        setDrag({ accountKey: FLAT_SESSION_ORDER_KEY, sessionId: id, pinned, over: null })
+      },
+      active,
+      marker,
+      hover: (half) => {
+        setDrag(current => current === null ? current : {
+          ...current, over: { id, half: normalizeHalf(half) },
+        })
+      },
+      drop: (half) => {
+        const current = latest.current.drag
+        if (current !== null) commitDrag(current, { id, half: normalizeHalf(half) })
+      },
+      end: () => {
+        const current = latest.current.drag
+        if (current?.over !== null && current?.over !== undefined) commitDrag(current, current.over)
+        else setDrag(null)
+        dropCommitted.current = false
+      },
+    }
+    dragProps.current.set(id, { key, value })
+    return value
   }
-  const now = Date.now()
+  // The revealed row scrolls itself into view and is then acknowledged; it
+  // stays mounted until the list's scroll position moves, which places the
+  // window over it.
+  const [revealed, setRevealed] = useState<{ id: SessionId; offset: number } | undefined>(undefined)
+  const reveal = useMemo(
+    () => revealSessionId === undefined
+      ? undefined
+      : () => {
+        setRevealed({ id: revealSessionId, offset: latest.current.offset })
+        latest.current.onSessionRevealed(revealSessionId)
+      },
+    [revealSessionId],
+  )
+  const [focusedId, setFocusedId] = useState<SessionId | undefined>(undefined)
+  const scrollElement = useRef<HTMLDivElement | null>(null)
+  const attachScrollElement = useCallback((element: HTMLDivElement | null) => { scrollElement.current = element }, [])
+  const rowIndex = useMemo(() => new Map(rows.map((row, index) => [row.id, index])), [rows])
+  const indexOf = (id: SessionId | undefined): number => id === undefined ? -1 : rowIndex.get(id) ?? -1
+  // Rows that stay mounted outside the window; the joined indexes give the
+  // range extractor a value-stable dependency.
+  const keptIndexes = [revealSessionId, revealed?.id, currentId, focusedId].map(indexOf).join(',')
+  const getItemKey = useCallback((index: number) => rows[index]?.id ?? index, [rows])
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: rows.length,
+    getScrollElement: () => scrollElement.current,
+    getItemKey,
+    estimateSize: () => FLAT_ROW_HEIGHT_PX,
+    gap: FLAT_ROW_GAP_PX,
+    overscan: FLAT_OVERSCAN,
+    initialRect: { width: 0, height: FLAT_INITIAL_HEIGHT_PX },
+    observeElementRect: observeLaidOutRect,
+    rangeExtractor: useMemo(() => {
+      const pinned = keptIndexes.split(',').map(Number)
+      return (range: Range) => withPinnedIndexes(range, pinned)
+    }, [keptIndexes]),
+  })
+  // The list's first scroll after acknowledgement moves the window over the revealed row.
+  const scrolledFrom = revealed?.offset
+  const offset = virtualizer.scrollOffset ?? 0
+  if (scrolledFrom !== undefined && offset !== scrolledFrom) setRevealed(undefined)
+  latest.current.offset = offset
+  const now = minuteNow()
   return (
     <HoverCardGroup className={clsx(css.treeBody, css.wide)}>
       <AnimatedRows
-        className={clsx(css.list, css.flatList)}
+        className={clsx(css.list)}
         label={t('section.sessions')}
-        rowKeys={rows.length === 0 ? ['empty'] : rows.map(row => `session:${row.id}`)}
+        rowKeys={rowKeys}
         ready={list.phase === 'ready' && workspaceReady && drag === null}
         resetKey={animationResetKey}
+        listRef={attachScrollElement}
       >
         {rows.length === 0 && (
           <EmptySessions rowState={rowState} onLeaveArchivedOnly={onLeaveArchivedOnly} t={t} />
         )}
-        {rows.map((node) => {
-          const active = drag !== null && drag.pinned === node.pinned
-          const normalizeHalf = (half: 'before' | 'after'): 'before' | 'after' =>
-            node.blank ? 'after' : half
-          return (
-            <SessionNodeItem
-              key={node.id}
-              node={node}
-              currentId={currentId}
-              now={now}
-              onOpen={open}
-              onRenameRequest={onSessionRenameRequest}
-              renderSlot={renderSlot}
-              onReveal={node.id === revealSessionId
-                ? () => { onSessionRevealed(node.id) }
-                : undefined}
-              drag={{
-                start: () => {
-                  dropCommitted.current = false
-                  setDrag({ accountKey: FLAT_SESSION_ORDER_KEY, sessionId: node.id, pinned: node.pinned, over: null })
-                },
-                active,
-                marker: active && drag.over?.id === node.id ? drag.over.half : null,
-                hover: (half) => {
-                  setDrag(current => current === null ? current : {
-                    ...current, over: { id: node.id, half: normalizeHalf(half) },
-                  })
-                },
-                drop: (half) => {
-                  if (drag !== null) commitDrag(drag, { id: node.id, half: normalizeHalf(half) })
-                },
-                end: () => {
-                  if (drag?.over !== null && drag?.over !== undefined) commitDrag(drag, drag.over)
-                  else setDrag(null)
-                  dropCommitted.current = false
-                },
-              }}
-              t={t}
-            />
-          )
-        })}
+        {rows.length > 0 && (
+          <div
+            className={css.flatSpacer}
+            style={{ height: `${String(virtualizer.getTotalSize())}px` }}
+            onFocus={(event) => {
+              const key = (event.target as HTMLElement).closest<HTMLElement>('[data-row-key]')?.dataset.rowKey
+              if (key?.startsWith('session:') === true) setFocusedId(key.slice('session:'.length) as SessionId)
+            }}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setFocusedId(undefined)
+            }}
+          >
+            {virtualizer.getVirtualItems().map((item) => {
+              const node = rows[item.index] as SessionNode
+              return (
+                <div
+                  key={node.id}
+                  className={css.flatRow}
+                  style={{ top: `${String(item.start)}px` }}
+                  // The row's place is announced on its treeitem, outside the
+                  // memoized row, so a reorder does not re-render shifted rows.
+                  ref={(wrapper) => {
+                    const treeitem = wrapper?.querySelector('[role="treeitem"]')
+                    treeitem?.setAttribute('aria-posinset', String(item.index + 1))
+                    treeitem?.setAttribute('aria-setsize', String(rows.length))
+                  }}
+                >
+                  <SessionNodeItem
+                    node={node}
+                    currentId={currentId}
+                    now={now}
+                    onOpen={open}
+                    onRenameRequest={onSessionRenameRequest}
+                    renderSlot={renderSlot}
+                    onReveal={node.id === revealSessionId ? reveal : undefined}
+                    drag={rowDrag(node)}
+                    t={t}
+                  />
+                </div>
+              )
+            })}
+          </div>
+        )}
       </AnimatedRows>
       <span className={css.fade} />
     </HoverCardGroup>
@@ -982,13 +1104,13 @@ export function WorkspaceBrowser({
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
   // Archived sessions are not openable: the row stays visible under the
   // filter but a click explains instead of navigating.
-  const guardedOpen = (sessionId: SessionId): void => {
+  const guardedOpen = useCallback((sessionId: SessionId): void => {
     if (archivedSessionIds.includes(sessionId)) {
       notifyArchivedNotOpenable()
       return
     }
     open(sessionId)
-  }
+  }, [archivedSessionIds, notifyArchivedNotOpenable, open])
   const leaveArchivedOnly = (): void => { actions.setArchivedFilter('default') }
   const workspaceReady = workspacePhase === 'ready' && workspaceStreamState !== 'loading'
   const mainSessionId = Object.values(list.byId)

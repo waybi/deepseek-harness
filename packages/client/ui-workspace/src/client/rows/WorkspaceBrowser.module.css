@@ -373,10 +373,21 @@
   scrollbar-gutter: stable;
 }
 
-.flatList > * + *,
 .searchTree > [role='treeitem'] + [role='treeitem'],
 .groupSection > * + * {
   margin-top: 2px;
+}
+
+/* Virtualized flat list: the spacer spans every row's height plus the 2px
+   gaps between rows; each mounted row sits at its computed offset. */
+.flatSpacer {
+  position: relative;
+}
+
+.flatRow {
+  position: absolute;
+  left: 0;
+  right: 0;
 }
 
 .searchStatus {

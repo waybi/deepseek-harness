@@ -14,6 +14,11 @@ interface AnimatedRowsProps {
   ready: boolean
   /** Changes that replace the view or reveal hidden rows settle immediately. */
   resetKey: string
+  /**
+   * Receives the scrolling list element on mount and `null` on unmount; a
+   * virtualizing parent uses it as its scroll element.
+   */
+  listRef?: ((element: HTMLDivElement | null) => void) | undefined
 }
 
 interface RowPosition {
@@ -28,7 +33,7 @@ interface RowSnapshot {
 }
 
 function sameRows(previous: AnimatedRowsProps, next: AnimatedRowsProps): boolean {
-  return previous.rowKeys.length === next.rowKeys.length
+  return previous.rowKeys === next.rowKeys || previous.rowKeys.length === next.rowKeys.length
     && previous.rowKeys.every((key, index) => key === next.rowKeys[index])
 }
 
@@ -41,10 +46,13 @@ function intersects(row: DOMRect, viewport: DOMRect): boolean {
  * Animates keyed sidebar rows only when their rendered membership or order changes.
  * Motion starts after the first pointer or keyboard input inside the mounted list.
  * The parent supplies a positioned container for the inert exit overlay.
+ * Only rows mounted in the DOM are measured, so a virtualizing parent may list
+ * every key in `rowKeys` while mounting a window of them; a row that becomes
+ * mounted while its key was already listed appears without an entry fade.
  */
 export class AnimatedRows extends Component<AnimatedRowsProps> {
   private armed = false
-  private readonly list = createRef<HTMLDivElement>()
+  private list: { current: HTMLDivElement | null } = { current: null }
   private readonly overlay = createRef<HTMLDivElement>()
   private readonly movements = new Map<HTMLElement, Animation>()
   private readonly exits = new Map<string, { element: HTMLElement; animation: Animation }>()
@@ -86,6 +94,7 @@ export class AnimatedRows extends Component<AnimatedRowsProps> {
     const viewport = list.getBoundingClientRect()
     const origin = overlay.getBoundingClientRect()
     const positions = this.readPositions()
+    const listed = new Set(previous.rowKeys)
 
     for (const [key, row] of positions) {
       this.removeExit(key)
@@ -93,7 +102,8 @@ export class AnimatedRows extends Component<AnimatedRowsProps> {
       if (!intersects(row.rect, viewport)
         && (previousRow === undefined || !intersects(previousRow.rect, viewport))) continue
       if (previousRow === undefined) {
-        this.move(row.element, [{ opacity: 0 }, { opacity: 1 }], ROW_FADE_MS)
+        // A listed row that was outside a virtualized window is not new.
+        if (!listed.has(key)) this.move(row.element, [{ opacity: 0 }, { opacity: 1 }], ROW_FADE_MS)
         continue
       }
       const dx = previousRow.rect.left - row.rect.left
@@ -165,10 +175,15 @@ export class AnimatedRows extends Component<AnimatedRowsProps> {
     for (const key of this.exits.keys()) this.removeExit(key)
   }
 
+  private readonly attachList = (element: HTMLDivElement | null): void => {
+    this.list.current = element
+    this.props.listRef?.(element)
+  }
+
   override render(): ReactNode {
     return <>
       <div
-        ref={this.list}
+        ref={this.attachList}
         className={this.props.className}
         role="tree"
         aria-label={this.props.label}

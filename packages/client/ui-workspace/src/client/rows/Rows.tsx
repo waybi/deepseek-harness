@@ -10,7 +10,7 @@
  * context; this package's own actions are entries like any plugin's. The
  * session and workspace hover cards are suppressed while a menu is open.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import clsx from 'clsx'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
@@ -540,9 +540,9 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }: 
  * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
  * @param props.drag - optional row-drag target wiring; blank rows cannot start a drag.
  * @param props.t - the browser root's locale seat.
- * @returns the session row.
+ * @returns the session row; props that keep their identities skip re-rendering.
  */
-export function SessionNodeItem({
+export const SessionNodeItem = memo(function SessionNodeItem({
   node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t,
 }: {
   node: SessionNode
@@ -702,4 +702,4 @@ export function SessionNodeItem({
       copiedLabel={t('hover.copied')}
     />
   )
-}
+})

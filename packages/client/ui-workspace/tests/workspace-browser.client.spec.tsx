@@ -2707,3 +2707,147 @@ describe('Workspace tree grouping', () => {
     expect(b.props.insertWorkspaceBefore).toHaveBeenCalledWith(wid('alpha'), wid('gamma'))
   })
 })
+
+describe('virtualized flat list', () => {
+  const ROW = 32
+  const GAP = 2
+  const OVERSCAN = 8
+  const many = (count: number) => Array.from(
+    { length: count }, (_, index) => summary(`s-${String(index).padStart(4, '0')}`, count - index),
+  )
+  const flat = (overrides: Partial<WorkspaceBrowserProps>) => {
+    localStorage.clear()
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupBy('flat')
+    return mount(overrides)
+  }
+  const mountedTitles = () => screen.queryAllByRole('treeitem')
+    .map(row => within(row).getByText(/^s-\d{4}$/u).textContent)
+
+  it('mounts the visible window plus overscan and spans every row in the scroll range', () => {
+    const items = many(1_000)
+    flat({ useSessions: hook(sessionState(items)) })
+    const visible = Math.ceil(800 / (ROW + GAP))
+    const mounted = screen.getAllByRole('treeitem')
+    expect(mounted.length).toBeLessThanOrEqual(visible + 2 * OVERSCAN)
+    expect(mounted.length).toBeLessThanOrEqual(80)
+    expect(mountedTitles().slice(0, 3)).toEqual(['s-0000', 's-0001', 's-0002'])
+    expect(mounted[0]?.getAttribute('aria-setsize')).toBe('1000')
+    expect(mounted[2]?.getAttribute('aria-posinset')).toBe('3')
+    const spacer = mounted[0]?.parentElement?.parentElement?.parentElement as HTMLElement
+    expect(spacer.style.height).toBe(`${String(1_000 * ROW + 999 * GAP)}px`)
+    const offsets = mounted.slice(0, 2).map(row => (row.parentElement?.parentElement as HTMLElement).style.top)
+    expect(offsets).toEqual(['0px', `${String(ROW + GAP)}px`])
+  })
+
+  it('re-renders only the changed row when one Session status changes', () => {
+    const items = many(40)
+    const renders = new Map<string, number>()
+    const renderSlot: WorkspaceBrowserProps['renderSlot'] = (name: string, owner: object) => {
+      if (name === 'sidebar.workspaces.session.row.action') {
+        const id = (owner as { sessionId: string }).sessionId
+        renders.set(id, (renders.get(id) ?? 0) + 1)
+      }
+      return null
+    }
+    const status = (completionUnread: boolean) => hook<SessionStatusSnapshot>(new Map([[sid('s-0005'), {
+      running: false, pendingInteraction: undefined, completionUnread,
+    }]]))
+    const b = flat({ useSessions: hook(sessionState(items)), useSessionStatus: status(false), renderSlot })
+    expect(renders.size).toBeGreaterThan(10)
+    renders.clear()
+    // A completion reminder does not change the row's section, so the order is unchanged.
+    rerender(b, { useSessionStatus: status(true) })
+    expect([...renders.keys()]).toEqual(['s-0005'])
+    renders.clear()
+    // A run lifts the row into the active block; the other mounted rows still skip rendering.
+    rerender(b, { useSessionStatus: hook<SessionStatusSnapshot>(new Map([[sid('s-0009'), {
+      running: true, pendingInteraction: undefined, completionUnread: false,
+    }]])) })
+    expect(mountedTitles()[0]).toBe('s-0009')
+    expect([...renders.keys()].sort()).toEqual(['s-0005', 's-0009'])
+  })
+
+  it('mounts and selects a revealed row far outside the window', () => {
+    const items = many(1_000)
+    const open = vi.fn()
+    flat({ useSessions: hook(sessionState(items)), open })
+    expect(screen.queryByText('s-0900')).toBeNull()
+    fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: 's-0900' } })
+    fireEvent.click(screen.getByRole('treeitem'))
+    expect(open).toHaveBeenCalledWith(sid('s-0900'))
+    const row = screen.getByText('s-0900').closest('[role="treeitem"]')
+    expect(row?.getAttribute('aria-posinset')).toBe('901')
+    expect(row?.getAttribute('aria-setsize')).toBe('1000')
+    expect(scrollIntoView.mock.instances.at(-1)).toBe(row)
+    // scrollIntoView moves the list; the window then covers the row by itself.
+    const tree = screen.getByRole('tree', { name: '会话' })
+    act(() => {
+      tree.scrollTop = 900 * (ROW + GAP)
+      fireEvent.scroll(tree)
+    })
+    expect(screen.getByText('s-0900').closest('[role="treeitem"]')).toBe(row)
+    expect(screen.getAllByRole('treeitem').length).toBeLessThanOrEqual(80)
+    // Scrolling away releases the row once the window no longer covers it.
+    act(() => {
+      tree.scrollTop = 0
+      fireEvent.scroll(tree)
+    })
+    expect(screen.queryByText('s-0900')).toBeNull()
+  })
+
+  it('keeps the current Session row mounted and selected outside the window', () => {
+    const items = many(1_000)
+    flat({ useSessions: hook(sessionState(items, { main: sid('s-0700') })) })
+    const row = screen.getByText('s-0700').closest('[role="treeitem"]')
+    expect(row?.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getAllByRole('treeitem').length).toBeLessThanOrEqual(80)
+  })
+
+  it('keeps a focused row mounted after scrolling past it and releases it on blur', () => {
+    const items = many(1_000)
+    flat({ useSessions: hook(sessionState(items)) })
+    const tree = screen.getByRole('tree', { name: '会话' })
+    const button = within(screen.getByText('s-0001').closest('[role="treeitem"]') as HTMLElement)
+      .getByRole('button', { name: /s-0001/u })
+    act(() => { button.focus() })
+    expect(document.activeElement).toBe(button)
+    act(() => {
+      tree.scrollTop = 600 * (ROW + GAP)
+      fireEvent.scroll(tree)
+    })
+    expect(screen.getByText('s-0600')).toBeTruthy()
+    expect(document.activeElement).toBe(button)
+    expect(button.isConnected).toBe(true)
+    act(() => { button.blur() })
+    expect(screen.queryByText('s-0001')).toBeNull()
+  })
+
+  it('ignores focus outside Session rows and drags a pinned row only within the pinned block', () => {
+    const items = many(30)
+    const b = flat({
+      useSessions: hook(sessionState(items)),
+      useWorkspaces: hook(workspaceState([], [], [sid('s-0003'), sid('s-0004')])),
+    })
+    fireEvent.focus(screen.getAllByRole('treeitem')[0]?.parentElement?.parentElement as HTMLElement)
+    const one = screen.getByText('s-0003').closest('[role="treeitem"]') as HTMLElement
+    const two = screen.getByText('s-0004').closest('[role="treeitem"]') as HTMLElement
+    two.getBoundingClientRect = () => new DOMRect(0, 100, 200, 34)
+    one.getBoundingClientRect = () => new DOMRect(0, 100, 200, 34)
+    fireEvent.dragStart(two, { dataTransfer: dragData() })
+    fireDrag(one, 'dragOver', 105)
+    fireDrag(one, 'drop', 105)
+    expect(b.store.getSnapshot().sessionOrderByAccount[FLAT_SESSION_ORDER_KEY]?.slice(0, 6))
+      .toEqual(['s-0000', 's-0001', 's-0002', 's-0004', 's-0003', 's-0005'])
+    expect(mountedTitles().slice(0, 3)).toEqual(['s-0004', 's-0003', 's-0000'])
+    // An ordinary source ignores pinned targets.
+    const ordinary = screen.getByText('s-0010').closest('[role="treeitem"]') as HTMLElement
+    const pinnedTarget = screen.getByText('s-0004').closest('[role="treeitem"]') as HTMLElement
+    pinnedTarget.getBoundingClientRect = () => new DOMRect(0, 100, 200, 34)
+    fireEvent.dragStart(ordinary, { dataTransfer: dragData() })
+    fireDrag(pinnedTarget, 'dragOver', 105)
+    fireDrag(pinnedTarget, 'drop', 105)
+    fireEvent.dragEnd(ordinary)
+    expect(mountedTitles().slice(0, 3)).toEqual(['s-0004', 's-0003', 's-0000'])
+  })
+})

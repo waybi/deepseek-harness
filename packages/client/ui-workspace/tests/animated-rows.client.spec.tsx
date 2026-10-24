@@ -45,7 +45,14 @@ afterEach(() => {
   else Object.defineProperty(HTMLElement.prototype, 'animate', originalAnimate)
 })
 
-function rows(keys: readonly string[], options: { ready?: boolean; resetKey?: string; suffix?: string } = {}) {
+function rows(keys: readonly string[], options: {
+  ready?: boolean
+  resetKey?: string
+  suffix?: string
+  /** Keys mounted in the DOM; defaults to every key, as in an unvirtualized list. */
+  mounted?: readonly string[]
+  listRef?: (element: HTMLDivElement | null) => void
+} = {}) {
   return <div style={{ position: 'relative' }}>
     <AnimatedRows
       className="rows"
@@ -53,8 +60,9 @@ function rows(keys: readonly string[], options: { ready?: boolean; resetKey?: st
       rowKeys={keys}
       ready={options.ready ?? true}
       resetKey={options.resetKey ?? 'manual'}
+      listRef={options.listRef}
     >
-      {keys.map(key => <div key={key} data-row-key={key} role="treeitem" style={{ opacity: 1 }}>
+      {(options.mounted ?? keys).map(key => <div key={key} data-row-key={key} role="treeitem" style={{ opacity: 1 }}>
         {key}{options.suffix}
       </div>)}
     </AnimatedRows>
@@ -153,6 +161,40 @@ describe('AnimatedRows', () => {
     view.rerender(rows(['a']))
     view.unmount()
     for (const call of animations) expect(call.cancel).toHaveBeenCalled()
+  })
+
+  it('measures only mounted rows, independent of the listed row count', () => {
+    const keys = Array.from({ length: 1_000 }, (_, index) => `row-${String(index)}`)
+    const mounted = keys.slice(0, 20)
+    const view = render(rows(keys, { mounted }))
+    arm()
+    measure.mockClear()
+    const reordered = [keys[1] as string, keys[0] as string, ...keys.slice(2)]
+    view.rerender(rows(reordered, { mounted: reordered.slice(0, 20) }))
+    const rowReads = measure.mock.contexts.filter(context => (context as HTMLElement).dataset.rowKey !== undefined)
+    expect(rowReads.length).toBeLessThanOrEqual(mounted.length * 2)
+    expect(rowReads.length).toBeGreaterThan(0)
+  })
+
+  it('shows a listed row that becomes mounted without an entry fade', () => {
+    const keys = ['a', 'b', 'c', 'd']
+    const view = render(rows(keys, { mounted: ['a', 'b'] }))
+    arm()
+    // `d` was listed but outside the mounted window; moving it up mounts it.
+    view.rerender(rows(['d', 'a', 'b', 'c'], { mounted: ['d', 'a', 'b'] }))
+    expect(animations.filter(call => call.element.textContent === 'd'
+      && call.keyframes[0]?.opacity === 0)).toEqual([])
+    // A key that was not listed before still fades in.
+    view.rerender(rows(['e', 'd', 'a', 'b', 'c'], { mounted: ['e', 'd', 'a'] }))
+    expect(animations.some(call => call.element.textContent === 'e' && call.options.duration === 100)).toBe(true)
+  })
+
+  it('hands the scrolling list element to the parent and clears it on unmount', () => {
+    const listRef = vi.fn<(element: HTMLDivElement | null) => void>()
+    const view = render(rows(['a'], { listRef }))
+    expect(listRef).toHaveBeenLastCalledWith(screen.getByRole('tree'))
+    view.unmount()
+    expect(listRef).toHaveBeenLastCalledWith(null)
   })
 
   it('does not animate rows that stay outside the list viewport', () => {

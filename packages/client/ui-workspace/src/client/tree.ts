@@ -537,6 +537,36 @@ export function deriveFlat(
   return sectionRows(members.map(session => sessionNode(session, list, statuses, pinned, archived)))
 }
 
+function sameSessionNode(left: SessionNode, right: SessionNode): boolean {
+  return left.id === right.id && left.title === right.title && left.blank === right.blank
+    && left.pendingInteraction === right.pendingInteraction && left.running === right.running
+    && left.runningSubagentCount === right.runningSubagentCount && left.completed === right.completed
+    && left.pinned === right.pinned && left.archived === right.archived && left.updatedAt === right.updatedAt
+}
+
+/**
+ * Carry unchanged rows over from the previous derivation, so a status or
+ * list change replaces only the nodes whose displayed facts changed.
+ * @param previous - rows from the previous derivation.
+ * @param next - freshly derived rows in display order.
+ * @returns `previous` when every row and position is unchanged; otherwise
+ * `next` with each unchanged node replaced by its previous object.
+ */
+export function reuseSessionNodes(
+  previous: readonly SessionNode[],
+  next: readonly SessionNode[],
+): readonly SessionNode[] {
+  const byId = new Map(previous.map(node => [node.id, node]))
+  let changed = previous.length !== next.length
+  const rows = next.map((node, index) => {
+    const prior = byId.get(node.id)
+    const kept = prior !== undefined && sameSessionNode(prior, node) ? prior : node
+    if (kept !== previous[index]) changed = true
+    return kept
+  })
+  return changed ? rows : previous
+}
+
 /**
  * Merge immediate title/Workspace substring matches with ranked Host content
  * matches. Local rows lead newest-first, content-only rows retain backend
