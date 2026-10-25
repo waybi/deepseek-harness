@@ -308,6 +308,9 @@ export class DraftEditorRuntime {
 
   /**
    * Clear committed content using the model's suffix decision inside the editor update.
+   * A full clear leaves one empty paragraph holding the collapsed caret: a
+   * caret on the bare root makes the next IME composition keep its anchor at
+   * the document start.
    * @param prefixLength - returns the clipboard-prefix length to remove, or null to clear the root.
    */
   clearCommittedDraft(prefixLength: (clipboardText: string) => number | null): void {
@@ -322,6 +325,7 @@ export class DraftEditorRuntime {
       }
       const root = $getRoot()
       root.clear()
+      root.append($createParagraphNode())
       root.selectEnd()
     }, { discrete: true, tag: HISTORY_MERGE_TAG })
   }
