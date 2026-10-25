@@ -129,6 +129,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     open: vi.fn(),
     searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
     searchResultLimit: 20,
+    hiddenSessionCwdPrefixes: [],
     notifyArchivedNotOpenable: vi.fn(),
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
@@ -447,9 +448,10 @@ describe('WorkspaceBrowser', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
-    expect(screen.getAllByRole('separator')).toHaveLength(2)
+    expect(screen.getAllByRole('separator')).toHaveLength(3)
     expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
       '按工作区', '按工作区树', '单列表', '手动排序', '最近更新', '隐藏已归档', '全部对话（显示已归档）', '仅显示已归档',
+      '显示后台会话',
     ])
     expect(screen.getByRole('menuitem', { name: '按工作区' }).querySelector('svg')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: '手动排序' }).querySelector('svg')).toBeTruthy()
@@ -587,6 +589,120 @@ describe('WorkspaceBrowser', () => {
     choose('仅显示已归档')
     expect(screen.queryByText('Projects')).toBeNull()
     expect(screen.getByText('Child')).toBeTruthy()
+  })
+
+  describe('background Sessions', () => {
+    const home = '/Users/boss'
+    const bg = (id: string, updatedAt: number, overrides: Partial<SessionSummary> = {}) =>
+      summary(id, updatedAt, { cwd: `${home}/.routa/workspace/w1/${id}`, ...overrides })
+    const own = (id: string, updatedAt: number) => summary(id, updatedAt, { cwd: '/projects/alpha' })
+    const background = {
+      hiddenSessionCwdPrefixes: ['~/.routa/workspace'],
+      useHostInfo: ((selector: (info: { home: string | undefined; isLoopback: boolean }) => unknown) =>
+        selector({ home, isLoopback: true })) as WorkspaceBrowserProps['useHostInfo'],
+    }
+    const choose = (name: string) => {
+      fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+      fireEvent.click(screen.getByRole('menuitem', { name }))
+    }
+
+    it('hides background rows by default in every grouping and the toggle shows them again', () => {
+      const b = mount({
+        ...background,
+        useSessions: hook(sessionState([own('mine', 3), bg('crafter', 2), bg('loose', 1)])),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['mine', 'crafter'])])),
+      })
+      fireEvent.click(screen.getByText('alpha'))
+      expect(screen.getByText('mine')).toBeTruthy()
+      expect(screen.queryByText('crafter')).toBeNull()
+      // The Ungrouped section holds only a background Session, so it is not rendered.
+      expect(screen.queryByText('loose')).toBeNull()
+
+      choose('按工作区树')
+      expect(screen.getByText('mine')).toBeTruthy()
+      expect(screen.queryByText('crafter')).toBeNull()
+
+      choose('单列表')
+      expect(screen.getByText('mine')).toBeTruthy()
+      expect(screen.queryByText('crafter')).toBeNull()
+      expect(screen.queryByText('loose')).toBeNull()
+
+      choose('显示后台会话')
+      expect(b.store.getSnapshot().showBackgroundSessions).toBe(true)
+      expect(screen.getByText('crafter')).toBeTruthy()
+      expect(screen.getByText('loose')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+      // Selected rows carry a trailing check after their leading icon.
+      expect(screen.getByRole('menuitem', { name: '显示后台会话' }).querySelectorAll('svg')).toHaveLength(2)
+      fireEvent.click(screen.getByRole('menuitem', { name: '显示后台会话' }))
+      expect(b.store.getSnapshot().showBackgroundSessions).toBe(false)
+      expect(screen.queryByText('crafter')).toBeNull()
+    })
+
+    it('keeps the toggle across reloads through the persisted view store', () => {
+      const seats = {
+        ...background,
+        useSessions: hook(sessionState([own('mine', 3), bg('crafter', 2)])),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['mine', 'crafter'])])),
+      }
+      mount(seats)
+      choose('单列表')
+      choose('显示后台会话')
+      const persisted = JSON.parse(localStorage.getItem('dsh.workspace.view.v5') ?? '{}') as Record<string, unknown>
+      expect(persisted['showBackgroundSessions']).toBe(true)
+      cleanup()
+      const remounted = mount(seats)
+      expect(remounted.store.getSnapshot().showBackgroundSessions).toBe(true)
+      expect(screen.getByText('crafter')).toBeTruthy()
+    })
+
+    it('drops a Workspace group emptied by background hiding but keeps an originally empty one', () => {
+      mount({
+        ...background,
+        useSessions: hook(sessionState([own('mine', 3), bg('crafter', 2)])),
+        useWorkspaces: hook(workspaceState([
+          workspace('alpha', ['mine']), workspace('routa', ['crafter']), workspace('empty', []),
+        ])),
+      })
+      expect(screen.getByText('alpha')).toBeTruthy()
+      expect(screen.queryByText('routa')).toBeNull()
+      expect(screen.getByText('empty')).toBeTruthy()
+      choose('显示后台会话')
+      expect(screen.getByText('routa')).toBeTruthy()
+    })
+
+    it('still finds background Sessions through search while they are hidden', async () => {
+      mount({
+        ...background,
+        useSessions: hook(sessionState([own('mine', 3), bg('crafter', 2)])),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['mine', 'crafter'])])),
+      })
+      fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+      fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: 'crafter' } })
+      await act(async () => { await Promise.resolve() })
+      const results = screen.getByRole('tree', { name: '搜索结果' })
+      expect(within(results).getByText('crafter')).toBeTruthy()
+    })
+
+    it('keeps a background Session opened from search in the list as the current Session', async () => {
+      const open = vi.fn()
+      const sessions = [own('mine', 3), bg('crafter', 2)]
+      const b = mount({
+        ...background,
+        open,
+        useSessions: hook(sessionState(sessions)),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['mine', 'crafter'])])),
+      })
+      choose('单列表')
+      fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+      fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: 'crafter' } })
+      await act(async () => { await Promise.resolve() })
+      fireEvent.click(within(screen.getByRole('tree', { name: '搜索结果' })).getByRole('treeitem'))
+      expect(open).toHaveBeenCalledWith(sid('crafter'))
+      // Opening retains the Session in the main view, which makes it current.
+      rerender(b, { useSessions: hook(sessionState(sessions, { main: sid('crafter') })) })
+      expect(screen.getByText('crafter')).toBeTruthy()
+    })
   })
 
   it('keeps the picked archived filter across remounts through the view store', () => {

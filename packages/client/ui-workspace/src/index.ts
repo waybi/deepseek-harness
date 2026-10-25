@@ -1,9 +1,25 @@
 /**
- * Workspace picker plugin, node half. Pure UI plugin: the empty apply exists
- * so the plugin appears in the host cordis.yml / Loader (load and lifecycle
- * follow the host; the browser half ships via exports["./client"], discovered
- * through the package.json dsh.client declaration).
+ * Workspace picker plugin, node half. It embeds the validated sidebar options
+ * in browser pages; the browser half ships via exports["./client"],
+ * discovered through the package.json dsh.client declaration.
  */
+import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import { type Config, WORKSPACE_BROWSER_CONFIG_GLOBAL } from './config.ts'
 
-/** Host plugin body — no host-side behavior for the workspace picker plugin. */
-export function apply(): void {}
+export { Config } from './config.ts'
+
+/**
+ * Publish the Workspace browser options before browser plugins activate.
+ * @param ctx - Host context serving browser pages.
+ * @param config - plugin options with schema defaults applied by the Loader.
+ */
+export function apply(ctx: Context, config: Config): void {
+  ctx.on('webserver/index-inject', (table) => {
+    table.push({
+      kind: 'global',
+      name: WORKSPACE_BROWSER_CONFIG_GLOBAL,
+      value: { hiddenSessionCwdPrefixes: config.hiddenSessionCwdPrefixes },
+    })
+  })
+}

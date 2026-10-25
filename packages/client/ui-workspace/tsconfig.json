@@ -9,6 +9,12 @@
   ],
   "references": [
     {
+      "path": "../../host/webserver"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
       "path": "../../api/session-controller/tsconfig.client.json"
     },
     {

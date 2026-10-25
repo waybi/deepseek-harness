@@ -255,6 +255,12 @@ export type WorkspaceBrowserInjected = {
   ) => Promise<{ items: readonly SessionSearchResultItem[]; hasMore: boolean }>
   /** Maximum number of merged rows rendered for one search. */
   searchResultLimit: number
+  /**
+   * Configured background-directory prefixes in Host spelling (a leading `~`
+   * names the Host account home). List rows under them stay hidden until the
+   * view option shows background Sessions; search still finds them.
+   */
+  hiddenSessionCwdPrefixes: readonly string[]
   /** Open the Session rename dialog (a row title double-click); the rename action entry raises the same request. */
   requestSessionRename: (sessionId: SessionId, currentTitle: string) => void
   /** Tell the user an archived row cannot be opened (a click on it). */

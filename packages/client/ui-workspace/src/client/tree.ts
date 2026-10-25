@@ -256,6 +256,41 @@ function sessionVisible(
   }
 }
 
+/**
+ * Resolve configured background-directory prefixes to Host paths: a leading
+ * `~` (alone or followed by `/`) becomes the Host account home, trailing `/`
+ * separators are dropped, and empty results are discarded. Without a known
+ * home, `~` prefixes resolve to nothing.
+ * @param prefixes - configured prefixes in Host spelling.
+ * @param home - Host account home, undefined before the connection reports it.
+ * @returns absolute prefixes ready for {@link cwdHiddenByPrefix}.
+ */
+export function resolveHiddenCwdPrefixes(prefixes: readonly string[], home: string | undefined): string[] {
+  return prefixes.flatMap((prefix) => {
+    const tilde = prefix === '~' || prefix.startsWith('~/')
+    let expanded = prefix
+    if (tilde) {
+      if (home === undefined) return []
+      expanded = `${home.replace(/\/+$/, '')}${prefix.slice(1)}`
+    }
+    const trimmed = expanded.replace(/\/+$/, '')
+    return trimmed === '' ? [] : [trimmed]
+  })
+}
+
+/**
+ * Whether a Session working directory sits under a background prefix on a
+ * whole path-segment boundary: equal to the prefix or below `prefix/`.
+ * @param cwd - Session working directory; undefined never matches.
+ * @param prefixes - resolved prefixes from {@link resolveHiddenCwdPrefixes}.
+ * @returns true when the Session belongs to a background directory.
+ */
+export function cwdHiddenByPrefix(cwd: string | undefined, prefixes: readonly string[]): boolean {
+  if (cwd === undefined) return false
+  const path = cwd.replace(/\/+$/, '')
+  return prefixes.some(prefix => path === prefix || path.startsWith(`${prefix}/`))
+}
+
 /** Registry-global row state consumed by every tree derivation. */
 export interface SessionRowState {
   /** Registry-global pin ids; pinned rows lead their section in the local order. */
@@ -264,6 +299,34 @@ export interface SessionRowState {
   archivedSessionIds: readonly SessionId[]
   /** Archived-row visibility choice applied to lists and search alike. */
   archivedFilter: ArchivedFilter
+  /**
+   * Resolved background-directory prefixes; list rows under them stay hidden
+   * unless {@link showBackgroundSessions} is set. Search ignores them.
+   * Omitted means no background directory.
+   */
+  hiddenCwdPrefixes?: readonly string[]
+  /** Show list rows under {@link hiddenCwdPrefixes}; omitted reads as false. */
+  showBackgroundSessions?: boolean
+  /** Background row that a search pick must expose in the list. */
+  revealSessionId?: SessionId | undefined
+}
+
+/**
+ * Background hiding for list derivations: a Session under a hidden prefix
+ * stays out of the list unless background Sessions are shown, it is the
+ * current or revealed Session, or it is running.
+ */
+function hiddenAsBackground(
+  session: SessionSummary,
+  current: SessionId | undefined,
+  rowState: SessionRowState,
+  statuses: SessionStatuses,
+): boolean {
+  if (rowState.showBackgroundSessions === true) return false
+  const prefixes = rowState.hiddenCwdPrefixes ?? []
+  if (prefixes.length === 0 || !cwdHiddenByPrefix(session.cwd, prefixes)) return false
+  if (session.id === current || session.id === rowState.revealSessionId) return false
+  return !(statuses.get(session.id)?.running ?? session.running)
 }
 
 /**
@@ -347,24 +410,34 @@ function groupByWorkspace(
   list: SessionListState,
   workspaces: readonly WorkspaceView[],
   archived: ReadonlySet<SessionId>,
-  archivedFilter: ArchivedFilter,
+  rowState: SessionRowState,
+  statuses: SessionStatuses,
   ungroupedOrder: readonly string[] | undefined,
 ): Group[] {
+  const { archivedFilter } = rowState
   const current = mainSessionId(list)
   const groups: Group[] = []
   const accounted = new Set<SessionId>()
+  const listed = (summary: SessionSummary): boolean =>
+    sessionVisible(summary, current, archived, archivedFilter)
   for (const workspace of workspaces) {
     const members: SessionSummary[] = []
+    let backgroundHidden = false
     for (const id of workspace.sessionIds) {
       const summary = list.byId[id]
       if (summary === undefined) continue // account may lead the list pull; the row appears when the summary lands
       accounted.add(id)
-      if (!sessionVisible(summary, current, archived, archivedFilter)) continue
+      if (!listed(summary)) continue
+      if (hiddenAsBackground(summary, current, rowState, statuses)) {
+        backgroundHidden = true
+        continue
+      }
       members.push(summary)
     }
     // The archived-only view lists archives, not the Workspace inventory, so
-    // a Workspace without archived Sessions contributes no group.
-    if (archivedFilter === 'only' && members.length === 0) continue
+    // a Workspace without archived Sessions contributes no group. A group
+    // emptied only by background hiding is dropped the same way.
+    if ((archivedFilter === 'only' || backgroundHidden) && members.length === 0) continue
     groups.push(buildGroup(
       workspace.workspaceId, workspace.workspaceId, workspace.path,
       Date.parse(workspace.createdAt), workspace.title, members,
@@ -373,7 +446,7 @@ function groupByWorkspace(
   const stray = list.ids
     .map(id => list.byId[id])
     .filter((s): s is SessionSummary =>
-      s !== undefined && !accounted.has(s.id) && sessionVisible(s, current, archived, archivedFilter))
+      s !== undefined && !accounted.has(s.id) && listed(s) && !hiddenAsBackground(s, current, rowState, statuses))
   if (stray.length > 0) {
     groups.push(buildGroup(
       UNGROUPED_KEY,
@@ -433,7 +506,8 @@ function sessionNode(
  * Derive the workspace browser groups with every session as a top-level row.
  *
  * Every group shows, except that the archived-only filter drops groups
- * without visible members; sessions populate under expanded groups with
+ * without visible members and background hiding drops groups it empties
+ * (see {@link SessionRowState.hiddenCwdPrefixes}); sessions populate under expanded groups with
  * pinned rows leading, then active rows ({@link sessionActive}), each block
  * in the selected local order. Blank sessions are
  * excluded except for the selected provisional New Session row; archived
@@ -441,8 +515,8 @@ function sessionNode(
  * search lives outside this derivation (see {@link deriveSearchResults}).
  * @param list - sessions list snapshot (`mainView` retention feeds containsCurrent).
  * @param workspaces - real Workspaces in Host group order with caller-projected Session order.
- * @param rowState - registry-global pin and archive sets plus the archived filter.
- * @param statuses - unified UI status by Session.
+ * @param rowState - registry-global pin and archive sets, the archived filter, and background hiding.
+ * @param statuses - unified UI status by Session; running rows escape background hiding.
  * @param view - local expansion arrays.
  * @returns group sections in render order.
  */
@@ -461,7 +535,7 @@ export function deriveGroups(
     ? undefined
     : owningGroupKey(workspaces, current)
   const groups: GroupNode[] = []
-  for (const g of groupByWorkspace(list, workspaces, archived, rowState.archivedFilter, view.ungroupedOrder)) {
+  for (const g of groupByWorkspace(list, workspaces, archived, rowState, statuses, view.ungroupedOrder)) {
     const expanded = expandedGroups.has(g.key)
     groups.push({
       key: g.key,
@@ -512,11 +586,12 @@ export function visibleSessionIds(
 /**
  * Derive flat rows from the browser's complete ordered Session ids, with
  * pinned rows, then active rows ({@link sessionActive}), fronted ahead of the
- * supplied order.
+ * supplied order. Archive and background hiding apply before the caller
+ * virtualizes the rows.
  * @param list - sessions list snapshot used to select the ids.
  * @param sessionIds - complete account members in the selected order, including hidden archives.
- * @param rowState - registry-global pin and archive sets plus the archived filter.
- * @param statuses - unified UI status by Session.
+ * @param rowState - registry-global pin and archive sets, the archived filter, and background hiding.
+ * @param statuses - unified UI status by Session; running rows escape background hiding.
  * @returns flat rows in sectioned order with current status indicators.
  */
 export function deriveFlat(
@@ -531,6 +606,7 @@ export function deriveFlat(
   const members = sessionIds.flatMap((id) => {
     const session = list.byId[id]
     return session !== undefined && sessionVisible(session, current, archived, rowState.archivedFilter)
+      && !hiddenAsBackground(session, current, rowState, statuses)
       ? [session]
       : []
   })

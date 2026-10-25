@@ -1,0 +1,6 @@
+# Background-Session hiding uses an absolute prefix so the scenario never
+# depends on the test machine's home directory.
+- id: ui-workspace
+  config:
+    hiddenSessionCwdPrefixes:
+      - /dsh-e2e-background

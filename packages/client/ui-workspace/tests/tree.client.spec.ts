@@ -10,6 +10,7 @@ import {
   type ArchivedFilter,
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, sessionMemberIds, visibleSessionIds, workspaceLabel, UNGROUPED_KEY,
+  cwdHiddenByPrefix, resolveHiddenCwdPrefixes,
 } from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
 
@@ -779,6 +780,105 @@ describe('deriveSearchResults', () => {
     expect(backendMore.hasMore).toBe(true)
     expect(deriveSearchResults(list(), [], '  ', noArchive, 'default', noAttention, { items: [], hasMore: true }, 3))
       .toEqual({ items: [], hasMore: false })
+  })
+})
+
+describe('background Session hiding', () => {
+  const home = '/Users/boss'
+  const prefixes = resolveHiddenCwdPrefixes(['~/.routa/workspace'], home)
+  const bg = (id: string, updatedAt: number) => summary(id, updatedAt, `${home}/.routa/workspace/abc/${id}`)
+  const hiding = (extra: Partial<Parameters<typeof deriveFlat>[2]> = {}) => ({
+    ...noRows, hiddenCwdPrefixes: prefixes, ...extra,
+  })
+
+  it('expands ~ with the Host home and matches on whole path segments', () => {
+    expect(prefixes).toEqual([`${home}/.routa/workspace`])
+    expect(cwdHiddenByPrefix(`${home}/.routa/workspace/abc/x`, prefixes)).toBe(true)
+    expect(cwdHiddenByPrefix(`${home}/.routa/workspace`, prefixes)).toBe(true)
+    expect(cwdHiddenByPrefix(`${home}/.routa/workspace/`, prefixes)).toBe(true)
+    expect(cwdHiddenByPrefix(`${home}/.routa/workspace-x/y`, prefixes)).toBe(false)
+    expect(cwdHiddenByPrefix(`${home}/.routa/workspac`, prefixes)).toBe(false)
+    expect(cwdHiddenByPrefix(undefined, prefixes)).toBe(false)
+  })
+
+  it('resolves trailing separators, bare ~, absolute prefixes, and an unknown home', () => {
+    expect(resolveHiddenCwdPrefixes(['/srv/bots/', '~', '~/', '', '/'], '/home/u/')).toEqual(['/srv/bots', '/home/u', '/home/u'])
+    expect(resolveHiddenCwdPrefixes(['~/.routa/workspace', '/srv/bots'], undefined)).toEqual(['/srv/bots'])
+    expect(resolveHiddenCwdPrefixes([], '/home/u')).toEqual([])
+    expect(cwdHiddenByPrefix('/srv/bots/a', [])).toBe(false)
+  })
+
+  it('hides background rows from Workspace groups, drops groups it empties, and shows them when toggled', () => {
+    const sessions = list(summary('mine', 3, '/projects/a'), bg('crafter', 2), bg('loose', 1))
+    const workspaces = [workspace('a', ['mine', 'crafter']), workspace('routa', ['crafter']), workspace('empty', [])]
+    const expanded = view(['a', 'routa', 'empty', UNGROUPED_KEY])
+    const hidden = deriveGroups(sessions, workspaces, hiding(), noAttention, expanded)
+    expect(hidden.map(g => [g.key, g.sessions.map(row => row.id)])).toEqual([
+      ['a', [sid('mine')]],
+      ['empty', []],
+    ])
+    const shown = deriveGroups(sessions, workspaces, hiding({ showBackgroundSessions: true }), noAttention, expanded)
+    expect(shown.map(g => [g.key, g.sessions.map(row => row.id)])).toEqual([
+      ['a', [sid('mine'), sid('crafter')]],
+      ['routa', [sid('crafter')]],
+      ['empty', []],
+      [UNGROUPED_KEY, [sid('loose')]],
+    ])
+  })
+
+  it('hides background rows from the flat list before virtualization and shows them when toggled', () => {
+    const sessions = list(summary('mine', 3, '/projects/a'), bg('crafter', 2))
+    const ids = visibleSessionIds(sessions, noArchive, 'default')
+    expect(deriveFlat(sessions, ids, hiding(), noAttention).map(row => row.id)).toEqual([sid('mine')])
+    expect(deriveFlat(sessions, ids, hiding({ showBackgroundSessions: true }), noAttention).map(row => row.id))
+      .toEqual([sid('mine'), sid('crafter')])
+  })
+
+  it('keeps the current Session visible under a background prefix', () => {
+    const sessions = withMain(list(summary('mine', 3, '/projects/a'), bg('crafter', 2)), sid('crafter'))
+    const ids = visibleSessionIds(sessions, noArchive, 'default')
+    expect(deriveFlat(sessions, ids, hiding(), noAttention).map(row => row.id)).toEqual([sid('mine'), sid('crafter')])
+    const groups = deriveGroups(sessions, [workspace('routa', ['crafter'])], hiding(), noAttention, view(['routa']))
+    expect(groups.map(g => [g.key, g.sessions.map(row => row.id)])).toEqual([['routa', [sid('crafter')]], [UNGROUPED_KEY, []]])
+  })
+
+  it('keeps the revealed Session visible under a background prefix', () => {
+    const sessions = list(summary('mine', 3, '/projects/a'), bg('crafter', 2))
+    const ids = visibleSessionIds(sessions, noArchive, 'default')
+    expect(deriveFlat(sessions, ids, hiding({ revealSessionId: sid('crafter') }), noAttention).map(row => row.id))
+      .toEqual([sid('mine'), sid('crafter')])
+  })
+
+  it('keeps running Sessions visible under a background prefix, from status or summary', () => {
+    const fromSummary = bg('summary-run', 1)
+    fromSummary.running = true
+    const sessions = list(summary('mine', 4, '/projects/a'), bg('status-run', 3), fromSummary, bg('idle', 2))
+    const ids = visibleSessionIds(sessions, noArchive, 'default')
+    const statuses: SessionStatusSnapshot = new Map([[sid('status-run'), status(undefined, { running: true })]])
+    expect(deriveFlat(sessions, ids, hiding(), statuses).map(row => row.id).sort())
+      .toEqual([sid('mine'), sid('status-run'), sid('summary-run')].sort())
+    const stopped: SessionStatusSnapshot = new Map([[sid('summary-run'), status(undefined, { running: false })]])
+    expect(deriveFlat(sessions, ids, hiding(), stopped).map(row => row.id)).toEqual([sid('mine')])
+  })
+
+  it('leaves the archived filters unchanged alongside background hiding', () => {
+    const sessions = list(summary('mine', 3, '/projects/a'), summary('stored', 2, '/projects/a'), bg('crafter', 1))
+    const all = sessionMemberIds(sessions)
+    const flat = (archivedFilter: ArchivedFilter) =>
+      deriveFlat(sessions, all, hiding({ archivedSessionIds: archived('stored'), archivedFilter }), noAttention).map(row => row.id)
+    expect(flat('default')).toEqual([sid('mine')])
+    expect(flat('show')).toEqual([sid('mine'), sid('stored')])
+    expect(flat('only')).toEqual([sid('stored')])
+  })
+
+  it('search ignores background hiding', () => {
+    const crafter = bg('crafter', 2)
+    crafter.title = crafter.displayTitle = 'Needle crafter'
+    const result = deriveSearchResults(
+      list(summary('mine', 3, '/projects/a'), crafter), [], 'needle', noArchive, 'default', noAttention,
+      { items: [], hasMore: false }, 10,
+    )
+    expect(result.items.map(item => item.id)).toEqual([sid('crafter')])
   })
 })
 

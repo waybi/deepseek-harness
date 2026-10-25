@@ -57,6 +57,7 @@ import { registerToasts } from './toast/register.ts'
 import { SessionIdMenuItem } from './session-actions/SessionId.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
+import { Config, WORKSPACE_BROWSER_CONFIG_GLOBAL } from '../config.ts'
 
 export type { StartSessionOptions, UiWorkspace } from './navigation.ts'
 export type {
@@ -110,6 +111,8 @@ export const inject = [
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
+  const page = globalThis as Partial<Record<typeof WORKSPACE_BROWSER_CONFIG_GLOBAL, unknown>>
+  const browserConfig = Config(page[WORKSPACE_BROWSER_CONFIG_GLOBAL] ?? {})
   const sessions = ctx.get('sessions') as ISessions
   const workspaces = ctx.get('workspaces') as IWorkspaces
   // One viewing-store instance, created here as ui-layout does for its layout
@@ -268,6 +271,7 @@ export function apply(ctx: Context): void {
     open: openSession,
     searchSessions,
     searchResultLimit: sessions.searchResultLimit,
+    hiddenSessionCwdPrefixes: browserConfig.hiddenSessionCwdPrefixes,
     requestSessionRename,
     notifyArchivedNotOpenable: () => { notify({ kind: 'archivedNotOpenable' }) },
     renameWorkspace: async (workspaceId, title) => { await workspaces.rename(workspaceId, title) },
