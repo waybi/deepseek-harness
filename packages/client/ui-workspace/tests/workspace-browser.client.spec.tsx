@@ -130,6 +130,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
     searchResultLimit: 20,
     hiddenSessionCwdPrefixes: [],
+    hiddenSessionIdPatterns: [],
     notifyArchivedNotOpenable: vi.fn(),
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
@@ -702,6 +703,74 @@ describe('WorkspaceBrowser', () => {
       // Opening retains the Session in the main view, which makes it current.
       rerender(b, { useSessions: hook(sessionState(sessions, { main: sid('crafter') })) })
       expect(screen.getByText('crafter')).toBeTruthy()
+    })
+
+    describe('by Session id', () => {
+      const acp = '0f8fad5b-d9cb-469f-a165-70867728950e'
+      const repo = (id: string, updatedAt: number, overrides: Partial<SessionSummary> = {}) =>
+        summary(id, updatedAt, { cwd: '/Users/x/repo/local-tools', title: `title ${id}`, displayTitle: `title ${id}`, ...overrides })
+      const idRule = {
+        hiddenSessionIdPatterns: ['^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'],
+      }
+
+      it('hides bare-UUID rows in all three groupings, drops the group it empties, and the toggle shows them', () => {
+        mount({
+          ...idRule,
+          useSessions: hook(sessionState([repo('session-own', 3), repo(acp, 2), repo('session-other', 1)])),
+          useWorkspaces: hook(workspaceState([
+            workspace('tools', ['session-own']), workspace('crafter', [acp]), workspace('empty', []),
+          ])),
+        })
+        fireEvent.click(screen.getByText('tools'))
+        expect(screen.getByText('title session-own')).toBeTruthy()
+        expect(screen.queryByText('crafter')).toBeNull()
+        expect(screen.getByText('empty')).toBeTruthy()
+        expect(screen.queryByText(`title ${acp}`)).toBeNull()
+
+        choose('按工作区树')
+        expect(screen.getByText('title session-own')).toBeTruthy()
+        expect(screen.queryByText('crafter')).toBeNull()
+        expect(screen.getByText('empty')).toBeTruthy()
+
+        choose('单列表')
+        expect(screen.getByText('title session-own')).toBeTruthy()
+        expect(screen.getByText('title session-other')).toBeTruthy()
+        expect(screen.queryByText(`title ${acp}`)).toBeNull()
+
+        choose('显示后台会话')
+        expect(screen.getByText(`title ${acp}`)).toBeTruthy()
+        choose('按工作区')
+        expect(screen.getByText('crafter')).toBeTruthy()
+      })
+
+      it('keeps a subagent child counted under its parent the same with the toggle off and on', () => {
+        const parent = repo('session-parent', 2)
+        const child = repo(acp, 3, { origin: 'subagent', parentId: parent.id, running: true })
+        const state = sessionState([parent, child], {
+          projectionsBySession: {
+            [parent.id]: {
+              state: 'ready', error: null,
+              values: { subagentCatalog: [{ id: child.id, mode: 'continuable', label: 'child', createdAt: 1 }] },
+            },
+          },
+        })
+        const seen = () => [
+          screen.queryAllByText('title session-parent').length,
+          screen.queryAllByText(`title ${acp}`).length,
+          screen.getAllByRole('treeitem').length,
+        ]
+        mount({ useSessions: hook(state), useWorkspaces: hook(workspaceState([workspace('tools', [parent.id, acp])])) })
+        fireEvent.click(screen.getByText('tools'))
+        const before = seen()
+        cleanup()
+        localStorage.clear()
+        mount({ ...idRule, useSessions: hook(state), useWorkspaces: hook(workspaceState([workspace('tools', [parent.id, acp])])) })
+        fireEvent.click(screen.getByText('tools'))
+        expect(seen()).toEqual(before)
+        choose('显示后台会话')
+        expect(seen()).toEqual(before)
+        expect(before.slice(0, 2)).toEqual([1, 0])
+      })
     })
   })
 

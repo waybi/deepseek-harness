@@ -40,6 +40,7 @@ import {
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder, resolveHiddenCwdPrefixes,
   pinCurrentBlank, reconcileManualOrder, reuseSessionNodes, sessionActive, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
+import { compileHiddenSessionIdPatterns } from '../../config.ts'
 import { ProjectRowItem, type RowDragProps, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { minuteNow } from './minute-clock.ts'
 import { AnimatedRows } from './AnimatedRows.tsx'
@@ -1070,6 +1071,7 @@ export function WorkspaceBrowser({
   searchSessions,
   searchResultLimit,
   hiddenSessionCwdPrefixes,
+  hiddenSessionIdPatterns,
   useDirectoryFlow,
   useHostInfo,
   useShortcuts,
@@ -1231,9 +1233,13 @@ export function WorkspaceBrowser({
     () => resolveHiddenCwdPrefixes(hiddenSessionCwdPrefixes, home),
     [hiddenSessionCwdPrefixes, home],
   )
+  const hiddenIdPatterns = useMemo(
+    () => compileHiddenSessionIdPatterns(hiddenSessionIdPatterns),
+    [hiddenSessionIdPatterns],
+  )
   const rowState = useMemo<SessionRowState>(
-    () => ({ ...orderState, archivedFilter, hiddenCwdPrefixes, showBackgroundSessions, revealSessionId }),
-    [orderState, archivedFilter, hiddenCwdPrefixes, showBackgroundSessions, revealSessionId],
+    () => ({ ...orderState, archivedFilter, hiddenCwdPrefixes, hiddenIdPatterns, showBackgroundSessions, revealSessionId }),
+    [orderState, archivedFilter, hiddenCwdPrefixes, hiddenIdPatterns, showBackgroundSessions, revealSessionId],
   )
   const normalizedQuery = sanitizeSearchQuery(query).trim()
   const [remoteSearch, setRemoteSearch] = useState<RemoteSearchState>({

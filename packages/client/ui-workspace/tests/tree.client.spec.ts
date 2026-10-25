@@ -10,9 +10,10 @@ import {
   type ArchivedFilter,
   deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder,
   pinCurrentBlank, reconcileManualOrder, sessionMemberIds, visibleSessionIds, workspaceLabel, UNGROUPED_KEY,
-  cwdHiddenByPrefix, resolveHiddenCwdPrefixes,
+  cwdHiddenByPrefix, idHiddenByPattern, resolveHiddenCwdPrefixes,
 } from '../src/client/tree.ts'
 import { createWorkspaceViewStore } from '../src/client/stores.ts'
+import { BARE_UUID_SESSION_ID_PATTERN, compileHiddenSessionIdPatterns } from '../src/config.ts'
 
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
@@ -879,6 +880,100 @@ describe('background Session hiding', () => {
       { items: [], hasMore: false }, 10,
     )
     expect(result.items.map(item => item.id)).toEqual([sid('crafter')])
+  })
+})
+
+describe('background Session hiding by id pattern', () => {
+  const acp = '0f8fad5b-d9cb-469f-a165-70867728950e'
+  const repo = '/Users/x/repo/local-tools'
+  const patterns = compileHiddenSessionIdPatterns([BARE_UUID_SESSION_ID_PATTERN])
+  const hiding = (extra: Partial<Parameters<typeof deriveFlat>[2]> = {}) => ({
+    ...noRows, hiddenIdPatterns: patterns, ...extra,
+  })
+  const keptIds = [`session-${acp}`, `webhook-${acp}`, `agent-session-${acp}`]
+  const flatIds = (sessions: SessionListState, rows: Parameters<typeof deriveFlat>[2], statuses = noAttention) =>
+    deriveFlat(sessions, visibleSessionIds(sessions, noArchive, 'default'), rows, statuses).map(row => row.id)
+
+  it('matches only a whole bare lowercase UUID', () => {
+    expect(idHiddenByPattern(sid(acp), patterns)).toBe(true)
+    for (const id of keptIds) expect(idHiddenByPattern(sid(id), patterns)).toBe(false)
+    expect(idHiddenByPattern(sid(acp.toUpperCase()), patterns)).toBe(false)
+    expect(idHiddenByPattern(sid(acp), [])).toBe(false)
+    expect(compileHiddenSessionIdPatterns(['abc|def']).map(p => p.test('abcdef'))).toEqual([false])
+  })
+
+  it('rejects an invalid pattern with the option name and source', () => {
+    expect(() => compileHiddenSessionIdPatterns(['session-(']))
+      .toThrow('ui-workspace hiddenSessionIdPatterns: invalid regular expression "session-("')
+  })
+
+  it('hides a bare-UUID Session in a real repository directory and keeps prefixed ids', () => {
+    const sessions = list(summary(acp, 5, repo), ...keptIds.map((id, index) => summary(id, 4 - index, repo)))
+    expect(flatIds(sessions, hiding())).toEqual(keptIds.map(sid))
+    expect(flatIds(sessions, noRows)).toEqual([sid(acp), ...keptIds.map(sid)])
+  })
+
+  it('combines the id rule and the directory rule with or', () => {
+    const prefixes = resolveHiddenCwdPrefixes(['/srv/bots'], undefined)
+    const sessions = list(summary(acp, 3, repo), summary('session-dir', 2, '/srv/bots/a'), summary('session-own', 1, repo))
+    expect(flatIds(sessions, hiding({ hiddenCwdPrefixes: prefixes }))).toEqual([sid('session-own')])
+    expect(flatIds(sessions, { ...noRows, hiddenCwdPrefixes: prefixes })).toEqual([sid(acp), sid('session-own')])
+  })
+
+  it('shows id-hidden Sessions when background Sessions are shown', () => {
+    const sessions = list(summary(acp, 2, repo), summary('session-own', 1, repo))
+    expect(flatIds(sessions, hiding({ showBackgroundSessions: true }))).toEqual([sid(acp), sid('session-own')])
+  })
+
+  it('keeps the current Session visible when its id matches', () => {
+    const sessions = withMain(list(summary(acp, 2, repo), summary('session-own', 1, repo)), sid(acp))
+    expect(flatIds(sessions, hiding())).toEqual([sid(acp), sid('session-own')])
+  })
+
+  it('keeps the revealed Session visible when its id matches', () => {
+    const sessions = list(summary(acp, 2, repo), summary('session-own', 1, repo))
+    expect(flatIds(sessions, hiding({ revealSessionId: sid(acp) }))).toEqual([sid(acp), sid('session-own')])
+  })
+
+  it('keeps a running Session visible when its id matches', () => {
+    const sessions = list(summary(acp, 2, repo), summary('session-own', 1, repo))
+    const statuses: SessionStatusSnapshot = new Map([[sid(acp), status(undefined, { running: true })]])
+    expect(flatIds(sessions, hiding(), statuses)).toEqual([sid(acp), sid('session-own')])
+  })
+
+  it('applies to Workspace groups and drops a group it empties', () => {
+    const sessions = list(summary('session-own', 3, repo), summary(acp, 2, repo))
+    const workspaces = [workspace('tools', ['session-own']), workspace('crafter', [acp]), workspace('empty', [])]
+    const groups = deriveGroups(sessions, workspaces, hiding(), noAttention, view(['tools', 'crafter', 'empty']))
+    expect(groups.map(g => [g.key, g.sessions.map(row => row.id)])).toEqual([
+      ['tools', [sid('session-own')]], ['empty', []],
+    ])
+  })
+
+  it('leaves subagent children under their parent unchanged with the toggle off and on', () => {
+    const parent = summary('session-parent', 1, repo)
+    const child = { ...summary(acp, 3, repo), parentId: parent.id, origin: 'subagent' as const, running: true }
+    const sessions = { ...list(parent, child), projectionsBySession: { [parent.id]: catalog(acp) } }
+    const derive = (rows: Parameters<typeof deriveFlat>[2]) => [
+      deriveFlat(sessions, visibleSessionIds(sessions, noArchive, 'default'), rows, noAttention)
+        .map(row => [row.id, row.runningSubagentCount]),
+      deriveGroups(sessions, [workspace('tools', [parent.id, acp])], rows, noAttention, view(['tools']))
+        .map(g => g.sessions.map(row => [row.id, row.runningSubagentCount])),
+    ]
+    const before = derive(noRows)
+    expect(before).toEqual([[[parent.id, 1]], [[[parent.id, 1]]]])
+    expect(derive(hiding())).toEqual(before)
+    expect(derive(hiding({ showBackgroundSessions: true }))).toEqual(before)
+  })
+
+  it('search ignores id hiding', () => {
+    const crafter = summary(acp, 2, repo)
+    crafter.title = crafter.displayTitle = 'Needle crafter'
+    const result = deriveSearchResults(
+      list(summary('session-own', 3, repo), crafter), [], 'needle', noArchive, 'default', noAttention,
+      { items: [], hasMore: false }, 10,
+    )
+    expect(result.items.map(item => item.id)).toEqual([sid(acp)])
   })
 })
 

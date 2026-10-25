@@ -701,6 +701,13 @@ export interface Config {
    * account home; matching uses whole `/` path segments.
    */
   hiddenSessionCwdPrefixes: string[]
+  /**
+   * Regular-expression sources matched against the whole Session id; a
+   * matching Session is hidden like one under {@link hiddenSessionCwdPrefixes}.
+   * The default matches a bare lowercase UUID, the id form ACP-created
+   * Sessions use.
+   */
+  hiddenSessionIdPatterns: string[]
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-workspace -->

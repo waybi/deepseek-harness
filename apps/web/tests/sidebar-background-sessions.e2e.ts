@@ -1,4 +1,4 @@
-/** Background-directory Session hiding through the shipped Web composition. */
+/** Background Session hiding by directory and by Session id through the shipped Web composition. */
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { chromium, type Browser, type Page } from 'playwright'
@@ -14,6 +14,10 @@ const OVERLAY = fileURLToPath(new URL('./sidebar-background-sessions.overlay.yml
 const OWN = 'Own conversation'
 const BACKGROUND = 'Crafter conversation'
 const NEIGHBOR = 'Neighbor conversation'
+const ACP = 'ACP crafter conversation'
+const PREFIXED = 'Prefixed conversation'
+const REPO = '/dsh-e2e-repo/local-tools'
+const UUID = '0f8fad5b-d9cb-469f-a165-70867728950e'
 
 describe('web e2e: sidebar background Sessions', () => {
   let scaffold: WebScaffold
@@ -29,10 +33,12 @@ describe('web e2e: sidebar background Sessions', () => {
       { title: OWN, cwd: undefined },
       { title: BACKGROUND, cwd: '/dsh-e2e-background/board/card' },
       { title: NEIGHBOR, cwd: '/dsh-e2e-background-x/card' },
+      { title: ACP, cwd: REPO, id: UUID },
+      { title: PREFIXED, cwd: REPO, id: `session-${UUID}` },
     ]
     const ids: string[] = []
     for (const [index, seed] of seeds.entries()) {
-      const id = await seedSession(scaffold, fixture, `sidebar-background-${index}`, undefined, {
+      const id = await seedSession(scaffold, fixture, seed.id ?? `sidebar-background-${index}`, undefined, {
         createdAt: now - (index + 1) * 60_000,
         ...seed.cwd === undefined ? {} : { cwd: seed.cwd },
       })
@@ -58,22 +64,22 @@ describe('web e2e: sidebar background Sessions', () => {
     await scaffold?.close()
   })
 
-  it('hides background rows by default, shows them from View options, and keeps the choice on reload', async () => {
+  it('hides background rows by directory and bare-UUID id by default, shows them from View options, and keeps the choice on reload', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-sidebar-background-sessions'))
     const titles = () => page.locator('[role="treeitem"]:not([aria-expanded]) [class*="title"]').allTextContents()
     const toggle = async (): Promise<void> => {
       await page.getByRole('button', { name: 'View options' }).click()
       await page.getByRole('menuitem', { name: 'Show background sessions', exact: true }).click()
     }
-    await expect.poll(titles).toEqual([OWN, NEIGHBOR])
+    await expect.poll(titles).toEqual([OWN, NEIGHBOR, PREFIXED])
     await toggle()
-    await expect.poll(titles).toEqual([OWN, BACKGROUND, NEIGHBOR])
+    await expect.poll(titles).toEqual([OWN, BACKGROUND, NEIGHBOR, ACP, PREFIXED])
     const warningStart = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
-    await expect.poll(titles).toEqual([OWN, BACKGROUND, NEIGHBOR])
+    await expect.poll(titles).toEqual([OWN, BACKGROUND, NEIGHBOR, ACP, PREFIXED])
     acknowledgeReloadConnectionLoss(tripwire, warningStart)
     await toggle()
-    await expect.poll(titles).toEqual([OWN, NEIGHBOR])
+    await expect.poll(titles).toEqual([OWN, NEIGHBOR, PREFIXED])
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
   })

@@ -272,6 +272,7 @@ export function apply(ctx: Context): void {
     searchSessions,
     searchResultLimit: sessions.searchResultLimit,
     hiddenSessionCwdPrefixes: browserConfig.hiddenSessionCwdPrefixes,
+    hiddenSessionIdPatterns: browserConfig.hiddenSessionIdPatterns,
     requestSessionRename,
     notifyArchivedNotOpenable: () => { notify({ kind: 'archivedNotOpenable' }) },
     renameWorkspace: async (workspaceId, title) => { await workspaces.rename(workspaceId, title) },

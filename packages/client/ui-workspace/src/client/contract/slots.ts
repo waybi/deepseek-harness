@@ -261,6 +261,12 @@ export type WorkspaceBrowserInjected = {
    * view option shows background Sessions; search still finds them.
    */
   hiddenSessionCwdPrefixes: readonly string[]
+  /**
+   * Configured regular-expression sources matched against the whole Session
+   * id. A matching list row is a background Session exactly like one under
+   * {@link hiddenSessionCwdPrefixes}; search still finds it.
+   */
+  hiddenSessionIdPatterns: readonly string[]
   /** Open the Session rename dialog (a row title double-click); the rename action entry raises the same request. */
   requestSessionRename: (sessionId: SessionId, currentTitle: string) => void
   /** Tell the user an archived row cannot be opened (a click on it). */

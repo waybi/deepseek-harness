@@ -43,6 +43,8 @@ kind: "package-reference"
 
 在 `cordis.patch.yml` 中用 `ui-workspace` 行的 `hiddenSessionCwdPrefixes` 选项配置这些目录（`config: { hiddenSessionCwdPrefixes: ['~/.routa/workspace', '/srv/bots'] }`）；默认值为 `['~/.routa/workspace']`，空数组表示不隐藏任何 Session。开头的 `~` 表示 Host 账户主目录，因此 `~` 前缀在连接报告该主目录后生效。Session 的工作目录等于某个前缀或位于 `前缀/` 之下时才算命中，所以 `~/.routa/workspace-x` 不命中；末尾的 `/` 会被忽略，匹配按 `/` 分隔路径区分大小写。
 
+`hiddenSessionIdPatterns` 选项按会话 ID 标记后台 Session。每一项是一个正则表达式源码，必须与整个 Session ID 匹配；默认值是一项裸小写 UUID 正则 `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`，即经 ACP 创建的 Session 的 ID 形式，例如 Routa 施工者在真实仓库目录中打开的会话。桌面版和 headless 的 ID 以 `session-` 开头，不会命中。空数组表示不按 ID 隐藏任何 Session，非法正则会让插件加载失败。Session 的 ID 命中某个正则，或工作目录命中某个前缀，二者之一即为后台 Session；例外相同：打开开关、当前 Session、从搜索打开的 Session 和正在运行的 Session 保持可见。子代理 Session 显示在父会话下，不受影响。
+
 ### 工作区层级
 
 选择**添加工作区**并选取目录，即可注册工作区并打开 Session。**视图选项 → 分组方式**默认为**按工作区**，将工作区作为同级分组显示。选择**按工作区树**后，每个 Workspace 会位于最近的已注册祖先之下，之后添加的 Workspace 也会自动归入。每个 Workspace 保留自己的 Session 和行操作，子 Workspace 显示在父级自己的 Session 之前。祖先默认展开，已有的折叠偏好除外。保存的折叠状态也会隐藏当前 Session；如果后代 Workspace 包含当前 Session，祖先文件夹图标仍保持高亮。各层级的高亮和点击区域保持整行同宽，仅内容缩进。拖拽 Workspace 仅重排同级项目；落在后代行上时，由最近的兼容祖先接收，因此无需先折叠父级就能将其他工作区拖到其后。选择搜索结果会展开全部祖先。分组方式和展开状态保存在当前浏览器中；切换模式会保留各 Workspace 的展开偏好，单列表视图保持平铺。

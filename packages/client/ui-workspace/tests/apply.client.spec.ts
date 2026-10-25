@@ -214,21 +214,35 @@ function viewInstance(slots: SlotRegistry) {
 const settled = (): Promise<void> => new Promise((resolve) => { setTimeout(resolve, 0) })
 
 describe('ui-workspace apply', () => {
-  it('embeds the hidden-directory option in browser pages and withdraws it on disposal', async () => {
-    expect(Config({})).toEqual({ hiddenSessionCwdPrefixes: ['~/.routa/workspace'] })
+  it('embeds the hidden-directory and id options in browser pages and withdraws them on disposal', async () => {
+    expect(Config({})).toEqual({
+      hiddenSessionCwdPrefixes: ['~/.routa/workspace'],
+      hiddenSessionIdPatterns: ['^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'],
+    })
     const ctx = new Context()
     onTestFinished(async () => { await ctx.fiber.dispose() })
-    const fiber = ctx.plugin({ apply: hostApply, Config }, Config({ hiddenSessionCwdPrefixes: ['/srv/bots'] }))
+    const fiber = ctx.plugin(
+      { apply: hostApply, Config },
+      Config({ hiddenSessionCwdPrefixes: ['/srv/bots'], hiddenSessionIdPatterns: ['bot-.*'] }),
+    )
     await fiber.await()
     const rows: IndexInjection[] = []
     ctx.emit('webserver/index-inject', rows)
     expect(rows).toEqual([{
-      kind: 'global', name: '__DSH_WORKSPACE_BROWSER_CONFIG__', value: { hiddenSessionCwdPrefixes: ['/srv/bots'] },
+      kind: 'global',
+      name: '__DSH_WORKSPACE_BROWSER_CONFIG__',
+      value: { hiddenSessionCwdPrefixes: ['/srv/bots'], hiddenSessionIdPatterns: ['bot-.*'] },
     }])
     await fiber.dispose()
     const after: IndexInjection[] = []
     ctx.emit('webserver/index-inject', after)
     expect(after).toEqual([])
+  })
+
+  it('accepts an empty id-pattern list and rejects an invalid pattern at load', () => {
+    expect(Config({ hiddenSessionIdPatterns: [] }).hiddenSessionIdPatterns).toEqual([])
+    expect(() => { hostApply(new Context(), Config({ hiddenSessionIdPatterns: ['[a-'] })) })
+      .toThrow('ui-workspace hiddenSessionIdPatterns: invalid regular expression "[a-"')
   })
 
   it('declares the services it drives', () => {
@@ -837,6 +851,7 @@ describe('ui-workspace apply', () => {
     expect(b.search).toHaveBeenCalledWith('match', signal)
     expect(browser.searchResultLimit).toBe(20)
     expect(browser.hiddenSessionCwdPrefixes).toEqual(['~/.routa/workspace'])
+    expect(browser.hiddenSessionIdPatterns).toEqual(['^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'])
     await browser.renameWorkspace('ws' as never, 'renamed')
     expect(b.rename).toHaveBeenCalledWith('ws', 'renamed')
     await browser.createWorkspace({ path: '/tmp/browser-project' })

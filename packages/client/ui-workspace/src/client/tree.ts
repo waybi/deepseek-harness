@@ -305,16 +305,33 @@ export interface SessionRowState {
    * Omitted means no background directory.
    */
   hiddenCwdPrefixes?: readonly string[]
-  /** Show list rows under {@link hiddenCwdPrefixes}; omitted reads as false. */
+  /**
+   * Compiled whole-id Session patterns; a list row whose id matches one is a
+   * background Session exactly like one under {@link hiddenCwdPrefixes}.
+   * Omitted means no id pattern.
+   */
+  hiddenIdPatterns?: readonly RegExp[]
+  /** Show background list rows ({@link hiddenCwdPrefixes} or {@link hiddenIdPatterns}); omitted reads as false. */
   showBackgroundSessions?: boolean
   /** Background row that a search pick must expose in the list. */
   revealSessionId?: SessionId | undefined
 }
 
 /**
+ * Whether a Session id matches a configured background id pattern.
+ * @param id - Session id.
+ * @param patterns - compiled whole-id patterns.
+ * @returns true when the Session is a background Session by id.
+ */
+export function idHiddenByPattern(id: SessionId, patterns: readonly RegExp[]): boolean {
+  return patterns.some(pattern => pattern.test(id))
+}
+
+/**
  * Background hiding for list derivations: a Session under a hidden prefix
- * stays out of the list unless background Sessions are shown, it is the
- * current or revealed Session, or it is running.
+ * or with an id matching a hidden pattern stays out of the list unless
+ * background Sessions are shown, it is the current or revealed Session, or
+ * it is running.
  */
 function hiddenAsBackground(
   session: SessionSummary,
@@ -323,8 +340,9 @@ function hiddenAsBackground(
   statuses: SessionStatuses,
 ): boolean {
   if (rowState.showBackgroundSessions === true) return false
-  const prefixes = rowState.hiddenCwdPrefixes ?? []
-  if (prefixes.length === 0 || !cwdHiddenByPrefix(session.cwd, prefixes)) return false
+  const background = cwdHiddenByPrefix(session.cwd, rowState.hiddenCwdPrefixes ?? [])
+    || idHiddenByPattern(session.id, rowState.hiddenIdPatterns ?? [])
+  if (!background) return false
   if (session.id === current || session.id === rowState.revealSessionId) return false
   return !(statuses.get(session.id)?.running ?? session.running)
 }
@@ -507,8 +525,9 @@ function sessionNode(
  *
  * Every group shows, except that the archived-only filter drops groups
  * without visible members and background hiding drops groups it empties
- * (see {@link SessionRowState.hiddenCwdPrefixes}); sessions populate under expanded groups with
- * pinned rows leading, then active rows ({@link sessionActive}), each block
+ * (see {@link SessionRowState.hiddenCwdPrefixes} and
+ * {@link SessionRowState.hiddenIdPatterns}); sessions populate under
+ * expanded groups with pinned rows leading, then active rows ({@link sessionActive}), each block
  * in the selected local order. Blank sessions are
  * excluded except for the selected provisional New Session row; archived
  * sessions keep their slots and appear per the archived filter. Content
