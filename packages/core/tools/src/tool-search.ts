@@ -84,10 +84,14 @@ export function compileDeferredPatterns(patterns: readonly string[]): (name: str
   return name => group(name) !== undefined
 }
 
-/** First sentence of a description, capped, for the catalog line. */
+/**
+ * First sentence of a description's first line, capped, for the catalog line.
+ * A sentence ends at an ASCII `.!?` followed by whitespace or the line end, or
+ * at a full-width `。！？`.
+ */
 function summarize(description: string): string {
   const firstLine = description.split('\n', 1)[0] ?? ''
-  const sentence = /^(.*?[.。!?！？])(\s|$)/u.exec(firstLine)?.[1] ?? firstLine
+  const sentence = /^(.*?(?:[.!?](?=\s|$)|[。！？]))/u.exec(firstLine)?.[1] ?? firstLine
   const chars = Array.from(sentence)
   return chars.length > CATALOG_SUMMARY_CHARS
     ? `${chars.slice(0, CATALOG_SUMMARY_CHARS - 1).join('')}…`
