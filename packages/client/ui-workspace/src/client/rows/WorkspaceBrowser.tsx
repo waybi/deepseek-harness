@@ -16,7 +16,7 @@
  */
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  defaultRangeExtractor, observeElementRect, type Range, useVirtualizer,
+  defaultRangeExtractor, measureElement, observeElementRect, type Range, useVirtualizer, type Virtualizer,
 } from '@tanstack/react-virtual'
 import clsx from 'clsx'
 import {
@@ -726,7 +726,11 @@ function SessionTree({
 
 /** Fixed height of one Session row (Rows.module.css `.sessionRow`). */
 const FLAT_ROW_HEIGHT_PX = 32
-/** Vertical space between consecutive flat rows. */
+/**
+ * Vertical space below every flat row except the last, drawn as the row
+ * wrapper's own padding (`.flatRowGap`) so a row whose content is hidden
+ * is placed as 0 high and leaves no gap.
+ */
 const FLAT_ROW_GAP_PX = 2
 /** Rows mounted beyond each edge of the visible window. */
 const FLAT_OVERSCAN = 8
@@ -746,6 +750,31 @@ function withPinnedIndexes(range: Range, pinned: readonly number[]): number[] {
 /** Report a list's height only when it has layout, so a zero-height read keeps the previous window. */
 const observeLaidOutRect: typeof observeElementRect = (instance, notify) =>
   observeElementRect(instance, (rect) => { if (rect.height > 0) notify(rect) })
+
+/** Estimated wrapper height of flat row `index` in a list of `count` rows: the row plus its trailing gap. */
+function flatRowEstimate(index: number, count: number): number {
+  return index < count - 1 ? FLAT_ROW_HEIGHT_PX + FLAT_ROW_GAP_PX : FLAT_ROW_HEIGHT_PX
+}
+
+/**
+ * Measure a flat row wrapper. A mount or re-render reuses the cached or
+ * estimated size instead of reading layout; the ResizeObserver entry supplies
+ * the rendered height. A wrapper no taller than its trailing gap holds no
+ * visible row and is placed as 0 high, but only while the list has layout:
+ * environments without layout report 0 for every row and keep the estimate.
+ */
+function measureFlatRow(
+  element: HTMLDivElement,
+  entry: ResizeObserverEntry | undefined,
+  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+): number {
+  const index = instance.indexFromElement(element)
+  const estimate = flatRowEstimate(index, instance.options.count)
+  if (entry === undefined) return instance.itemSizeCache.get(instance.options.getItemKey(index)) ?? estimate
+  if ((instance.scrollElement?.clientHeight ?? 0) === 0) return estimate
+  const size = measureElement(element, entry, instance)
+  return size > estimate - FLAT_ROW_HEIGHT_PX ? size : 0
+}
 
 /**
  * The flat "In one list" body: every session is one draggable top-level row.
@@ -867,8 +896,8 @@ function FlatList({
     count: rows.length,
     getScrollElement: () => scrollElement.current,
     getItemKey,
-    estimateSize: () => FLAT_ROW_HEIGHT_PX,
-    gap: FLAT_ROW_GAP_PX,
+    estimateSize: useCallback((index: number) => flatRowEstimate(index, rows.length), [rows.length]),
+    measureElement: measureFlatRow,
     overscan: FLAT_OVERSCAN,
     initialRect: { width: 0, height: FLAT_INITIAL_HEIGHT_PX },
     observeElementRect: observeLaidOutRect,
@@ -913,14 +942,17 @@ function FlatList({
               return (
                 <div
                   key={node.id}
-                  className={css.flatRow}
+                  className={clsx(css.flatRow, item.index < rows.length - 1 && css.flatRowGap)}
                   style={{ top: `${String(item.start)}px` }}
+                  data-index={item.index}
                   // The row's place is announced on its treeitem, outside the
                   // memoized row, so a reorder does not re-render shifted rows.
+                  // The wrapper's rendered height places the rows after it.
                   ref={(wrapper) => {
                     const treeitem = wrapper?.querySelector('[role="treeitem"]')
                     treeitem?.setAttribute('aria-posinset', String(item.index + 1))
                     treeitem?.setAttribute('aria-setsize', String(rows.length))
+                    virtualizer.measureElement(wrapper)
                   }}
                 >
                   <SessionNodeItem

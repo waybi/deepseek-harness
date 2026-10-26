@@ -378,8 +378,10 @@
   margin-top: 2px;
 }
 
-/* Virtualized flat list: the spacer spans every row's height plus the 2px
-   gaps between rows; each mounted row sits at its computed offset. */
+/* Virtualized flat list: the spacer spans every row wrapper's rendered
+   height; each mounted row sits at its computed offset. The 2px gap below
+   every row but the last is the wrapper's own padding, so a wrapper whose
+   content is hidden measures only its gap and is placed as 0 high. */
 .flatSpacer {
   position: relative;
 }
@@ -388,6 +390,10 @@
   position: absolute;
   left: 0;
   right: 0;
+}
+
+.flatRowGap {
+  padding-bottom: 2px;
 }
 
 .searchStatus {

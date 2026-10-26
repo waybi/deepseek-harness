@@ -3035,4 +3035,73 @@ describe('virtualized flat list', () => {
     fireEvent.dragEnd(ordinary)
     expect(mountedTitles().slice(0, 3)).toEqual(['s-0004', 's-0003', 's-0000'])
   })
+
+  describe('rendered row heights', () => {
+    // Each observer reports only the elements it observes, like the browser's.
+    interface ObserverRecord { callback: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver }
+    const observers = new Set<ObserverRecord>()
+    class Observer implements ResizeObserver {
+      private readonly record: ObserverRecord
+      constructor(callback: ResizeObserverCallback) {
+        this.record = { callback, targets: new Set<Element>(), self: this }
+        observers.add(this.record)
+      }
+      observe(target: Element): void { this.record.targets.add(target) }
+      unobserve(target: Element): void { this.record.targets.delete(target) }
+      disconnect(): void { observers.delete(this.record) }
+    }
+    const resize = (target: Element, blockSize: number): void => {
+      const box = [{ blockSize, inlineSize: 200 }]
+      const entry: ResizeObserverEntry = {
+        target,
+        borderBoxSize: box,
+        contentBoxSize: box,
+        devicePixelContentBoxSize: box,
+        contentRect: new DOMRect(0, 0, 200, blockSize),
+      }
+      act(() => {
+        for (const observer of [...observers]) {
+          if (observer.targets.has(target)) observer.callback([entry], observer.self)
+        }
+      })
+    }
+    const wrapperOf = (title: string): HTMLElement =>
+      screen.getByText(title).closest('[role="treeitem"]')?.parentElement?.parentElement as HTMLElement
+    const spacerOf = (): HTMLElement => wrapperOf('s-0000').parentElement as HTMLElement
+    beforeEach(() => { observers.clear(); vi.stubGlobal('ResizeObserver', Observer) })
+    afterEach(() => { vi.unstubAllGlobals() })
+
+    it('closes the gap of a row whose content measures 0 while the list has layout', () => {
+      flat({ useSessions: hook(sessionState(many(10))) })
+      const tree = screen.getByRole('tree', { name: '会话' })
+      Object.defineProperty(tree, 'clientHeight', { configurable: true, value: 400 })
+      expect(spacerOf().style.height).toBe(`${String(10 * ROW + 9 * GAP)}px`)
+      expect(wrapperOf('s-0003').style.top).toBe(`${String(3 * (ROW + GAP))}px`)
+      // An exact measurement keeps every position.
+      resize(wrapperOf('s-0002'), ROW + GAP)
+      expect(wrapperOf('s-0003').style.top).toBe(`${String(3 * (ROW + GAP))}px`)
+      // Hidden content leaves only the wrapper's gap padding, which is not kept.
+      resize(wrapperOf('s-0002'), GAP)
+      expect(spacerOf().style.height).toBe(`${String(9 * ROW + 8 * GAP)}px`)
+      expect(wrapperOf('s-0003').style.top).toBe(`${String(2 * (ROW + GAP))}px`)
+      expect(wrapperOf('s-0009').style.top).toBe(`${String(8 * (ROW + GAP))}px`)
+      // The last row carries no gap; hiding it measures 0, and the row above
+      // keeps its trailing gap at the end of the list.
+      resize(wrapperOf('s-0009'), 0)
+      expect(spacerOf().style.height).toBe(`${String(8 * ROW + 8 * GAP)}px`)
+      // Showing the content again restores the original positions.
+      resize(wrapperOf('s-0002'), ROW + GAP)
+      resize(wrapperOf('s-0009'), ROW)
+      expect(wrapperOf('s-0003').style.top).toBe(`${String(3 * (ROW + GAP))}px`)
+      expect(spacerOf().style.height).toBe(`${String(10 * ROW + 9 * GAP)}px`)
+    })
+
+    it('keeps estimated heights when the list has no layout', () => {
+      flat({ useSessions: hook(sessionState(many(10))) })
+      resize(wrapperOf('s-0002'), 0)
+      resize(wrapperOf('s-0009'), 0)
+      expect(spacerOf().style.height).toBe(`${String(10 * ROW + 9 * GAP)}px`)
+      expect(wrapperOf('s-0003').style.top).toBe(`${String(3 * (ROW + GAP))}px`)
+    })
+  })
 })

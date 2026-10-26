@@ -138,6 +138,7 @@
     "tests/stats-paged-history.e2e.ts",
     "tests/sidebar-scrollbar.e2e.ts",
     "tests/sidebar-background-sessions.e2e.ts",
+    "tests/sidebar-flat-hidden-row.e2e.ts",
     "tests/sidebar-title-hover-scroll.e2e.ts",
     "tests/rail-search-expand.e2e.ts",
     "tests/conversation-column-overflow.e2e.ts",

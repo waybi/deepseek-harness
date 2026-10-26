@@ -71,9 +71,11 @@ describe('WorkspaceBrowser.module.css list', () => {
 
   it('keeps 2px between rows and 4px between workspace groups', () => {
     // Virtualized flat rows sit at computed offsets; the 2px row gap is the
-    // virtualizer's `gap`, asserted through row offsets in the browser spec.
+    // row wrapper's own padding, so a row with hidden content keeps no gap.
+    // Row offsets are asserted in the browser spec.
     expect(declarations('.flatSpacer')?.get('position')).toBe('relative')
     expect(declarations('.flatRow')?.get('position')).toBe('absolute')
+    expect(declarations('.flatRowGap')?.get('padding-bottom')).toBe('2px')
     expect(declarations(".searchTree > [role='treeitem'] + [role='treeitem']")?.get('margin-top')).toBe('2px')
     expect(declarations('.groupSection > * + *')?.get('margin-top')).toBe('2px')
     expect(declarations('.groupSection + .groupSection')?.get('margin-top')).toBe('4px')
