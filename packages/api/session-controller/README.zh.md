@@ -31,11 +31,13 @@ kind: "package-reference"
 
 Client journal 在发布 follow 快照、live entry 或历史页之前验证当前 Session 事件 envelope。它复用浏览器安全的 Session validator，检查必需的 surface marker、精确的 replacement endpoint、更早且唯一的 source seq、内嵌 Assistant 提供方元数据、request header 可选字段的省略规则以及工具错误一致性。无效 record 直接失败，不删除字段或归一化；范围成员与来源存在性仍由 Host 的持久日志检查。
 
-每个 endpoint 都声明自己的激活策略。列表只读取持久化 header 与 projection cache row，绝不调用逐 Session stat 或打开冷 Session body。当前格式 cache identity 可以提供全部列表 hint；生命周期匹配的 predecessor cache 只能提供版本兼容的 title，作为可能过时的展示事实，绝不能作为权威 fold seed。搜索、附件、历史页、日志跟随、skill 发现和工作区路径打开可以在不激活 Agent 的情况下检查 persistence；`canOpenWorkspacePath()` 无需指定 Session 即可报告原生打开能力。取消要求 live 状态；queue 变更、模型、重命名、prompt 和文件引用操作可以解析或恢复普通 Session。提示词会在解析 Agent 或追加 Session 事件前，拒绝既没有非空白文本也没有附件的 content；queue edit 只接受非空文本 content。prompt 准入从注入的 [`fileUploads`](../../client/file-upload/README.zh.md) Host 服务取得不透明凭证，在把完整有序内容列表交给 `ctx.attachments` 前解析每个属于同一 Agent 的凭证。`requestId` 已进入 queue 或日志时，prompt 重试直接返回原来的接受结果，不会重复插入消息。只有 create 与 fork 会直接创建新 Agent。该服务把同一套感知 preset 的恢复策略和 subagent ownership fence 同时用于自身方法，以及其他 Remote namespace 使用的 Typert Agent 与 Session lookup。Queue 变更只有一个狭窄例外：当前 projection identity 为 continuable 且来自自身非 seed suffix 的在线 child，可以在两个 inbox 目标上使用普通 Edit、Remove 与 QueueDock Steer action。One-shot、缺失、未知、损坏、仅含 seed identity 或冷 child 继续被拒绝，且不会恢复。skill 目录优先使用已有 live Agent 的有效工作目录与限定范围内的注册表。冷态列表使用投影中的当前目录，依次回退到记录的起始目录与配置的默认目录。它保留 preset 常驻 scope，不会激活 Agent。经过鉴权的文件交付路由通过 `workspaceDesktop()` 获取提供服务的 Host 名称和文件管理器行为。`openWorkspacePath({ path, action: "reveal" })` 将文件管理器导航委托给原生适配器；省略 `action` 时按文件类型关联打开，包括 HTML 和 SVG。两种操作都要求当前文件系统将请求的 Host 路径映射到同一个规范进程路径；无法映射的远端路径会在执行原生命令之前被拒绝。 `session.projections` 正常读取准确基线，包括当前格式的冷日志，返回 `kind: sequenced`。只有需要迁移时才返回不带 `asOfSeq` 的 `kind: migration-required` 提示，缺少的键保持缺席。Session 不存在时返回 null。Fork 调用者可设置 `allowMigration: false`，在源历史需要迁移时收到 `session/migration-required`；省略则保持自动迁移。Client 通过 `projectionsBySession` 暴露共享值和显式读取状态，由领域选择自身的 key。Session 列表摘要携带 `agentAvailable`，通过已有摘要与状态事件更新，与持久化 projection 相互独立。有序读取与实时 projection 帧使用相同的序号排序规则；缓存读取只补充提示，不替换有序值。
+每个 endpoint 都声明自己的激活策略。列表只读取持久化 header 与 projection cache row，在请求路径上绝不调用逐 Session stat 或打开冷 Session body。当前格式 cache identity 可以提供全部列表 hint；生命周期匹配的 predecessor cache 只能提供版本兼容的 title，作为可能过时的展示事实，绝不能作为权威 fold seed。搜索、附件、历史页、日志跟随、skill 发现和工作区路径打开可以在不激活 Agent 的情况下检查 persistence；`canOpenWorkspacePath()` 无需指定 Session 即可报告原生打开能力。取消要求 live 状态；queue 变更、模型、重命名、prompt 和文件引用操作可以解析或恢复普通 Session。提示词会在解析 Agent 或追加 Session 事件前，拒绝既没有非空白文本也没有附件的 content；queue edit 只接受非空文本 content。prompt 准入从注入的 [`fileUploads`](../../client/file-upload/README.zh.md) Host 服务取得不透明凭证，在把完整有序内容列表交给 `ctx.attachments` 前解析每个属于同一 Agent 的凭证。`requestId` 已进入 queue 或日志时，prompt 重试直接返回原来的接受结果，不会重复插入消息。只有 create 与 fork 会直接创建新 Agent。该服务把同一套感知 preset 的恢复策略和 subagent ownership fence 同时用于自身方法，以及其他 Remote namespace 使用的 Typert Agent 与 Session lookup。Queue 变更只有一个狭窄例外：当前 projection identity 为 continuable 且来自自身非 seed suffix 的在线 child，可以在两个 inbox 目标上使用普通 Edit、Remove 与 QueueDock Steer action。One-shot、缺失、未知、损坏、仅含 seed identity 或冷 child 继续被拒绝，且不会恢复。skill 目录优先使用已有 live Agent 的有效工作目录与限定范围内的注册表。冷态列表使用投影中的当前目录，依次回退到记录的起始目录与配置的默认目录。它保留 preset 常驻 scope，不会激活 Agent。经过鉴权的文件交付路由通过 `workspaceDesktop()` 获取提供服务的 Host 名称和文件管理器行为。`openWorkspacePath({ path, action: "reveal" })` 将文件管理器导航委托给原生适配器；省略 `action` 时按文件类型关联打开，包括 HTML 和 SVG。两种操作都要求当前文件系统将请求的 Host 路径映射到同一个规范进程路径；无法映射的远端路径会在执行原生命令之前被拒绝。 `session.projections` 正常读取准确基线，包括当前格式的冷日志，返回 `kind: sequenced`。只有需要迁移时才返回不带 `asOfSeq` 的 `kind: migration-required` 提示，缺少的键保持缺席。Session 不存在时返回 null。Fork 调用者可设置 `allowMigration: false`，在源历史需要迁移时收到 `session/migration-required`；省略则保持自动迁移。Client 通过 `projectionsBySession` 暴露共享值和显式读取状态，由领域选择自身的 key。Session 列表摘要携带 `agentAvailable`，通过已有摘要与状态事件更新，与持久化 projection 相互独立。有序读取与实时 projection 帧使用相同的序号排序规则；缓存读取只补充提示，不替换有序值。
 
 每个 Remote 端点都受访问控制：principal 不是 owner 的 Peer 只有在本次调用访问的每个资源上，该 principal kind 在 [`dsh-api-remote-access`](../remote-access/README.zh.md) 中的 policy 都有某个 binding 授予列出该 action 的 role 时，才能调用该端点（[Peer 身份属性 Agent Note](../../../.agents/notes/implemented/architecture/2026-10-12-peer-principal-and-remote-access.zh.md)）。控制器注入 `remoteAccess`，并经 `typert.resources` 以默认字段 `sessionId` 登记 `session` 资源种类。`session/page` 与 `session/follow` 在 `@Remote({ resources })` 中声明 `session` 读取函数：对普通 Session 地址读 `request.address.sessionId`，对 subagent 地址读 `request.address.childSessionId`；父会话的访问权是否覆盖其子会话由 policy 决定。`session/projections` 从 `request.sessionId` 读取会话资源，因此重连的读者只会重新读取它可读的会话的 projections。`session/list`、`session/search` 与 `session/control` 不读取资源，其调用访问 `global` 资源，需要 `global` role；对非 owner 调用方，`session/list` 只返回其 Session 被 `ctx.remoteAccess.allows()` 按同一 action 允许的行，`session/search` 只返回这类 Session 的命中，`session/control` 也只返回这类 Session 的 baseline projection 与 projection 帧，因此该 action 也要列在 `session` role 中；owner 的结果不过滤。`session/prompt` 在其 Remote 方法内构造持久的 `user-rpc` 消息 source，且只为非 owner 调用方记录经 `principalOf(this.ctx.invocation)` 读取的 `principal`；不带 `principal` 的 source 属于 owner。
 
 列表行在状态可用时携带 `formatStatus`，Client 无需请求其投影即可识别需要迁移的 Session。
+
+投影缓存没有行的冷行，在 `list()` 返回后于每个 Host 实例内排队一次做后台补算；入队为 O(1)，列表从不等待。补算先用 `stat` 测量日志，大小缺失或超过 `listBackfillMaxLogBytes` 即跳过，否则通过只读 handle 读取，并用 `sessionProjectionCache.coldSnapshot` 折叠（它同时写缓存行），随后发出携带刷新摘要的 `api-session/added`；Client 按 Session id 合并，空白会话由此隐藏，有标题的会话显示标题。期间接入的 Session、补算失败（记警告，Host 重启前不重试）和插件卸载都不发布任何内容。没有 `sessionPersistence` 或 `sessionProjectionCache` 时，行保持无投影。
 
 Host 仅在配置的工作时间片耗尽时，于完整条目之间让出事件循环；剩余工作较少时直接返回，不强制让出。每行及每次让出之后检查请求取消，取消时拒绝返回部分结果。每行同步计算；列表不承诺跨 Session 的统一快照。已经进入冷态队列的 Session 若在让出期间接入，仍返回缓存行：Client 对进行中请求的变更重放会纠正其可用性，带序号的投影会覆盖缓存提示。
 
@@ -99,6 +101,8 @@ GUI 模型选择要求确切提供方／模型对出现在可用目录中；不�
 |---|---:|---|
 | `nativeOpen` | 平台探测 | 是否能把 Session 工作区路径交给原生桌面打开器 |
 | `listWorkSliceMs` | `16` | 列表工作时间片，单位为毫秒，取正整数；在完整条目之间检查 |
+| `listBackfillMaxLogBytes` | `8388608` | 后台列表补算读取的单个已存日志的字节上限；超限或无法测得大小的日志跳过 |
+| `listBackfillConcurrency` | `2` | 同时进行的列表补算数上限，取正整数 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-api-session-controller)是所有受支持字段及其 JSDoc 的完整来源。
 
@@ -117,6 +121,7 @@ GUI 模型选择要求确切提供方／模型对出现在可用目录中；不�
 
 <a id="known-limitations-and-deferred-work"></a>
 
+- 列表补算跳过超过 `listBackfillMaxLogBytes` 的日志，以及不报告字节大小的后端的日志；这些行保持可见，无标题、无空白标记。补算失败只在 Host 重启后重试。
 - 单个摘要、查询提供方自身的枚举、最终排序和响应序列化都可能超出列表时间片目标；它不是 Host 延迟的硬上限。
 - 图片字节上限不校验解码后的尺寸或像素数。
 - follow 恢复失败会对调用方可见，而不会无限重试。

@@ -122,6 +122,11 @@
     # Session commands, cold reads, and live control over Typert Remote.
     - id: session-controller
       name: '@deepseek-ai/dsh-api-session-controller'
+      config:
+        # Cold rows the projection cache has not served are folded in the
+        # background; logs above 8 MiB are skipped, two folds run at once.
+        listBackfillMaxLogBytes: 8388608
+        listBackfillConcurrency: 2
 
     # One background job's observation record streamed over Typert Remote;
     # the roster rides the session control stream above.

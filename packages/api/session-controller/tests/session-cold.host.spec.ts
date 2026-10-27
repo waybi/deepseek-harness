@@ -124,7 +124,7 @@ describe('sessions.list cold merge', () => {
     }
   })
 
-  it('uses a predecessor title hint with zero cold stat or body reads', async () => {
+  it('uses a predecessor title hint with zero cold stat or body reads for the hinted row', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
     const metas = [header('legacy-title', 100), header('uncached', 200)]
@@ -169,8 +169,11 @@ describe('sessions.list cold merge', () => {
         projections: { kind: 'cached', asOfSeq: 2, values: { title: 'Cached predecessor title' } },
       }),
     ])
-    expect(stat).not.toHaveBeenCalled()
-    expect(inspect).not.toHaveBeenCalled()
+    // Only the cache-missed row is backfilled in the background; the hinted row is never measured or read.
+    await vi.waitFor(() => { expect(stat).toHaveBeenCalledTimes(1) })
+    expect(stat.mock.calls.map(([id]) => id)).toEqual([sid('uncached')])
+    await vi.waitFor(() => { expect(inspect).toHaveBeenCalledTimes(1) })
+    expect(inspect.mock.calls.map(([id]) => id)).toEqual([sid('uncached')])
     expect(observe).not.toHaveBeenCalled()
   })
 

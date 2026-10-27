@@ -74,13 +74,41 @@ export function truncateUnicodeCodePoints(value: string, maximum: number): strin
   return value
 }
 
+/** Background cache backfill policy for cold rows the projection cache has not served. */
+export interface ColdBackfillOptions {
+  /** Largest stored log, in bytes, a backfill reads; larger or unmeasured logs are never read. */
+  readonly maxLogBytes: number
+  /** Most backfills in flight at once. */
+  readonly concurrency: number
+  /**
+   * Receives the refreshed summary of a backfilled Session after its fold
+   * committed; never called for a Session that attached meanwhile or after disposal.
+   */
+  readonly onBackfilled: (summary: SessionSummary) => void
+}
+
 /** Owns list projection registration, bounded cold summaries, and authorized search. */
 export class ApiSessionList {
+  private readonly pending: SessionRecord[] = []
+  /** Ids already queued, running, finished, or failed: each is attempted once per instance. */
+  private readonly attempted = new Set<SessionId>()
+  private running = 0
+  private readonly backfillAbort = new AbortController()
+
   /**
    * @param ctx - Host context carrying Session, query, persistence, and projection services.
    * @param workSliceMs - Resolved positive integral list-work budget in milliseconds.
+   * @param backfill - cold-row cache backfill policy; omitted disables backfill.
    */
-  constructor(private readonly ctx: Context, private readonly workSliceMs: number) {
+  constructor(
+    private readonly ctx: Context,
+    private readonly workSliceMs: number,
+    private readonly backfill?: ColdBackfillOptions,
+  ) {
+    ctx.effect(() => () => {
+      this.backfillAbort.abort()
+      this.pending.length = 0
+    }, 'session-controller.list-backfill')
     ctx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
       key: 'sessionListMetadata',
       stateSchema: sessionListMetadataSchema,
@@ -164,9 +192,11 @@ export class ApiSessionList {
     return items
   }
 
-  private summarizeCold({ header, formatStatus }: SessionRecord): SessionSummary {
+  private summarizeCold(record: SessionRecord): SessionSummary {
+    const { header, formatStatus } = record
     const projections = this.projectionsFor(header, undefined)
     const metadata = projections?.values.sessionListMetadata
+    if (projections === undefined) this.enqueueBackfill(record)
     return {
       sessionId: header.id,
       updatedAt: updatedAt(header, metadata),
@@ -178,6 +208,71 @@ export class ApiSessionList {
       ...listFields(header),
       ...(projections === undefined ? {} : { projections }),
     }
+  }
+
+  /** Queue one cache-missed cold row once; O(1) and never awaits. */
+  private enqueueBackfill(record: SessionRecord): void {
+    if (this.backfill === undefined || this.attempted.has(record.header.id)) return
+    if (this.ctx.get('sessionProjectionCache') === undefined || this.ctx.get('sessionPersistence') === undefined) return
+    this.attempted.add(record.header.id)
+    this.pending.push(record)
+    this.pump(this.backfill)
+  }
+
+  private pump(options: ColdBackfillOptions): void {
+    while (this.running < options.concurrency) {
+      const next = this.pending.shift()
+      if (next === undefined) return
+      this.running++
+      void this.backfillOne(next, options)
+        .catch((error: unknown) => {
+          if (this.backfillAbort.signal.aborted) return
+          this.ctx.logger.warn(
+            `api-session.list: cache backfill for "${next.header.id}" failed; the row stays unprojected: ${String(error)}`,
+          )
+        })
+        .finally(() => {
+          this.running--
+          this.pump(options)
+        })
+    }
+  }
+
+  /** Fold one cold log through the projection cache's cold read and publish the refreshed row. */
+  private async backfillOne(record: SessionRecord, options: ColdBackfillOptions): Promise<void> {
+    const { signal } = this.backfillAbort
+    const persistence = this.ctx.get('sessionPersistence')
+    const cache = this.ctx.get('sessionProjectionCache')
+    if (persistence === undefined || cache === undefined) return
+    const id = record.header.id
+    const stat = await persistence.stat(id, { signal })
+    // An unmeasured log (non-JSONL backend) cannot be bounded, so it is not read.
+    if (stat?.sizeBytes === undefined || stat.sizeBytes > options.maxLogBytes) return
+    if (this.ctx.sessions.get(id) !== undefined) return
+    const handle = await persistence.open(id, 'read', { signal })
+    let snapshot: ProjectionSnapshot
+    try {
+      const { events } = await handle.read(undefined, undefined, { signal })
+      // A Session attached meanwhile owns its cache row; a stale cut must not overwrite it.
+      if (this.ctx.sessions.get(id) !== undefined || signal.aborted) return
+      snapshot = cache.coldSnapshot(handle.header, handle.inheritedEventCount, events)
+    } finally {
+      await handle.close()
+    }
+    signal.throwIfAborted()
+    if (this.ctx.sessions.get(id) !== undefined) return
+    const projections = hintsOf('cached', snapshot)
+    const metadata = projections?.values.sessionListMetadata
+    options.onBackfilled({
+      sessionId: id,
+      updatedAt: updatedAt(record.header, metadata),
+      agentAvailable: false,
+      ...(record.formatStatus === undefined ? {} : { formatStatus: record.formatStatus }),
+      running: false,
+      blank: metadata?.blank ?? false,
+      ...listFields(record.header),
+      ...(projections === undefined ? {} : { projections }),
+    })
   }
 
   /**

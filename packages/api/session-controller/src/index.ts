@@ -97,10 +97,22 @@ export interface Config {
   readonly nativeOpen?: boolean
   /** Positive integral milliseconds of list work before yielding between complete rows. */
   readonly listWorkSliceMs?: number
+  /**
+   * Largest stored log, in bytes, that background list backfill reads for a cold
+   * Session the projection cache has no row for. A larger log, or one whose
+   * backend reports no byte size, is never read and its row stays visible and unprojected.
+   */
+  readonly listBackfillMaxLogBytes?: number
+  /** Positive integral count of list backfills that may run at once. */
+  readonly listBackfillConcurrency?: number
 }
 
 /** Deployment policy after schema defaults have been applied. */
-type ResolvedConfig = Config & { readonly listWorkSliceMs: number }
+type ResolvedConfig = Config & {
+  readonly listWorkSliceMs: number
+  readonly listBackfillMaxLogBytes: number
+  readonly listBackfillConcurrency: number
+}
 
 /** Host integrations replaceable by direct unit tests. */
 export interface SessionControllerInternals {
@@ -136,6 +148,8 @@ export class SessionController extends TypertRemoteService {
   static Config: z<Config, ResolvedConfig> = z.object({
     nativeOpen: z.boolean(),
     listWorkSliceMs: z.natural().min(1).default(16),
+    listBackfillMaxLogBytes: z.natural().min(1).default(8_388_608),
+    listBackfillConcurrency: z.natural().min(1).default(2),
   })
 
   private readonly agents: ApiSessionAgentController
@@ -174,7 +188,11 @@ export class SessionController extends TypertRemoteService {
       await Promise.allSettled([...this.promotions])
     }, 'session-controller.promotions')
     this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) })
-    this.listState = new ApiSessionList(ctx, resolved.listWorkSliceMs)
+    this.listState = new ApiSessionList(ctx, resolved.listWorkSliceMs, {
+      maxLogBytes: resolved.listBackfillMaxLogBytes,
+      concurrency: resolved.listBackfillConcurrency,
+      onBackfilled: (summary) => { ctx.emit('api-session/added', summary) },
+    })
     this.fileApplications = internals.fileApplications ?? nativeFileApplications
     this.openFileApplication = internals.openFileApplication ?? openNativeFileApplication
     this.openPath = internals.openPath ?? openNativeAssociatedPath
