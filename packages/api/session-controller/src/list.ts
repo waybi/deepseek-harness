@@ -74,6 +74,13 @@ export function truncateUnicodeCodePoints(value: string, maximum: number): strin
   return value
 }
 
+/** A queued backfill with the optional services it was admitted under. */
+interface PendingBackfill {
+  readonly record: SessionRecord
+  readonly cache: NonNullable<Context['sessionProjectionCache']>
+  readonly persistence: NonNullable<Context['sessionPersistence']>
+}
+
 /** Background cache backfill policy for cold rows the projection cache has not served. */
 export interface ColdBackfillOptions {
   /** Largest stored log, in bytes, a backfill reads; larger or unmeasured logs are never read. */
@@ -89,7 +96,7 @@ export interface ColdBackfillOptions {
 
 /** Owns list projection registration, bounded cold summaries, and authorized search. */
 export class ApiSessionList {
-  private readonly pending: SessionRecord[] = []
+  private readonly pending: PendingBackfill[] = []
   /** Ids already queued, running, finished, or failed: each is attempted once per instance. */
   private readonly attempted = new Set<SessionId>()
   private running = 0
@@ -193,29 +200,19 @@ export class ApiSessionList {
   }
 
   private summarizeCold(record: SessionRecord): SessionSummary {
-    const { header, formatStatus } = record
-    const projections = this.projectionsFor(header, undefined)
-    const metadata = projections?.values.sessionListMetadata
+    const projections = this.projectionsFor(record.header, undefined)
     if (projections === undefined) this.enqueueBackfill(record)
-    return {
-      sessionId: header.id,
-      updatedAt: updatedAt(header, metadata),
-      agentAvailable: false,
-      ...(formatStatus === undefined ? {} : { formatStatus }),
-      running: false,
-      // A large, metadata-less, or inaccessible cache miss remains unknown and visible.
-      blank: metadata?.blank ?? false,
-      ...listFields(header),
-      ...(projections === undefined ? {} : { projections }),
-    }
+    return coldSummary(record, projections)
   }
 
   /** Queue one cache-missed cold row once; O(1) and never awaits. */
   private enqueueBackfill(record: SessionRecord): void {
     if (this.backfill === undefined || this.attempted.has(record.header.id)) return
-    if (this.ctx.get('sessionProjectionCache') === undefined || this.ctx.get('sessionPersistence') === undefined) return
+    const cache = this.ctx.get('sessionProjectionCache')
+    const persistence = this.ctx.get('sessionPersistence')
+    if (cache === undefined || persistence === undefined) return
     this.attempted.add(record.header.id)
-    this.pending.push(record)
+    this.pending.push({ record, cache, persistence })
     this.pump(this.backfill)
   }
 
@@ -228,7 +225,7 @@ export class ApiSessionList {
         .catch((error: unknown) => {
           if (this.backfillAbort.signal.aborted) return
           this.ctx.logger.warn(
-            `api-session.list: cache backfill for "${next.header.id}" failed; the row stays unprojected: ${String(error)}`,
+            `api-session.list: cache backfill for "${next.record.header.id}" failed; the row stays unprojected: ${String(error)}`,
           )
         })
         .finally(() => {
@@ -239,40 +236,28 @@ export class ApiSessionList {
   }
 
   /** Fold one cold log through the projection cache's cold read and publish the refreshed row. */
-  private async backfillOne(record: SessionRecord, options: ColdBackfillOptions): Promise<void> {
+  private async backfillOne(
+    { record, cache, persistence }: PendingBackfill,
+    options: ColdBackfillOptions,
+  ): Promise<void> {
     const { signal } = this.backfillAbort
-    const persistence = this.ctx.get('sessionPersistence')
-    const cache = this.ctx.get('sessionProjectionCache')
-    if (persistence === undefined || cache === undefined) return
     const id = record.header.id
     const stat = await persistence.stat(id, { signal })
     // An unmeasured log (non-JSONL backend) cannot be bounded, so it is not read.
     if (stat?.sizeBytes === undefined || stat.sizeBytes > options.maxLogBytes) return
-    if (this.ctx.sessions.get(id) !== undefined) return
     const handle = await persistence.open(id, 'read', { signal })
     let snapshot: ProjectionSnapshot
     try {
       const { events } = await handle.read(undefined, undefined, { signal })
       // A Session attached meanwhile owns its cache row; a stale cut must not overwrite it.
-      if (this.ctx.sessions.get(id) !== undefined || signal.aborted) return
+      if (this.ctx.sessions.get(id) !== undefined) return
       snapshot = cache.coldSnapshot(handle.header, handle.inheritedEventCount, events)
     } finally {
       await handle.close()
     }
     signal.throwIfAborted()
     if (this.ctx.sessions.get(id) !== undefined) return
-    const projections = hintsOf('cached', snapshot)
-    const metadata = projections?.values.sessionListMetadata
-    options.onBackfilled({
-      sessionId: id,
-      updatedAt: updatedAt(record.header, metadata),
-      agentAvailable: false,
-      ...(record.formatStatus === undefined ? {} : { formatStatus: record.formatStatus }),
-      running: false,
-      blank: metadata?.blank ?? false,
-      ...listFields(record.header),
-      ...(projections === undefined ? {} : { projections }),
-    })
+    options.onBackfilled(coldSummary(record, hintsOf('cached', snapshot)))
   }
 
   /**
@@ -413,6 +398,23 @@ export class ApiSessionList {
  * @param block - the block, or `undefined` when no source served one.
  * @returns the hints, or `undefined` when the block is absent or carries no value.
  */
+/** Wire summary of a cold row; `projections` is absent when no cache or fold values exist. */
+function coldSummary(record: SessionRecord, projections: SessionProjectionHints | undefined): SessionSummary {
+  const { header, formatStatus } = record
+  const metadata = projections?.values.sessionListMetadata
+  return {
+    sessionId: header.id,
+    updatedAt: updatedAt(header, metadata),
+    agentAvailable: false,
+    ...(formatStatus === undefined ? {} : { formatStatus }),
+    running: false,
+    // A large, metadata-less, or inaccessible cache miss remains unknown and visible.
+    blank: metadata?.blank ?? false,
+    ...listFields(header),
+    ...(projections === undefined ? {} : { projections }),
+  }
+}
+
 function hintsOf(
   kind: SessionProjectionHints['kind'],
   block: ProjectionSnapshot | undefined,

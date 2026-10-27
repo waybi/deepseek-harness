@@ -20,7 +20,7 @@ import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import { ApiSessionList } from '../src/list.ts'
 import type { SessionSummary } from '../src/types.ts'
-import { installSessionReadTestServices } from './test-remote.ts'
+import { createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
 
 const contexts: Context[] = []
 const roots: string[] = []
@@ -229,6 +229,80 @@ describe('cold list backfill', () => {
     await vi.waitFor(() => { expect(stat).toHaveBeenCalledTimes(1) })
     await ctx.fiber.dispose()
     release()
+    await new Promise<void>((resolve) => { setTimeout(resolve, 30) })
+    expect(added).toHaveLength(0)
+  })
+
+  it('the Session Controller emits api-session/added with the backfilled summary', async () => {
+    const { ctx, store } = await harness()
+    await store('via-controller', initEvents())
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+    })
+    const emitted: SessionSummary[] = []
+    ctx.on('api-session/added', (summary: SessionSummary) => { emitted.push(summary) })
+    const response = await remote.list({})
+    if (!response.ok) throw new Error('list failed')
+    await vi.waitFor(() => { expect(emitted.filter(item => item.sessionId === 'via-controller')).toHaveLength(1) })
+    expect(emitted.find(item => item.sessionId === 'via-controller')).toMatchObject({ blank: true })
+  })
+
+  it('a log whose size is unknown is not read', async () => {
+    const { ctx, list, added, store } = await harness()
+    await store('missing', initEvents())
+    await store('unsized', initEvents())
+    const real = ctx.sessionPersistence.stat.bind(ctx.sessionPersistence)
+    const stat = vi.spyOn(ctx.sessionPersistence, 'stat').mockImplementation(async (id, options) => {
+      if (id === 'missing') return undefined
+      const snapshot = await real(id, options)
+      if (snapshot === undefined) return undefined
+      const { sizeBytes: _omitted, ...rest } = snapshot
+      return rest
+    })
+    const open = vi.spyOn(ctx.sessionPersistence, 'open')
+    await list.list()
+    await vi.waitFor(() => { expect(stat).toHaveBeenCalledTimes(2) })
+    await new Promise<void>((resolve) => { setTimeout(resolve, 20) })
+    expect(open).not.toHaveBeenCalled()
+    expect(added).toHaveLength(0)
+  })
+
+  it('a Session that becomes live during the backfill is neither folded nor published', async () => {
+    const folded = await harness()
+    const header = await folded.store('racing', initEvents())
+    const coldSnapshot = vi.spyOn(folded.cache, 'coldSnapshot')
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const real = folded.ctx.sessionPersistence.stat.bind(folded.ctx.sessionPersistence)
+    vi.spyOn(folded.ctx.sessionPersistence, 'stat').mockImplementation(async (id, options) => {
+      await gate
+      return real(id, options)
+    })
+    await folded.list.list()
+    vi.spyOn(folded.ctx.sessions, 'get').mockReturnValue({} as never)
+    release()
+    await new Promise<void>((resolve) => { setTimeout(resolve, 30) })
+    expect(coldSnapshot).not.toHaveBeenCalled()
+    expect(folded.cache.cachedSnapshot(header)).toBeUndefined()
+    expect(folded.added).toHaveLength(0)
+  })
+
+  it('a Session that becomes live after the fold is not published', async () => {
+    const { ctx, list, added, store, cache } = await harness()
+    await store('late-live', initEvents())
+    const coldSnapshot = vi.spyOn(cache, 'coldSnapshot')
+    let closed = false
+    const real = ctx.sessionPersistence.open.bind(ctx.sessionPersistence)
+    vi.spyOn(ctx.sessionPersistence, 'open').mockImplementation(async (id, access, options) => {
+      const handle = await real(id, access, options)
+      const close = handle.close.bind(handle)
+      handle.close = async () => { await close(); closed = true }
+      return handle
+    })
+    vi.spyOn(ctx.sessions, 'get').mockImplementation(() => (closed ? {} as never : undefined))
+    await list.list()
+    await vi.waitFor(() => { expect(coldSnapshot).toHaveBeenCalledTimes(1) })
     await new Promise<void>((resolve) => { setTimeout(resolve, 30) })
     expect(added).toHaveLength(0)
   })
