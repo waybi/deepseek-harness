@@ -13,8 +13,17 @@ import { reconcileManualOrder, type ArchivedFilter, type SessionRowState } from 
 /** Browser-local order account for the hierarchy-free flat Session list. */
 export const FLAT_SESSION_ORDER_KEY = '__flat_session_order__'
 
-/** Session-list grouping mode: sibling Workspace sections, a Workspace tree, or one flat list. */
-export type SessionGroupBy = 'workspace' | 'workspace-tree' | 'flat'
+/** Session-list grouping mode: sibling Workspace sections, a Workspace tree, one flat list, or title-prefix groups. */
+export type SessionGroupBy = 'workspace' | 'workspace-tree' | 'flat' | 'prefix'
+
+/**
+ * Read a persisted grouping mode.
+ * @param value - the stored `groupBy`, possibly written by another version.
+ * @returns the value when it names a known mode, else the default `'workspace'`.
+ */
+export function normalizeGroupBy(value: unknown): SessionGroupBy {
+  return value === 'workspace-tree' || value === 'flat' || value === 'prefix' ? value : 'workspace'
+}
 /** Session order: saved manual positions or current recency. */
 export type SessionOrderBy = 'manual' | 'updated'
 
@@ -24,6 +33,11 @@ type WorkspaceViewState = {
   orderBy: SessionOrderBy
   /** Explicit group expansion keyed by Workspace identity, including descendants in tree mode. */
   groupExpansion: Record<string, boolean>
+  /**
+   * Explicit title-prefix group expansion by group key. Kept apart from `groupExpansion`, which is
+   * pruned by Workspace id; omitted in older v5 snapshots and read as empty.
+   */
+  prefixGroupExpansion?: Record<string, boolean>
   /** Saved manual order per Workspace group plus the browser-local flat-list account. */
   sessionOrderByAccount: Record<string, string[]>
   /** Archived-row visibility; omitted in pre-filter v5 snapshots and read as 'default'. */
@@ -50,6 +64,7 @@ type WorkspaceViewActions = {
     initialOrders: Readonly<Record<string, readonly string[]>>,
   ) => void
   setGroupExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
+  setPrefixGroupExpanded: (draft: WorkspaceViewState, key: string, expanded: boolean) => void
   retainAccountKeys: (draft: WorkspaceViewState, workspaceKeys: readonly string[]) => void
   syncSessionOrders: (
     draft: WorkspaceViewState,
@@ -101,6 +116,9 @@ export function createWorkspaceViewStore(): EngineStoreHandle<WorkspaceViewState
         d.orderBy = mode
       },
       setGroupExpanded: (d, key: string, expanded: boolean) => { d.groupExpansion[key] = expanded },
+      setPrefixGroupExpanded: (d, key: string, expanded: boolean) => {
+        d.prefixGroupExpansion = { ...d.prefixGroupExpansion, [key]: expanded }
+      },
       retainAccountKeys: (d, workspaceKeys: readonly string[]) => {
         const retained = new Set(workspaceKeys)
         d.groupExpansion = Object.fromEntries(

@@ -15,7 +15,7 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { DirectoryFlowOwnerProps, WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
-import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
+import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY, normalizeGroupBy } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
 import { zh } from '../src/client/locales.ts'
@@ -451,7 +451,7 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByText('分组方式')).toBeTruthy() // the menu heading label
     expect(screen.getAllByRole('separator')).toHaveLength(3)
     expect(screen.getAllByRole('menuitem').map(item => item.textContent)).toEqual([
-      '按工作区', '按工作区树', '单列表', '手动排序', '最近更新', '隐藏已归档', '全部对话（显示已归档）', '仅显示已归档',
+      '按工作区', '按工作区树', '单列表', '按项目前缀', '手动排序', '最近更新', '隐藏已归档', '全部对话（显示已归档）', '仅显示已归档',
       '显示后台会话',
     ])
     expect(screen.getByRole('menuitem', { name: '按工作区' }).querySelector('svg')).toBeTruthy()
@@ -3103,5 +3103,241 @@ describe('virtualized flat list', () => {
       expect(spacerOf().style.height).toBe(`${String(10 * ROW + 9 * GAP)}px`)
       expect(wrapperOf('s-0003').style.top).toBe(`${String(3 * (ROW + GAP))}px`)
     })
+  })
+})
+
+describe('By project prefix grouping', () => {
+  const VIEW_KEY = 'dsh.workspace.view.v5'
+  const titled = (id: string, title: string, updatedAt: number, overrides: Partial<SessionSummary> = {}) =>
+    summary(id, updatedAt, { title, ...overrides })
+  const prefixed = () => [
+    titled('s1', '店铺｜ZA062 广告数据查询', 50),
+    titled('s2', '店铺｜退货率', 40),
+    titled('d1', 'DSH｜侧栏分组', 60),
+    titled('plain', '旧会话没有前缀', 70),
+  ]
+  const usePrefix = () => {
+    localStorage.clear()
+    createWorkspaceViewStore().create().actions.setGroupBy('prefix')
+  }
+  const rowIds = () => [...document.querySelectorAll('[data-row-key^="session:"]')]
+    .map(element => (element.getAttribute('data-row-key') as string).slice('session:'.length))
+  const headers = () => screen.queryAllByRole('treeitem').filter(item => item.getAttribute('aria-expanded') !== null)
+  const choose = (name: string) => {
+    fireEvent.click(screen.getByRole('button', { name: '视图选项' }))
+    fireEvent.click(screen.getByRole('menuitem', { name }))
+  }
+
+  it('reads unknown persisted modes as the default and keeps the four known ones', () => {
+    expect(normalizeGroupBy('foo')).toBe('workspace')
+    expect(normalizeGroupBy(undefined)).toBe('workspace')
+    for (const mode of ['workspace', 'workspace-tree', 'flat', 'prefix'] as const) expect(normalizeGroupBy(mode)).toBe(mode)
+    localStorage.setItem(VIEW_KEY, JSON.stringify({
+      groupBy: 'foo', orderBy: 'updated', groupExpansion: {}, sessionOrderByAccount: {},
+    }))
+    mount({ useSessions: hook(sessionState([summary('a', 1)])), useWorkspaces: hook(workspaceState([workspace('alpha', ['a'])])) })
+    expect(screen.getByText('工作区')).toBeTruthy()
+    expect(screen.getByText('alpha')).toBeTruthy()
+  })
+
+  it('offers the mode after In one list and keeps it across a remount', () => {
+    const seats = { useSessions: hook(sessionState(prefixed())) }
+    mount(seats)
+    choose('按项目前缀')
+    expect(screen.getByText('会话')).toBeTruthy()
+    expect(headers().map(header => header.getAttribute('aria-label'))).toEqual([
+      '“DSH”分组，1 个会话', '“店铺”分组，2 个会话', '“未分类”分组，1 个会话',
+    ])
+    cleanup()
+    const remounted = mount(seats)
+    expect(remounted.store.getSnapshot().groupBy).toBe('prefix')
+    expect(headers()).toHaveLength(3)
+  })
+
+  it('shows group names with counts, newest group first, Uncategorized last and folded', () => {
+    usePrefix()
+    mount({ useSessions: hook(sessionState(prefixed())) })
+    expect(headers().map(header => header.textContent)).toEqual(['DSH1', '店铺2', '未分类1'])
+    expect(headers().map(header => header.getAttribute('aria-expanded'))).toEqual(['true', 'true', 'false'])
+    // Rows of open groups only, in group order, with the prefix stripped.
+    expect(rowIds()).toEqual(['d1', 's1', 's2'])
+    expect(screen.getByText('ZA062 广告数据查询')).toBeTruthy()
+    expect(screen.queryByText('旧会话没有前缀')).toBeNull()
+  })
+
+  it('toggles groups through the header and persists the choice apart from Workspace expansion', () => {
+    usePrefix()
+    const b = mount({ useSessions: hook(sessionState(prefixed())) })
+    fireEvent.click(screen.getByRole('treeitem', { name: '“未分类”分组，1 个会话' }))
+    expect(screen.getByText('旧会话没有前缀')).toBeTruthy()
+    fireEvent.click(screen.getByRole('treeitem', { name: '“店铺”分组，2 个会话' }))
+    expect(rowIds()).toEqual(['d1', 'plain'])
+    expect(b.store.getSnapshot().prefixGroupExpansion).toEqual({ 'prefix-none': true, 'prefix:店铺': false })
+    expect(b.store.getSnapshot().groupExpansion).toEqual({})
+    cleanup()
+    mount({ useSessions: hook(sessionState(prefixed())) })
+    expect(rowIds()).toEqual(['d1', 'plain'])
+    // Leaving and re-entering the mode keeps the folds; a Workspace prune does not clear them.
+    cleanup()
+    const again = mount({ useSessions: hook(sessionState(prefixed())) })
+    act(() => { again.store.actions.setGroupBy('flat') })
+    act(() => { again.store.actions.retainAccountKeys([]) })
+    act(() => { again.store.actions.setGroupBy('prefix') })
+    expect(rowIds()).toEqual(['d1', 'plain'])
+  })
+
+  it('reads a v5 snapshot without prefix expansion as all defaults', () => {
+    localStorage.setItem(VIEW_KEY, JSON.stringify({
+      groupBy: 'prefix', orderBy: 'updated', groupExpansion: {}, sessionOrderByAccount: {},
+    }))
+    mount({ useSessions: hook(sessionState(prefixed())) })
+    expect(rowIds()).toEqual(['d1', 's1', 's2'])
+  })
+
+  it('opens a folded group that holds a revealed search result', async () => {
+    usePrefix()
+    const open = vi.fn()
+    const b = mount({ useSessions: hook(sessionState(prefixed())), open })
+    expect(screen.queryByText('旧会话没有前缀')).toBeNull()
+    fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: '旧会话' } })
+    fireEvent.click(screen.getByRole('treeitem'))
+    await waitFor(() => { expect(b.store.getSnapshot().prefixGroupExpansion?.['prefix-none']).toBe(true) })
+    expect(open).toHaveBeenCalledWith(sid('plain'))
+  })
+
+  it('shows the search result view while a query is typed and returns to the groups when cleared', () => {
+    usePrefix()
+    mount({ useSessions: hook(sessionState(prefixed())) })
+    expect(headers()).toHaveLength(3)
+    const input = screen.getByPlaceholderText('搜索会话名称')
+    fireEvent.change(input, { target: { value: '退货' } })
+    expect(headers()).toHaveLength(0)
+    expect(screen.getByRole('tree', { name: '搜索结果' })).toBeTruthy()
+    fireEvent.change(input, { target: { value: '' } })
+    expect(headers()).toHaveLength(3)
+  })
+
+  it('shows the stripped title while tooltip and rename keep the full stored title', () => {
+    vi.useFakeTimers()
+    try {
+      usePrefix()
+      const requestSessionRename = vi.fn()
+      const renameWorkspace = vi.fn(async () => {})
+      mount({ useSessions: hook(sessionState(prefixed())), requestSessionRename, renameWorkspace })
+      const label = screen.getByText('ZA062 广告数据查询')
+      fireEvent.doubleClick(label)
+      expect(requestSessionRename).toHaveBeenCalledWith(sid('s1'), '店铺｜ZA062 广告数据查询')
+      fireEvent.pointerEnter(label.closest('[role="treeitem"]')?.parentElement as HTMLElement)
+      act(() => { vi.advanceTimersByTime(800) })
+      expect(screen.getByRole('button', { name: '复制: 店铺｜ZA062 广告数据查询' })).toBeTruthy()
+      expect(screen.getAllByText('店铺｜ZA062 广告数据查询').length).toBeGreaterThan(0)
+      expect(renameWorkspace).not.toHaveBeenCalled()
+      expect(requestSessionRename).toHaveBeenCalledTimes(1)
+    } finally {
+      cleanup()
+      vi.useRealTimers()
+    }
+  })
+
+  describe('same members as the single list', () => {
+    const home = '/Users/boss'
+    const background = {
+      hiddenSessionCwdPrefixes: ['~/.routa/workspace'],
+      useHostInfo: ((selector: (info: { home: string | undefined; isLoopback: boolean }) => unknown) =>
+        selector({ home, isLoopback: true })) as WorkspaceBrowserProps['useHostInfo'],
+    }
+    const items = [
+      titled('a', '店铺｜甲', 90), titled('b', '店铺｜乙', 80), titled('c', 'DSH｜丙', 70),
+      titled('d', '没有前缀', 60), titled('blank', '', 55, { blank: true }),
+      titled('bg', 'Routa｜后台', 50, { cwd: `${home}/.routa/workspace/w1/bg` }),
+      titled('old', 'Bob｜已归档', 40), titled('pin', '生活｜置顶', 5),
+    ]
+    const seats = {
+      ...background,
+      useSessions: hook(sessionState(items)),
+      useWorkspaces: hook(workspaceState([], [sid('old')], [sid('pin')])),
+    }
+    const idsIn = (mode: 'flat' | 'prefix', configure: (actions: ReturnType<typeof mount>['store']['actions']) => void) => {
+      cleanup()
+      localStorage.clear()
+      const store = createWorkspaceViewStore().create()
+      store.actions.setGroupBy(mode)
+      store.actions.setPrefixGroupExpanded('prefix-none', true)
+      configure(store.actions)
+      mount(seats)
+      return rowIds().sort()
+    }
+    it.each([
+      ['defaults', () => {}],
+      ['background shown', (a: ReturnType<typeof mount>['store']['actions']) => { a.setShowBackgroundSessions(true) }],
+      ['archived shown', (a: ReturnType<typeof mount>['store']['actions']) => { a.setArchivedFilter('show') }],
+      ['archived only', (a: ReturnType<typeof mount>['store']['actions']) => { a.setArchivedFilter('only') }],
+    ] as const)('matches the flat list members: %s', (_name, configure) => {
+      const flat = idsIn('flat', configure)
+      expect(idsIn('prefix', configure)).toEqual(flat)
+      expect(flat.length).toBeGreaterThan(0)
+    })
+
+    it('keeps pinned rows first inside their group', () => {
+      localStorage.clear()
+      createWorkspaceViewStore().create().actions.setGroupBy('prefix')
+      mount({
+        ...seats,
+        useSessions: hook(sessionState([titled('x1', '店铺｜新', 100), titled('x2', '店铺｜旧置顶', 1)])),
+        useWorkspaces: hook(workspaceState([], [], [sid('x2')])),
+      })
+      expect(rowIds()).toEqual(['x2', 'x1'])
+    })
+  })
+
+  it('mounts a window of rows, not every session, for a thousand sessions', () => {
+    const prefixes = ['店铺', 'DSH', 'Routa', 'Bob', '网络', '生活', 'RunAI', '杂项', '知识库', 'Turnilo']
+    const many = Array.from({ length: 1_000 }, (_, index) =>
+      titled(`s-${String(index).padStart(4, '0')}`, `${prefixes[index % prefixes.length] as string}｜会话 ${String(index)}`, 1_000 - index))
+    const countFor = (mode: 'flat' | 'prefix') => {
+      cleanup()
+      localStorage.clear()
+      createWorkspaceViewStore().create().actions.setGroupBy(mode)
+      mount({ useSessions: hook(sessionState(many)) })
+      return screen.getAllByRole('treeitem').length
+    }
+    const flatCount = countFor('flat')
+    const prefixCount = countFor('prefix')
+    expect(prefixCount).toBeLessThan(100)
+    expect(prefixCount).toBeLessThanOrEqual(flatCount + 4)
+    expect(prefixCount).toBeGreaterThan(10)
+    const spacer = screen.getAllByRole('treeitem')[0]?.parentElement?.parentElement as HTMLElement
+    expect(Number.parseInt(spacer.style.height, 10)).toBeGreaterThan(1_000 * 32)
+  })
+
+  it('keeps the current Session row and a focused row mounted outside the window', () => {
+    const many = Array.from({ length: 400 }, (_, index) =>
+      titled(`s-${String(index).padStart(4, '0')}`, `店铺｜会话 ${String(index)}`, 400 - index))
+    usePrefix()
+    mount({ useSessions: hook(sessionState(many, { main: sid('s-0300') })) })
+    const current = screen.getByText('会话 300').closest('[role="treeitem"]') as HTMLElement
+    expect(current.getAttribute('aria-selected')).toBe('true')
+    expect(screen.getAllByRole('treeitem').length).toBeLessThan(80)
+    const tree = screen.getByRole('tree', { name: '会话' })
+    act(() => {
+      tree.scrollTop = 100 * 34
+      fireEvent.scroll(tree)
+    })
+    const focused = screen.getByText('会话 110').closest('[role="treeitem"]') as HTMLElement
+    act(() => { focused.focus() })
+    fireEvent.focus(focused)
+    act(() => {
+      tree.scrollTop = 0
+      fireEvent.scroll(tree)
+    })
+    expect(screen.getByText('会话 110')).toBeTruthy()
+    fireEvent.blur(focused)
+    expect(screen.getByText('会话 300').closest('[role="treeitem"]')).toBe(current)
+  })
+
+  it('shows the empty state when no session is visible', () => {
+    usePrefix()
+    mount({ useSessions: hook(sessionState([])) })
+    expect(screen.getByText('暂无会话')).toBeTruthy()
   })
 })

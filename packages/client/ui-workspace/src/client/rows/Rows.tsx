@@ -523,6 +523,48 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }: 
 }
 
 /**
+ * Title-prefix group header: folder glyph, prefix name, session count, and an
+ * expand arrow. Clicking anywhere on it toggles the group.
+ * @param props.groupKey - stable group key, unique across groups.
+ * @param props.label - group name (the prefix, or the localized Uncategorized label).
+ * @param props.count - sessions in the group.
+ * @param props.expanded - whether the group's rows are shown.
+ * @param props.onToggle - flip the group's expansion.
+ * @param props.t - the browser root's locale seat.
+ * @returns the header row.
+ */
+export function PrefixGroupHeader({ groupKey, label, count, expanded, onToggle, t }: {
+  groupKey: string
+  label: string
+  count: number
+  expanded: boolean
+  onToggle: () => void
+  t: RowTranslate
+}) {
+  return (
+    <div
+      className={css.projectRow}
+      data-row-key={`prefix-group:${groupKey}`}
+      role="treeitem"
+      aria-expanded={expanded}
+      aria-label={t('group.prefix.aria', { name: label, n: count })}
+      onClick={onToggle}
+    >
+      <span className={clsx(css.slot, css.folder)}>
+        {expanded ? <IconFolderOpenRegular /> : <IconFolderCloseRegular />}
+      </span>
+      <span className={clsx(css.slot, css.chevron)}>
+        <IconTriangleRightFillRegular className={clsx(css.arrow, expanded && css.arrowOpen)} />
+      </span>
+      <span className={css.projectText}>
+        <span className={css.title}>{label}</span>
+      </span>
+      <span className={css.time} aria-hidden>{count}</span>
+    </div>
+  )
+}
+
+/**
  * One top-level 32px session row: leading 16px cell (status dot, or the
  * leading seat while the row's primary state is idle), title, relative time or
  * compact pending label, and the row actions menu. A row that owns a state dot
@@ -539,13 +581,16 @@ export function SearchResultItem({ result, currentId, onOpen, onUnarchive, t }: 
  * its leading decoration, and its hover-card section.
  * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
  * @param props.drag - optional row-drag target wiring; blank rows cannot start a drag.
+ * @param props.display - optional row text shown instead of the title; the hover card and rename keep the full title.
  * @param props.t - the browser root's locale seat.
  * @returns the session row; props that keep their identities skip re-rendering.
  */
 export const SessionNodeItem = memo(function SessionNodeItem({
-  node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t,
+  node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, display, t,
 }: {
   node: SessionNode
+  /** Row text replacing the stored title (the prefix grouping drops `prefix｜`); tooltip and rename keep the full title. */
+  display?: string | undefined
   currentId: string | undefined
   now: number
   onOpen: (id: SessionNode['id']) => void
@@ -563,7 +608,7 @@ export const SessionNodeItem = memo(function SessionNodeItem({
   | 'sidebar.session.row.hover'
 >) {
   const row = node
-  const title = displayTitle(node, t)
+  const title = display ?? displayTitle(node, t)
   const selected = node.id === currentId
   const statuses = sessionStatuses(node, t)
   const primaryStatus = statuses[0]

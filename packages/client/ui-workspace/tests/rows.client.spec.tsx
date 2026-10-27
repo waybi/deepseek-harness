@@ -12,7 +12,7 @@ import type { MenuOpenState, SessionRowOwnerProps } from '../src/client/contract
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { RowDragProps } from '../src/client/rows/Rows.tsx'
 import {
-  ProjectRowItem, SearchResultItem, SessionNodeItem as SessionNodeItemComponent,
+  PrefixGroupHeader, ProjectRowItem, SearchResultItem, SessionNodeItem as SessionNodeItemComponent,
 } from '../src/client/rows/Rows.tsx'
 import type { GroupNode, SearchResultNode, SessionNode } from '../src/client/tree.ts'
 import { en, zh } from '../src/client/locales.ts'
@@ -71,6 +71,45 @@ function installClipboard(writeText: (text: string) => Promise<void>): () => voi
     else Object.defineProperty(navigator, 'clipboard', prior)
   }
 }
+
+describe('prefix group rows', () => {
+  it('shows display text in the row while the hover card and rename keep the stored title', () => {
+    vi.useFakeTimers()
+    try {
+      const node: SessionNode = {
+        id: sid('p'), title: '店铺｜广告', blank: false, running: false,
+        runningSubagentCount: 0, completed: false, updatedAt: 0, pinned: false, archived: false,
+      }
+      const onRenameRequest = vi.fn()
+      render(<SessionNodeItem
+        node={node} display="广告" currentId={undefined} now={0} onOpen={vi.fn()}
+        onRenameRequest={onRenameRequest} t={t}
+      />)
+      fireEvent.doubleClick(screen.getByText('广告'))
+      expect(onRenameRequest).toHaveBeenCalledWith(sid('p'), '店铺｜广告')
+      fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
+      act(() => { vi.advanceTimersByTime(800) })
+      expect(screen.getByRole('button', { name: '复制: 店铺｜广告' })).toBeTruthy()
+      expect(screen.getAllByText('店铺｜广告')).toHaveLength(1)
+    } finally {
+      cleanup()
+      vi.useRealTimers()
+    }
+  })
+
+  it('renders a group header that reports its state and toggles on click', () => {
+    const onToggle = vi.fn()
+    const { rerender } = render(<PrefixGroupHeader groupKey="prefix:店铺" label="店铺" count={3} expanded={false} onToggle={onToggle} t={t} />)
+    const header = screen.getByRole('treeitem', { name: '“店铺”分组，3 个会话' })
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    expect(header.getAttribute('data-row-key')).toBe('prefix-group:prefix:店铺')
+    expect(header.textContent).toBe('店铺3')
+    fireEvent.click(header)
+    expect(onToggle).toHaveBeenCalledOnce()
+    rerender(<PrefixGroupHeader groupKey="prefix:店铺" label="店铺" count={3} expanded onToggle={onToggle} t={t} />)
+    expect(screen.getByRole('treeitem').getAttribute('aria-expanded')).toBe('true')
+  })
+})
 
 describe('Workspace and Session hover handoff', () => {
   it.each(['workspace', 'session'] as const)('shares the first %s dwell across mixed rows and resets on list exit', (first) => {

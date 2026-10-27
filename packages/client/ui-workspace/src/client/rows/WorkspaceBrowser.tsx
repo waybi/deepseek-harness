@@ -23,7 +23,7 @@ import {
   Button, HoverCardGroup, IconAgentPresetOutlineRegular,
   IconArchiveCheckOutlineRegular, IconArchiveOffOutlineRegular, IconArchiveOutlineRegular,
   IconChevronsUpDownOutlineRegular, IconClockOutlineRegular, IconCloseFillRegular,
-  IconFlatListOutlineRegular, IconFolderCloseRegular, IconProjectAddOutlineRegular,
+  IconFlatListOutlineRegular, IconFolderCloseRegular, IconListPenOutlineRegular, IconProjectAddOutlineRegular,
   IconQueueOutlineRegular, IconSearchOutlineRegular, IconSlidersTwoOutlineRegular,
   IconWorkspaceTreeOutlineRegular, Menu, Modal, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -41,10 +41,11 @@ import {
   pinCurrentBlank, reconcileManualOrder, reuseSessionNodes, sessionActive, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
 import { compileHiddenSessionIdPatterns } from '../../config.ts'
-import { ProjectRowItem, type RowDragProps, SearchResultItem, SessionNodeItem } from './Rows.tsx'
+import { PrefixGroupHeader, ProjectRowItem, type RowDragProps, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { minuteNow } from './minute-clock.ts'
 import { AnimatedRows } from './AnimatedRows.tsx'
-import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
+import { FLAT_SESSION_ORDER_KEY, normalizeGroupBy, type SessionGroupBy } from '../stores.ts'
+import { groupSessionsByPrefix, prefixGroupExpanded } from './prefix-groups.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
@@ -168,6 +169,7 @@ function ViewOptionsMenu({
         { id: 'workspace', label: t('groupBy.workspace'), icon: <IconFolderCloseRegular /> },
         { id: 'workspace-tree', label: t('groupBy.workspaceTree'), icon: <IconWorkspaceTreeOutlineRegular /> },
         { id: 'flat', label: t('groupBy.flat'), icon: <IconFlatListOutlineRegular /> },
+        { id: 'prefix', label: t('groupBy.prefix'), icon: <IconListPenOutlineRegular /> },
         { type: 'separator' as const, id: 'order-by-separator' },
         { type: 'label' as const, id: 'order-by', text: t('orderBy.label') },
         { id: 'manual', label: t('orderBy.manual'), icon: <IconChevronsUpDownOutlineRegular /> },
@@ -187,7 +189,7 @@ function ViewOptionsMenu({
         ...(showBackgroundSessions ? ['show-background'] : []),
       ]}
       onSelect={(id) => {
-        if (id === 'workspace' || id === 'workspace-tree' || id === 'flat') onGroupPick(id)
+        if (id === 'workspace' || id === 'workspace-tree' || id === 'flat' || id === 'prefix') onGroupPick(id)
         else if (id === 'manual' || id === 'updated') onOrderPick(id)
         else if (id === 'hide-archived') onArchivedFilterPick('default')
         else if (id === 'show-archived') onArchivedFilterPick('show')
@@ -977,6 +979,202 @@ function FlatList({
   )
 }
 
+/** Stable empty expansion record for stores that omit `prefixGroupExpansion`. */
+const EMPTY_EXPANSION: Readonly<Record<string, boolean>> = {}
+
+/** Height of a prefix group header row: the project row plus its trailing gap. */
+const PREFIX_HEADER_HEIGHT_PX = 34
+
+/** One line of the prefix-grouped list: a group header or a Session row. */
+type PrefixItem =
+  | { kind: 'header'; key: string; label: string; count: number; expanded: boolean }
+  | { kind: 'row'; node: SessionNode; display: string | undefined }
+
+/** Estimated wrapper height of a prefix-list line: its row plus the trailing gap. */
+function prefixItemEstimate(item: PrefixItem | undefined, last: boolean): number {
+  const height = item?.kind === 'header' ? PREFIX_HEADER_HEIGHT_PX : FLAT_ROW_HEIGHT_PX
+  return last ? height : height + FLAT_ROW_GAP_PX
+}
+
+/** Measure a prefix-list wrapper; mounts reuse the cached or estimated size, resize entries supply real heights. */
+function measurePrefixItem(
+  element: HTMLDivElement,
+  entry: ResizeObserverEntry | undefined,
+  instance: Virtualizer<HTMLDivElement, HTMLDivElement>,
+): number {
+  const index = instance.indexFromElement(element)
+  if (entry === undefined) {
+    return instance.itemSizeCache.get(instance.options.getItemKey(index)) ?? instance.options.estimateSize(index)
+  }
+  if ((instance.scrollElement?.clientHeight ?? 0) === 0) return instance.options.estimateSize(index)
+  return measureElement(element, entry, instance)
+}
+
+/**
+ * The "By project prefix" body: the flat list's rows split into one group per
+ * title prefix, Uncategorized last. Group headers and the rows of expanded
+ * groups form one sequence rendered through a single virtualizer, so the DOM
+ * holds only the visible window, {@link FLAT_OVERSCAN} lines beyond each edge,
+ * the reveal target, the current Session, and the row holding focus. Rows are
+ * not draggable: order follows the single-list order.
+ */
+function PrefixGroupList({
+  list, sessionIds, rowState, onLeaveArchivedOnly, useSessionStatus, open, onSessionRenameRequest,
+  usePanelInfo, workspaceReady, animationResetKey, revealSessionId, onSessionRevealed, renderSlot,
+  expansion, setExpanded, t,
+}: Pick<
+  SessionTreeProps,
+  | 'useSessionStatus'
+  | 'open'
+  | 'onSessionRenameRequest'
+  | 'renderSlot'
+  | 'usePanelInfo'
+  | 'workspaceReady'
+  | 'animationResetKey'
+  | 'revealSessionId'
+  | 'onSessionRevealed'
+  | 'rowState'
+  | 'onLeaveArchivedOnly'
+  | 't'
+> & {
+  list: SessionListState
+  sessionIds: readonly SessionId[]
+  expansion: Readonly<Record<string, boolean>>
+  setExpanded: (key: string, expanded: boolean) => void
+}) {
+  const panelActive = usePanelInfo(info => info.activePanelId !== null)
+  const statuses = useSessionStatus(s => s)
+  const previousRows = useRef<readonly SessionNode[]>([])
+  const rows = useMemo(() => {
+    const next = reuseSessionNodes(previousRows.current, deriveFlat(list, sessionIds, rowState, statuses))
+    previousRows.current = next
+    return next
+  }, [list, sessionIds, rowState, statuses])
+  const groups = useMemo(() => groupSessionsByPrefix(rows), [rows])
+  const items = useMemo(() => groups.flatMap((group): PrefixItem[] => {
+    const expanded = prefixGroupExpanded(expansion, group.key)
+    return [
+      {
+        kind: 'header', key: group.key, expanded, count: group.rows.length,
+        label: group.prefix ?? t('group.prefix.uncategorized'),
+      },
+      ...(expanded
+        ? group.rows.map((node): PrefixItem => ({ kind: 'row', node, display: group.displayById.get(node.id) }))
+        : []),
+    ]
+  }), [expansion, groups, t])
+  const itemKeys = useMemo(
+    () => items.map(item => item.kind === 'header' ? `prefix-group:${item.key}` : `session:${item.node.id}`),
+    [items],
+  )
+  // A reveal into a folded group opens it, so the row mounts and acknowledges.
+  const revealGroup = revealSessionId === undefined
+    ? undefined
+    : groups.find(group => group.rows.some(row => row.id === revealSessionId))?.key
+  useEffect(() => {
+    if (revealGroup !== undefined && !prefixGroupExpanded(expansion, revealGroup)) setExpanded(revealGroup, true)
+  }, [expansion, revealGroup, setExpanded])
+  const currentId = panelActive
+    ? undefined
+    : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+  const [focusedId, setFocusedId] = useState<SessionId | undefined>(undefined)
+  const scrollElement = useRef<HTMLDivElement | null>(null)
+  const attachScrollElement = useCallback((element: HTMLDivElement | null) => { scrollElement.current = element }, [])
+  const keptIndexes = [revealSessionId, currentId, focusedId]
+    .map(id => items.findIndex(item => item.kind === 'row' && item.node.id === id)).join(',')
+  const getItemKey = useCallback((index: number) => itemKeys[index] ?? index, [itemKeys])
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    count: items.length,
+    getScrollElement: () => scrollElement.current,
+    getItemKey,
+    estimateSize: useCallback(
+      (index: number) => prefixItemEstimate(items[index], index === items.length - 1),
+      [items],
+    ),
+    measureElement: measurePrefixItem,
+    overscan: FLAT_OVERSCAN,
+    initialRect: { width: 0, height: FLAT_INITIAL_HEIGHT_PX },
+    observeElementRect: observeLaidOutRect,
+    rangeExtractor: useMemo(() => {
+      const pinned = keptIndexes.split(',').map(Number)
+      return (range: Range) => withPinnedIndexes(range, pinned)
+    }, [keptIndexes]),
+  })
+  const reveal = useCallback(
+    () => { if (revealSessionId !== undefined) onSessionRevealed(revealSessionId) },
+    [onSessionRevealed, revealSessionId],
+  )
+  const now = minuteNow()
+  return (
+    <HoverCardGroup className={clsx(css.treeBody, css.wide)}>
+      <AnimatedRows
+        className={clsx(css.list)}
+        label={t('section.sessions')}
+        rowKeys={rows.length === 0 ? ['empty'] : itemKeys}
+        ready={list.phase === 'ready' && workspaceReady}
+        resetKey={animationResetKey}
+        listRef={attachScrollElement}
+      >
+        {rows.length === 0 && (
+          <EmptySessions rowState={rowState} onLeaveArchivedOnly={onLeaveArchivedOnly} t={t} />
+        )}
+        {rows.length > 0 && (
+          <div
+            className={css.flatSpacer}
+            style={{ height: `${String(virtualizer.getTotalSize())}px` }}
+            onFocus={(event) => {
+              const key = (event.target as HTMLElement).closest<HTMLElement>('[data-row-key]')?.dataset.rowKey
+              if (key?.startsWith('session:') === true) setFocusedId(key.slice('session:'.length) as SessionId)
+            }}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setFocusedId(undefined)
+            }}
+          >
+            {virtualizer.getVirtualItems().map((virtual) => {
+              const item = items[virtual.index] as PrefixItem
+              return (
+                <div
+                  key={itemKeys[virtual.index]}
+                  className={clsx(css.flatRow, virtual.index < items.length - 1 && css.flatRowGap)}
+                  style={{ top: `${String(virtual.start)}px` }}
+                  data-index={virtual.index}
+                  ref={(wrapper) => { virtualizer.measureElement(wrapper) }}
+                >
+                  {item.kind === 'header'
+                    ? (
+                      <PrefixGroupHeader
+                        groupKey={item.key}
+                        label={item.label}
+                        count={item.count}
+                        expanded={item.expanded}
+                        onToggle={() => { setExpanded(item.key, !item.expanded) }}
+                        t={t}
+                      />
+                    )
+                    : (
+                      <SessionNodeItem
+                        node={item.node}
+                        display={item.display}
+                        currentId={currentId}
+                        now={now}
+                        onOpen={open}
+                        onRenameRequest={onSessionRenameRequest}
+                        renderSlot={renderSlot}
+                        onReveal={item.node.id === revealSessionId ? reveal : undefined}
+                        t={t}
+                      />
+                    )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </AnimatedRows>
+      <span className={css.fade} />
+    </HoverCardGroup>
+  )
+}
+
 interface RemoteSearchState {
   query: string
   status: 'idle' | 'loading' | 'ready' | 'error'
@@ -1140,13 +1338,14 @@ export function WorkspaceBrowser({
   // Live occupancy of this surface's directory-flow hole (the same source the
   // flow reads): a composition without a picking affordance can add nothing.
   const directoryFlowAvailable = useDirectoryFlow(occupied => occupied)
-  const groupBy = useStore(s => s.groupBy)
+  const groupBy = useStore(s => normalizeGroupBy(s.groupBy))
   const orderBy = useStore(s => s.orderBy)
   // Persisted view blobs written before the archived filter existed rehydrate
   // without the field; they read as the default hide-archived view.
   const archivedFilter = useStore(s => s.archivedFilter ?? 'default')
   const showBackgroundSessions = useStore(s => s.showBackgroundSessions ?? false)
   const groupExpansion = useStore(s => s.groupExpansion)
+  const prefixGroupExpansion = useStore(s => s.prefixGroupExpansion ?? EMPTY_EXPANSION)
   const sessionOrderByAccount = useStore(s => s.sessionOrderByAccount)
   // Archived sessions are not openable: the row stays visible under the
   // filter but a click explains instead of navigating.
@@ -1468,7 +1667,7 @@ export function WorkspaceBrowser({
       <div className={css.sectionHeader}>
         {wide && (
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
-            {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
+            {groupBy === 'flat' || groupBy === 'prefix' ? t('section.sessions') : t('section.workspaces')}
           </span>
         )}
         {wide && (
@@ -1619,9 +1818,9 @@ export function WorkspaceBrowser({
               t={t}
             />
           )
-          : groupBy === 'flat'
+          : groupBy === 'prefix'
             ? (
-              <FlatList
+              <PrefixGroupList
                 usePanelInfo={usePanelInfo}
                 list={list}
                 sessionIds={orderedFlatSessionIds}
@@ -1633,51 +1832,72 @@ export function WorkspaceBrowser({
                 open={guardedOpen}
                 onSessionRenameRequest={requestSessionRename}
                 renderSlot={renderSlot}
-                setSessionOrder={saveSessionOrder}
                 revealSessionId={revealSessionId}
                 onSessionRevealed={acknowledgeSessionReveal}
+                expansion={prefixGroupExpansion}
+                setExpanded={actions.setPrefixGroupExpanded}
                 t={t}
               />
             )
-            : (
-              <SessionTree
-                usePanelInfo={usePanelInfo}
-                list={list}
-                shortcuts={shortcuts}
-                useSessionStatus={useSessionStatus}
-                onSessionRenameRequest={requestSessionRename}
-                renderSlot={renderSlot}
-                workspaces={orderedWorkspaces}
-                ungroupedSessionIds={orderedUngroupedSessionIds}
-                workspaceReady={workspaceReady}
-                nestWorkspaces={groupBy === 'workspace-tree'}
-                animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}/${showBackgroundSessions}`}
-                groupExpansion={groupExpansion}
-                setGroupExpanded={actions.setGroupExpanded}
-                setSessionOrder={saveSessionOrder}
-                rowState={rowState}
-                onLeaveArchivedOnly={leaveArchivedOnly}
-                startSession={startSession}
-                open={guardedOpen}
-                insertWorkspaceBefore={insertWorkspaceBefore}
-                revealSessionId={revealSessionId}
-                onSessionRevealed={acknowledgeSessionReveal}
-                home={home}
-                t={t}
-                onRenameRequest={(workspaceId, displayTitle) => {
-                  setRenameTarget({
-                    workspaceId,
-                    storedTitle: storedWorkspaces.find(w => w.workspaceId === workspaceId)?.title ?? displayTitle,
-                  })
-                  setRenameDraft(displayTitle)
-                  setRenameError(null)
-                }}
-                onDeleteRequest={(workspaceId, title) => {
-                  setDeleteTarget({ workspaceId, title })
-                  setDeleteError(null)
-                }}
-              />
-            ))}
+            : groupBy === 'flat'
+              ? (
+                <FlatList
+                  usePanelInfo={usePanelInfo}
+                  list={list}
+                  sessionIds={orderedFlatSessionIds}
+                  rowState={rowState}
+                  onLeaveArchivedOnly={leaveArchivedOnly}
+                  workspaceReady={workspaceReady}
+                  animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}/${showBackgroundSessions}`}
+                  useSessionStatus={useSessionStatus}
+                  open={guardedOpen}
+                  onSessionRenameRequest={requestSessionRename}
+                  renderSlot={renderSlot}
+                  setSessionOrder={saveSessionOrder}
+                  revealSessionId={revealSessionId}
+                  onSessionRevealed={acknowledgeSessionReveal}
+                  t={t}
+                />
+              )
+              : (
+                <SessionTree
+                  usePanelInfo={usePanelInfo}
+                  list={list}
+                  shortcuts={shortcuts}
+                  useSessionStatus={useSessionStatus}
+                  onSessionRenameRequest={requestSessionRename}
+                  renderSlot={renderSlot}
+                  workspaces={orderedWorkspaces}
+                  ungroupedSessionIds={orderedUngroupedSessionIds}
+                  workspaceReady={workspaceReady}
+                  nestWorkspaces={groupBy === 'workspace-tree'}
+                  animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}/${showBackgroundSessions}`}
+                  groupExpansion={groupExpansion}
+                  setGroupExpanded={actions.setGroupExpanded}
+                  setSessionOrder={saveSessionOrder}
+                  rowState={rowState}
+                  onLeaveArchivedOnly={leaveArchivedOnly}
+                  startSession={startSession}
+                  open={guardedOpen}
+                  insertWorkspaceBefore={insertWorkspaceBefore}
+                  revealSessionId={revealSessionId}
+                  onSessionRevealed={acknowledgeSessionReveal}
+                  home={home}
+                  t={t}
+                  onRenameRequest={(workspaceId, displayTitle) => {
+                    setRenameTarget({
+                      workspaceId,
+                      storedTitle: storedWorkspaces.find(w => w.workspaceId === workspaceId)?.title ?? displayTitle,
+                    })
+                    setRenameDraft(displayTitle)
+                    setRenameError(null)
+                  }}
+                  onDeleteRequest={(workspaceId, title) => {
+                    setDeleteTarget({ workspaceId, title })
+                    setDeleteError(null)
+                  }}
+                />
+              ))}
       </div>
 
       <Modal
