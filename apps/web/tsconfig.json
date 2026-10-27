@@ -158,6 +158,7 @@
     "tests/message-feedback.e2e.ts",
     "tests/markdown-images.e2e.ts",
     "tests/markdown-file-links.e2e.ts",
+    "tests/directory-link.e2e.ts",
     "tests/user-text-secret-mask.e2e.ts",
     "tests/reference-composer.e2e.ts",
     "tests/markdown-wide-table.e2e.ts",

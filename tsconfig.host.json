@@ -151,6 +151,7 @@
     "apps/web/tests/message-feedback.e2e.ts",
     "apps/web/tests/markdown-images.e2e.ts",
     "apps/web/tests/markdown-file-links.e2e.ts",
+    "apps/web/tests/directory-link.e2e.ts",
     "apps/web/tests/user-text-secret-mask.e2e.ts",
     "apps/web/tests/reference-composer.e2e.ts",
     "apps/web/tests/markdown-wide-table.e2e.ts",
