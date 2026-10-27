@@ -59,7 +59,7 @@ export interface Mounted {
 }
 
 /** One store instance, one face, one owner share. */
-function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut']) {
+function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut'], reveal?: string) {
   const instance = createFilesStore().create()
   const script = scriptedList()
   const face = filesFace(script.list, script.watch)(SESSION, instance.actions)
@@ -82,7 +82,7 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
       panel: { id: 'pane-1' },
       tab: {
         id: TAB, kind: 'files', contentId: 'files', title: zh['type.label'], visible: true,
-        navigation: { address: 'files', params: undefined, revision: 1 },
+        navigation: { address: 'files', params: reveal === undefined ? undefined : { reveal }, revision: 1 },
         signal: controller.signal,
         actions: tabActions, refreshShortcut,
       },
@@ -102,9 +102,10 @@ function harness(cwd: string | null, refreshShortcut?: ReturnType<FilesBodyProps
  * Mount the body.
  * @param cwd - the session's working directory as `useSessions` reports it; `null` for a session without one.
  * @param refreshShortcut - effective binding advertised by the tab owner.
+ * @param reveal - the navigation's directory to reveal, when the opener named one.
  */
-export function mountBody(cwd: string | null = ROOT, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut']): Mounted {
-  const { shared, ...hands } = harness(cwd, refreshShortcut)
+export function mountBody(cwd: string | null = ROOT, refreshShortcut?: ReturnType<FilesBodyProps['useTabInfo']>['tab']['refreshShortcut'], reveal?: string): Mounted {
+  const { shared, ...hands } = harness(cwd, refreshShortcut, reveal)
   const view = render(<FilesBody {...shared as unknown as FilesBodyProps} />)
   return { ...hands, view, remount: () => render(<FilesBody {...shared as unknown as FilesBodyProps} />) }
 }

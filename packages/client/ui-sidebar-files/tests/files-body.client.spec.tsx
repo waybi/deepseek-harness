@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent } from '@testing-library/react'
 import { makeTranslate, RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
 import type { RemoteFailure } from '@deepseek-ai/dsh-api-remotes/client'
 import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
-import { failureLine, orderEntries } from '../src/client/FilesBody.tsx'
+import { failureLine, orderEntries, revealChain } from '../src/client/FilesBody.tsx'
 import type { DirLevel } from '../src/client/store.ts'
 import { zh } from '../src/client/locales.ts'
 import { mountBody, ROOT, SESSION, TAB } from './mount.client.tsx'
@@ -288,6 +288,41 @@ describe('FilesBody', () => {
     expect(instance.getSnapshot().byTab[TAB]).toBeUndefined()
     expect(view.container.querySelector('[data-files-state="tree"]')).toBeNull()
     expect(script.list).toHaveBeenCalledTimes(1)
+  })
+
+  it('a reveal navigation expands each ancestor and scrolls to the directory, again when a remount shows it already open', async () => {
+    const scrolled: string[] = []
+    const scrollIntoView = vi.fn(function (this: HTMLElement) { scrolled.push(this.dataset.filesPath ?? '') })
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scrollIntoView })
+    try {
+      const { view, script, remount } = mountBody(ROOT, undefined, `${ROOT}/src/lib/`)
+      await act(() => script.watches.ready(ROOT))
+      await act(() => script.settle({ ok: true, value: ROOT_LEVEL }))
+      expect(view.container.querySelector(`[data-files-path="${ROOT}/src"] > button`)?.getAttribute('aria-expanded')).toBe('true')
+      await act(() => script.watches.ready(`${ROOT}/src`))
+      expect(scrolled).toEqual([])
+      await act(() => script.settle({ ok: true, value: { entries: [{ name: 'lib', type: 'directory' }, { name: 'z', type: 'directory' }], truncated: false } }))
+      expect(view.container.querySelector(`[data-files-path="${ROOT}/src/lib"] > button`)?.getAttribute('aria-expanded')).toBe('true')
+      expect(scrolled).toEqual([`${ROOT}/src/lib`])
+      view.unmount()
+      remount()
+      expect(scrolled).toEqual([`${ROOT}/src/lib`, `${ROOT}/src/lib`])
+    } finally {
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+    }
+  })
+})
+
+describe('revealChain', () => {
+  it('names the tree keys from the root\'s child down to a directory inside the root', () => {
+    expect(revealChain('/w/', '/w/a/./b/')).toEqual(['/w/a', '/w/a/b'])
+    expect(revealChain('C:\\w', 'C:\\w\\a')).toEqual(['C:\\w/a'])
+  })
+
+  it('names nothing for the root itself, a path outside it, or one climbing out', () => {
+    expect(revealChain('/w', '/w')).toEqual([])
+    expect(revealChain('/w', '/work/a')).toEqual([])
+    expect(revealChain('/w', '/w/a/../../x')).toEqual([])
   })
 })
 

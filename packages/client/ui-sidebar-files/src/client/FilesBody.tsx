@@ -8,7 +8,7 @@
  * anything else is shown but refuses to open. The header uses the shared
  * PathLabel for the root, followed by reload and workspace directory actions.
  */
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
 import clsx from 'clsx'
 import type { RemoteFailure } from '@deepseek-ai/dsh-api-remotes/client'
@@ -69,11 +69,29 @@ export function failureLine(t: TranslateNS<'sidebarFiles'>, failure: RemoteFailu
   }
 }
 
-/** What every level shares: the tab's tree and the two gestures. */
+/**
+ * The directories to expand, outermost first, so one directory under the tree's root shows.
+ * @param root - the tree's root, spelled as its keys are.
+ * @param target - absolute directory path in either separator spelling.
+ * @returns tree keys from the root's child down to the target; empty for the root itself or a path outside it.
+ */
+export function revealChain(root: string, target: string): string[] {
+  const base = root.replace(/\\/g, '/').replace(/\/+$/, '')
+  const path = target.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (!path.startsWith(`${base}/`)) return []
+  const names = path.slice(base.length + 1).split('/').filter(name => name !== '' && name !== '.')
+  if (names.includes('..')) return []
+  const chain: string[] = []
+  for (const name of names) chain.push(childPath(chain.at(-1) ?? root, name))
+  return chain
+}
+
+/** What every level shares: the tab's tree, the two gestures, and the reveal target's row binding. */
 interface TreeContext {
   readonly state: FilesTabState
   readonly onToggle: (parent: string, path: string) => void
   readonly onOpen: (path: string) => void
+  readonly revealRow: (row: HTMLElement | null) => void
   readonly t: TranslateNS<'sidebarFiles'>
 }
 
@@ -83,7 +101,7 @@ function Entry({ parent, entry, tree }: { parent: string; entry: WorkspaceDirect
   if (entry.type === 'directory') {
     const expanded = tree.state.expanded.includes(path)
     return (
-      <li className={css.item} data-files-entry="directory" data-files-path={path}>
+      <li ref={tree.revealRow} className={css.item} data-files-entry="directory" data-files-path={path}>
         <button type="button" className={css.row} aria-expanded={expanded} onClick={() => { tree.onToggle(parent, path) }}>
           {expanded ? <IconFolderOpenRegular className={css.icon} /> : <IconFolderCloseRegular className={css.icon} />}
           <span className={css.name}>{entry.name}</span>
@@ -171,6 +189,30 @@ export function FilesBody({
     if (state !== undefined || cwd === undefined || signal.aborted) return
     start(tab.id, cwd, signal)
   }, [state, cwd, tab.id, signal, start])
+  // A navigation carrying `reveal` expands each closed ancestor once; the
+  // target's row scrolls into view when it mounts, or now if already shown.
+  const { navigation } = tab
+  const reveal = navigation.params !== undefined && 'reveal' in navigation.params ? navigation.params.reveal : undefined
+  const revealedRevision = useRef<number | undefined>(undefined)
+  const scrollTarget = useRef<string | undefined>(undefined)
+  const revealRow = useCallback((row: HTMLElement | null): void => {
+    if (row === null || scrollTarget.current === undefined || row.dataset.filesPath !== scrollTarget.current) return
+    scrollTarget.current = undefined
+    row.scrollIntoView({ block: 'center' })
+  }, [])
+  useEffect(() => {
+    if (state === undefined || reveal === undefined || revealedRevision.current === navigation.revision) return
+    revealedRevision.current = navigation.revision
+    const chain = revealChain(state.root, reveal)
+    let expanded = state.expanded
+    chain.forEach((path, index) => {
+      if (expanded.includes(path)) return
+      toggle(tab.id, chain[index - 1] ?? state.root, path, expanded, signal)
+      expanded = [...expanded, path]
+    })
+    scrollTarget.current = chain.at(-1)
+    bodyRef.current?.querySelectorAll<HTMLElement>('li[data-files-path]').forEach(revealRow)
+  }, [state, reveal, navigation.revision, toggle, tab.id, signal, revealRow])
 
   if (cwd === undefined) {
     return (
@@ -185,6 +227,7 @@ export function FilesBody({
     onToggle: (parent, path) => { toggle(tab.id, parent, path, state.expanded, signal) },
     // Every row is under the tree's root, so its address is session-relative.
     onOpen: (path) => { tabActions.openResource(fileAddressFor(sessionId, state.root, path)) },
+    revealRow,
     t,
   }
   const reload = (): void => {

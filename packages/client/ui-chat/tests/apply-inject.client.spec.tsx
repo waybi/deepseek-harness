@@ -7,7 +7,7 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ISession, SessionReference } from '@deepseek-ai/dsh-api-session-controller/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import {
-  SlotTestRuntime, stubConfigForm, usePinnedBrowserLanguages,
+  RemoteError, SlotTestRuntime, stubConfigForm, usePinnedBrowserLanguages,
 } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
@@ -52,7 +52,7 @@ function sessionFakeFor() {
   } satisfies SessionBehaviorOverrides
 }
 
-async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true, withProcessGroups = true) {
+async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true, withProcessGroups = true, withWorkspaceFiles = true) {
   const runtime = await SlotTestRuntime.create()
   const chatSettings = stubConfigForm<ChatSettings>()
   if (initialSettings !== undefined) chatSettings.publish({ value: initialSettings })
@@ -79,6 +79,10 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
     () => Promise.resolve({ ok: true, value: { opened: true } }),
   )
   runtime.remote.provideNamespaces({ session: { openWorkspacePath } })
+  const stat = vi.fn<ClientRemote['workspaceFiles']['stat']>(
+    (_sessionId, path) => Promise.resolve({ ok: true, value: { absolutePath: path, version: 'v1', size: 1 } }),
+  )
+  if (withWorkspaceFiles) runtime.remote.provideNamespaces({ workspaceFiles: { stat } })
   const openSession = vi.fn<(id: SessionId) => void>()
   runtime.ctx.provide('uiWorkspace', {
     openWorkspace: vi.fn(async (_workspaceId: WorkspaceId, beforeOpen: (id: SessionId) => void) => {
@@ -132,7 +136,7 @@ async function bench(initialSettings?: ChatSettings, withBrowserRegistry = true,
       return preference as LinkOpeningRowInjected
     },
     runtime, chat, chatSettings, browserAvailable,
-    layout, openWorkspacePath, sidebarRight, sidebarRightTabs, session, chatViewApi, chatFlowApi, rootReference, openSession,
+    layout, openWorkspacePath, sidebarRight, sidebarRightTabs, session, chatViewApi, chatFlowApi, rootReference, openSession, stat,
   }
 }
 
@@ -234,6 +238,41 @@ describe('Chat inject API', () => {
         sessionId: ROOT, atSeq: 18, increaseTitle: true, onCreated: expect.any(Function) as (childId: SessionId) => void,
       })
     })
+    await b.runtime.dispose()
+  })
+
+  it('opens a directory path in the Files page expanded to it instead of a file viewer', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(b.rootReference)
+    b.stat.mockResolvedValueOnce({ ok: false, error: new RemoteError('workspace-file/not-regular-file', 'is a directory', { path: 'docs', kind: 'directory' }) })
+    await injected.openFile('docs')
+    expect(b.stat).toHaveBeenLastCalledWith(ROOT, 'docs')
+    expect(b.sidebarRight.openTab).toHaveBeenCalledWith('files', { params: { reveal: '/proj/docs' } })
+    expect(b.sidebarRight.openResource).not.toHaveBeenCalled()
+
+    // Any other answer, a symlink included, still opens the path as a file.
+    b.stat.mockResolvedValueOnce({ ok: false, error: new RemoteError('workspace-file/not-regular-file', 'is a symlink', { path: 'l', kind: 'symlink' }) })
+    await injected.openFile('l')
+    b.stat.mockResolvedValueOnce({ ok: false, error: new RemoteError('workspace-file/not-found', 'missing', { path: 'gone' }) })
+    await injected.openFile('gone')
+    expect(b.sidebarRight.openResource.mock.calls).toEqual([
+      ['dsh-resource://file/session/root-1/l'], ['dsh-resource://file/session/root-1/gone'],
+    ])
+
+    // Without a Files page to reveal in, nothing is asked of the Host.
+    b.browserAvailable.set(false)
+    await injected.openFile('docs')
+    expect(b.stat).toHaveBeenCalledTimes(3)
+    expect(b.sidebarRight.openResource).toHaveBeenLastCalledWith('dsh-resource://file/session/root-1/docs')
+    await b.runtime.dispose()
+  })
+
+  it('opens every path as a file when the workspace file Remote is absent', async () => {
+    const b = await bench(undefined, true, true, false)
+    const { injected } = b.chatViewApi(b.rootReference)
+    await injected.openFile('docs')
+    expect(b.stat).not.toHaveBeenCalled()
+    expect(b.sidebarRight.openResource).toHaveBeenCalledWith('dsh-resource://file/session/root-1/docs')
     await b.runtime.dispose()
   })
 

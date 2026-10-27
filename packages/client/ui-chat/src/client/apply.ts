@@ -12,7 +12,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar-browser/client'
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 // The `file` entry of `SidebarRightResourceParamsMap`, which types `{ params: { line } }` below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/client'
-import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
+// The `files` entry of `SidebarRightTabParamsMap`, which types `{ params: { reveal } }` below.
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-files/client'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
+import type {} from '@deepseek-ai/dsh-api-workspace-files/remote'
+import { fileAddressFor, resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
 // Type-only service and declaration merges used by the apply world.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -90,6 +94,12 @@ export function apply(ctx: Context): void {
   const quotaNoticeHolds = new Set<symbol>()
   const chatSources = new WeakMap<SessionBinding, ObservableSnapshot<ChatSnapshot>>()
   const quotaSubscriptions = new Set<() => Promise<void>>()
+  // Optional: without the workspace file Remote, every path opens as a file.
+  let workspaceFiles: ClientRemote['workspaceFiles'] | undefined
+  ctx.inject(['remote.workspaceFiles'], (scope) => {
+    workspaceFiles = scope.remote.workspaceFiles
+    scope.effect(() => () => { workspaceFiles = undefined }, 'ui-chat: workspace file Remote')
+  })
   ctx.effect(() => async () => {
     await Promise.all([...quotaSubscriptions].map(dispose => dispose()))
   }, 'ui-chat: live quota notices')
@@ -255,8 +265,15 @@ export function apply(ctx: Context): void {
           // address: the file is one piece of content whether it is opened at
           // its top or at line 400, so the same tab is revealed and told where
           // to land.
+          // A directory has no content to preview: when the Files page is
+          // registered it opens expanded down to that directory instead.
           openFile: async (path, options) => {
             const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
+            const stat = ctx.get('sidebarRightTabs')?.get('files') === undefined ? undefined : await workspaceFiles?.stat(sessionId, path)
+            if (stat?.ok === false && stat.error.code === 'workspace-file/not-regular-file' && stat.error.details.kind === 'directory') {
+              ctx.sidebarRight.openTab('files', { params: { reveal: resolveWorkspacePath(cwd, path) } })
+              return
+            }
             const url = fileAddressFor(sessionId, cwd, path)
             if (options?.line === undefined) ctx.sidebarRight.openResource(url)
             else ctx.sidebarRight.openResource(url, { params: { line: options.line } })

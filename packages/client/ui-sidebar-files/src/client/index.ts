@@ -42,6 +42,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
+declare module '@deepseek-ai/dsh-client-ui-sidebar-right/client' {
+  interface SidebarRightTabParamsMap {
+    /** Optional absolute directory under the workspace root to expand and scroll to. */
+    files: { readonly reveal?: string }
+  }
+}
+
 /** This package's copy namespace. */
 const NS = 'sidebarFiles'
 
