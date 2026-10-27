@@ -74,6 +74,8 @@ type ProjectionLoad = Omit<SessionProjectionSnapshot, 'values'>
 
 type SessionListMutation =
   | { kind: 'upsert' | 'placeholder'; summary: SessionSummary }
+  /** Host backfill of a cold row: the computed cached `blank` may raise an unengaged row's blank. */
+  | { kind: 'backfill'; summary: SessionSummary }
   | { kind: 'remove'; sessionId: SessionId }
   | { kind: 'status'; sessionId: SessionId; running: boolean; agentAvailable: boolean }
   | { kind: 'activity'; sessionId: SessionId; updatedAt: number }
@@ -292,6 +294,16 @@ export class SessionManager {
       },
       projections: this.projectionStore(sessionId),
     })
+  }
+
+  /**
+   * A not-running cold row whose cached list metadata says blank: the Host computed it by folding the log
+   * in the background, so it may raise `blank` on an unengaged row (live and sequenced rows never match).
+   */
+  private isColdBackfill(summary: SessionSummary): boolean {
+    return summary.blank && !summary.running && summary.projections?.kind === 'cached'
+      && summary.projections.values.sessionListMetadata?.blank === true
+      && !this.engagedSessions.has(summary.sessionId)
   }
 
   private effectiveBlank(summary: SessionSummary): boolean {
@@ -594,7 +606,7 @@ export class SessionManager {
    * Local create/fork placeholders only fill metadata on an existing row.
    */
   private mergeSummary(summary: SessionSummary): void {
-    this.recordMutation({ kind: 'upsert', summary })
+    this.recordMutation(this.isColdBackfill(summary) ? { kind: 'backfill', summary } : { kind: 'upsert', summary })
     this.updateParentAvailability()
   }
 
@@ -828,6 +840,7 @@ export class SessionManager {
 function applyMutation(summaries: readonly SessionSummary[], mutation: SessionListMutation): SessionSummary[] {
   switch (mutation.kind) {
     case 'upsert':
+    case 'backfill':
     case 'placeholder': {
       const existing = summaries.find(summary => summary.sessionId === mutation.summary.sessionId)
       if (existing === undefined) return [mutation.summary, ...summaries]
@@ -835,8 +848,9 @@ function applyMutation(summaries: readonly SessionSummary[], mutation: SessionLi
         ...existing,
         // Blank only lowers: a stale true (session-added racing the local
         // first send) never re-hides an already-surfaced session.
-        blank: existing.blank && mutation.summary.blank,
-        ...(mutation.kind === 'upsert' ? {
+        blank: mutation.kind === 'backfill' && !existing.running
+          ? mutation.summary.blank : existing.blank && mutation.summary.blank,
+        ...(mutation.kind !== 'placeholder' ? {
           agentAvailable: mutation.summary.agentAvailable,
           running: mutation.summary.running,
           ...(mutation.summary.formatStatus === undefined ? {} : { formatStatus: mutation.summary.formatStatus }),

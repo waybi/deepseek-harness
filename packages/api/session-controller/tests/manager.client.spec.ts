@@ -50,6 +50,36 @@ function makeManager(
 }
 
 describe('SessionManager instances', () => {
+  const coldBlank = (id: SessionId) => ({
+    ...summary(id, { blank: true, agentAvailable: false }),
+    projections: { kind: 'cached' as const, asOfSeq: SessionSeq(0), values: { sessionListMetadata: { blank: true, lastPromptAt: 0 } } },
+  })
+
+  it('hides a cold row once the Host backfill pushes cached blank', async ({ mock, remote }) => {
+    const manager = makeManager(mock, remote)
+    onTestFinished(() => manager.dispose())
+    remote.session.list.mockResolvedValueOnce(ok({ items: [summary(S1, { agentAvailable: false })] }))
+    await manager.refreshList()
+    expect(manager.getListSnapshot().items[0]?.blank).toBe(false)
+
+    manager.handleSessionAdded(coldBlank(S1))
+
+    expect(manager.getListSnapshot().items[0]?.blank).toBe(true)
+  })
+
+  it('does not re-hide an engaged row on a backfill push', async ({ mock, remote }) => {
+    const manager = makeManager(mock, remote)
+    onTestFinished(() => manager.dispose())
+    remote.session.list.mockResolvedValueOnce(ok({ items: [summary(S1, { agentAvailable: false })] }))
+    await manager.refreshList()
+    manager.handleSessionStatus(S1, true)
+    manager.handleSessionStatus(S1, false)
+
+    manager.handleSessionAdded(coldBlank(S1))
+
+    expect(manager.getListSnapshot().items[0]?.blank).toBe(false)
+  })
+
   it.for(['event', 'list'] as const)(
     'forgets running when an unretained identity disappears through a %s',
     async (source, { mock, remote }) => {

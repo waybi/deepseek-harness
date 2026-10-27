@@ -37,7 +37,7 @@ Client journal 在发布 follow 快照、live entry 或历史页之前验证当�
 
 列表行在状态可用时携带 `formatStatus`，Client 无需请求其投影即可识别需要迁移的 Session。
 
-投影缓存没有行的冷行，在 `list()` 返回后于每个 Host 实例内排队一次做后台补算；入队为 O(1)，列表从不等待。补算先用 `stat` 测量日志，大小缺失或超过 `listBackfillMaxLogBytes` 即跳过，否则通过只读 handle 读取，并用 `sessionProjectionCache.coldSnapshot` 折叠（它同时写缓存行），随后发出携带刷新摘要的 `api-session/added`；Client 按 Session id 合并，空白会话由此隐藏，有标题的会话显示标题。期间接入的 Session、补算失败（记警告，Host 重启前不重试）和插件卸载都不发布任何内容。没有 `sessionPersistence` 或 `sessionProjectionCache` 时，行保持无投影。
+投影缓存没有行的冷行，在 `list()` 返回后于每个 Host 实例内排队一次做后台补算；入队为 O(1)，列表从不等待。补算先用 `stat` 测量日志，大小缺失或超过 `listBackfillMaxLogBytes` 即跳过，否则通过只读 handle 读取，并用 `sessionProjectionCache.coldSnapshot` 折叠（它同时写缓存行），随后发出携带刷新摘要的 `api-session/added`；Client 按 Session id 合并；对未在运行、缓存 `sessionListMetadata.blank` 为 true 且用户未参与过的行，Client 允许该推送抬高 `blank`，空白会话由此隐藏，有标题的会话显示标题。期间接入的 Session、补算失败（记警告，Host 重启前不重试）和插件卸载都不发布任何内容。没有 `sessionPersistence` 或 `sessionProjectionCache` 时，行保持无投影。
 
 Host 仅在配置的工作时间片耗尽时，于完整条目之间让出事件循环；剩余工作较少时直接返回，不强制让出。每行及每次让出之后检查请求取消，取消时拒绝返回部分结果。每行同步计算；列表不承诺跨 Session 的统一快照。已经进入冷态队列的 Session 若在让出期间接入，仍返回缓存行：Client 对进行中请求的变更重放会纠正其可用性，带序号的投影会覆盖缓存提示。
 
