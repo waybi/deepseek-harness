@@ -392,12 +392,6 @@ export class ApiSessionList {
   }
 }
 
-/**
- * Wrap one projection block as Session-list hints of the named sequence space.
- * @param kind - which sequence space the block's watermark belongs to.
- * @param block - the block, or `undefined` when no source served one.
- * @returns the hints, or `undefined` when the block is absent or carries no value.
- */
 /** Wire summary of a cold row; `projections` is absent when no cache or fold values exist. */
 function coldSummary(record: SessionRecord, projections: SessionProjectionHints | undefined): SessionSummary {
   const { header, formatStatus } = record
@@ -415,6 +409,12 @@ function coldSummary(record: SessionRecord, projections: SessionProjectionHints 
   }
 }
 
+/**
+ * Wrap one projection block as Session-list hints of the named sequence space.
+ * @param kind - which sequence space the block's watermark belongs to.
+ * @param block - the block, or `undefined` when no source served one.
+ * @returns the hints, or `undefined` when the block is absent or carries no value.
+ */
 function hintsOf(
   kind: SessionProjectionHints['kind'],
   block: ProjectionSnapshot | undefined,
