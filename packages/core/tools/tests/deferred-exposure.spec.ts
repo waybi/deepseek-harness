@@ -102,6 +102,33 @@ describe('deferred patterns and search ranking', () => {
     expect(searchDeferredTools('   ', pool)).toEqual([])
     expect(searchDeferredTools('nothing-here', pool)).toEqual([])
   })
+
+  it('matches Chinese query terms as description substrings', () => {
+    const pool = [
+      tool('de_broadcast', '会话广播：DSH 会话之间传递消息'),
+      tool('dtodo', '待办管理（四轨：life 生活 / work 工作）'),
+      tool('workflow', 'Run a multi-agent workflow script'),
+    ]
+    const search = (query: string): string[] => searchDeferredTools(query, pool).map(t => t.name)
+    expect(search('广播')).toEqual(['de_broadcast'])
+    expect(search('待办')).toEqual(['dtodo'])
+    expect(search('发 广播')[0]).toBe('de_broadcast')
+    expect(search('不存在的词')).toEqual([])
+    expect(search('广播站')).toEqual([])
+    const mixed = search('broadcast 广播')
+    expect(mixed[0]).toBe('de_broadcast')
+    expect(new Set(mixed).size).toBe(mixed.length)
+  })
+
+  it('ranks Chinese substring hits like description terms, by name on ties, capped at five', () => {
+    const shared = ['f6', 'b2', 'e5', 'a1', 'd4', 'c3'].map(name => tool(name, `会话工具 ${name}`))
+    expect(searchDeferredTools('会话', shared).map(t => t.name)).toEqual(['a1', 'b2', 'c3', 'd4', 'e5'])
+
+    const tied = [tool('beta_tool', '会话广播'), tool('alpha_tool', 'send a message')]
+    expect(searchDeferredTools('message 广播', tied).map(t => t.name)).toEqual(['alpha_tool', 'beta_tool'])
+    const swapped = [tool('alpha_tool', '会话广播'), tool('beta_tool', 'send a message')]
+    expect(searchDeferredTools('message 广播', swapped).map(t => t.description)).toEqual(['会话广播', 'send a message'])
+  })
 })
 
 describe('deferred exposure through the registry', () => {
@@ -205,6 +232,18 @@ describe('deferred exposure through the registry', () => {
     await run(ctx, TOOL_SEARCH_NAME, key, { query: 'session' })
     expect(names(ctx, key)).toEqual(['read', 'de_broadcast', 'de_session'])
     expect(await run(ctx, TOOL_SEARCH_NAME, key, { query: 'x' })).toBe(`Error: unknown tool "${TOOL_SEARCH_NAME}"`)
+  })
+
+  it('reveals a tool found by a Chinese query through tool_search', async () => {
+    const ctx = await mount(['de_broadcast', 'dtodo'])
+    ctx.tools.register(tool('de_broadcast', '会话广播：DSH 会话之间传递消息'))
+    ctx.tools.register(tool('dtodo', '待办管理（四轨：life 生活 / work 工作）'))
+    const { key } = await mintAgent(ctx, 'chinese')
+
+    expect(await run(ctx, TOOL_SEARCH_NAME, key, { query: '广播' })).toContain('Revealed 1 tool(s): de_broadcast')
+    expect(key.session.snapshotEvents().filter(event => event.type === 'tools/reveal').map(event => event.data))
+      .toEqual([{ names: ['de_broadcast'] }])
+    expect(await run(ctx, 'de_broadcast', key)).toBe('ran:de_broadcast')
   })
 
   it('restores reveals from the session log in a fresh process and keeps them across compaction-style rewrites', async () => {

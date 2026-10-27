@@ -126,7 +126,9 @@ function terms(text: string): string[] {
 
 /**
  * Rank deferred tools against a query: exact name, then name substring, then
- * term overlap with name and description.
+ * term overlap with name and description. Chinese text has no spaces, so a
+ * query term containing Han characters also matches as a substring of the
+ * lower-cased description, scoring like a description term.
  * @param query - model query.
  * @param candidates - searchable definitions.
  * @returns best matches, strongest first, at most {@link MAX_HITS}.
@@ -144,6 +146,7 @@ export function searchDeferredTools(query: string, candidates: readonly ToolDefi
     for (const term of queryTerms) {
       if (name.includes(term)) score += 10
       else if (haystack.has(term)) score += 2
+      else if (/\p{Script=Han}/u.test(term) && tool.description.toLowerCase().includes(term)) score += 2
     }
     return { tool, score }
   })
