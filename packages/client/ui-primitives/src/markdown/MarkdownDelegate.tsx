@@ -24,6 +24,11 @@ export interface MarkdownDelegate {
    * @param options - First line to reveal when the destination specifies a line or range.
    */
   readonly openFile?: ((path: string, options?: { line?: number }) => void) | undefined
+  /**
+   * Open a session named by a settled Markdown link; absent handlers leave plain text.
+   * @param sessionId - Session identifier from a bare `session-<uuid>` or `dsh-session:` link; the owner brands it.
+   */
+  readonly openSession?: ((sessionId: string) => void) | undefined
 }
 
 const MarkdownDelegateContext = createContext<MarkdownDelegate>({})
@@ -36,16 +41,20 @@ export interface MarkdownDelegateProviderProps extends MarkdownDelegate {
 /**
  * Scope Markdown navigation without threading callbacks through renderers.
  * Nested providers replace the enclosing capabilities. Handler changes reach cached links.
- * @param props - Child tree and its file and HTTP(S) link handlers.
+ * @param props - Child tree and its file, session, and HTTP(S) link handlers.
  * @returns the scoped child tree.
  */
 export function MarkdownDelegateProvider({
   children,
   openExternalLink,
   openFile,
+  openSession,
   fileImages,
 }: MarkdownDelegateProviderProps): ReactNode {
-  const delegate = useMemo(() => ({ openExternalLink, openFile, fileImages }), [openExternalLink, openFile, fileImages])
+  const delegate = useMemo(
+    () => ({ openExternalLink, openFile, openSession, fileImages }),
+    [openExternalLink, openFile, openSession, fileImages],
+  )
   return (
     <MarkdownDelegateContext.Provider value={delegate}>
       {children}

@@ -506,6 +506,7 @@ function makeHarness(
     openView,
     completeViewRequest: () => {},
     openFile,
+    openSession: vi.fn<(id: SessionId) => Promise<void>>().mockResolvedValue(undefined),
     openExternalLink: vi.fn(),
     loadOlder,
     loadThrough,
@@ -3665,6 +3666,51 @@ describe('ChatView', () => {
     expect(openFile).toHaveBeenCalledTimes(2)
     expect(openFile).toHaveBeenNthCalledWith(1, 'src/a.ts')
     expect(openFile).toHaveBeenNthCalledWith(2, 'src/a.ts')
+  })
+
+  describe('session links', () => {
+    const LINK = 'session-0c880d5a-52ec-45f4-b0f5-5578d70e540a'
+
+    it('opens a linked session with its id', async () => {
+      const openSession = vi.fn<(id: SessionId) => Promise<void>>().mockResolvedValue(undefined)
+      const h = makeHarness({ nodes: [user(1, 'go'), assistant(2, `[other](${LINK})`, 1)], turnEnds: new Map([[1, 2]]) })
+      h.props.openSession = openSession
+      render(<h.ChatView {...h.props} />)
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'other' })) })
+      expect(openSession).toHaveBeenCalledExactlyOnceWith(LINK)
+      expect(screen.queryByRole('dialog')).toBeNull()
+      expect(h.openFile).not.toHaveBeenCalled()
+    })
+
+    it('shows the session refusal and retries the same session', async () => {
+      const openSession = vi.fn<(id: SessionId) => Promise<void>>()
+        .mockRejectedValueOnce(new Error('Session gone was not found'))
+        .mockResolvedValueOnce(undefined)
+      const h = makeHarness({ nodes: [user(1, 'go'), assistant(2, `[other](${LINK})`, 1)], turnEnds: new Map([[1, 2]]) })
+      h.props.openSession = openSession
+      render(<h.ChatView {...h.props} />)
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'other' })) })
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: '无法打开会话' })).toBeTruthy()
+      })
+      const text = screen.getByRole('dialog', { name: '无法打开会话' }).textContent ?? ''
+      expect(text).toContain('Session gone was not found')
+      expect(text).not.toContain('ENOENT')
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: '重试' })) })
+      await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+      expect(openSession).toHaveBeenCalledTimes(2)
+      expect(openSession).toHaveBeenNthCalledWith(2, LINK)
+    })
+
+    it('falls back to the unknown-session copy when the refusal has no text', async () => {
+      const h = makeHarness({ nodes: [user(1, 'go'), assistant(2, `[other](${LINK})`, 1)], turnEnds: new Map([[1, 2]]) })
+      h.props.openSession = vi.fn<(id: SessionId) => Promise<void>>().mockRejectedValue(new Error(''))
+      render(<h.ChatView {...h.props} />)
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'other' })) })
+      await waitFor(() => {
+        expect(screen.getByRole('dialog', { name: '无法打开会话' }).textContent).toContain('无法打开此会话')
+      })
+    })
   })
 
   it('keeps a non-Error Host refusal visible and dismisses it on cancel', async () => {

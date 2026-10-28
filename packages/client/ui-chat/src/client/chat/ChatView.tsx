@@ -6,6 +6,7 @@ import type {
   NodeKey, RenderEntry,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InboxState } from '@deepseek-ai/dsh-agent/types'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   Button, IconChevronDownOutlineRegular, MarkdownDelegateProvider, Modal,
@@ -59,7 +60,7 @@ const MOTION_TAIL_MS = 800
  */
 export function ChatView({
   useSession, useChat, useConversation, useSessions, renderSlot,
-  sessionId, openFile, openExternalLink, loadOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
+  sessionId, openFile, openSession, openExternalLink, loadOlder, loadThrough, loadImage, inspectCall, chatScroll, forkAt, fileMentions,
   usePresentation, useProjection, t,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
@@ -109,7 +110,7 @@ export function ChatView({
   const openError = useSession(s => s.openError)
   const hasMore = useSession(s => s.hasMore)
   const loadingOlder = useSession(s => s.loadingOlder)
-  const [fileOpenError, setFileOpenError] = useState<{ path: string; message: string } | null>(null)
+  const [fileOpenError, setFileOpenError] = useState<{ target: { kind: 'file'; path: string } | { kind: 'session'; id: string }; message: string } | null>(null)
   const [fileOpenBusy, setFileOpenBusy] = useState(false)
   // Close/retry must ignore a settlement that started before the latest
   // gesture; otherwise a cancelled in-flight refusal reopens the dialog.
@@ -127,7 +128,7 @@ export function ChatView({
       (error: unknown) => {
         if (id !== fileOpenRequest.current) return
         setFileOpenError({
-          path,
+          target: { kind: 'file', path },
           message: openFailureMessage(
             error,
             t('fileOpen.unknown'),
@@ -137,6 +138,27 @@ export function ChatView({
       },
     )
   }, [openFile, t])
+
+  const requestOpenSession = useCallback((id: string) => {
+    const request = ++fileOpenRequest.current
+    setFileOpenBusy(true)
+    // Markdown links carry plain text; the session list check in openSession rejects unknown ids.
+    void openSession(id as SessionId).then(
+      () => {
+        if (request !== fileOpenRequest.current) return
+        setFileOpenError(null)
+        setFileOpenBusy(false)
+      },
+      (error: unknown) => {
+        if (request !== fileOpenRequest.current) return
+        setFileOpenError({
+          target: { kind: 'session', id },
+          message: openFailureMessage(error, t('sessionOpen.unknown')),
+        })
+        setFileOpenBusy(false)
+      },
+    )
+  }, [openSession, t])
 
   const closeFileOpenError = useCallback(() => {
     fileOpenRequest.current += 1
@@ -223,7 +245,10 @@ export function ChatView({
                 </button>
               </div>
             )}
-            <MarkdownDelegateProvider openFile={requestOpenFile} openExternalLink={openExternalLink} fileImages={fileImages}>
+            <MarkdownDelegateProvider
+              openFile={requestOpenFile} openSession={requestOpenSession}
+              openExternalLink={openExternalLink} fileImages={fileImages}
+            >
               {renderSlot('conversation.chat.flow', {
                 entries, pendingInputs, lastInputTurn, deferCollapse,
                 cwd, openFile: requestOpenFile, inspectCall, forkAt, loadImage, fileMentions,
@@ -251,10 +276,14 @@ export function ChatView({
       )}
       {fileOpenError !== null && (
         <FileOpenErrorDialog
+          title={t(fileOpenError.target.kind === 'file' ? 'fileOpen.title' : 'sessionOpen.title')}
           message={fileOpenError.message}
           busy={fileOpenBusy}
           onClose={closeFileOpenError}
-          onRetry={() => { requestOpenFile(fileOpenError.path) }}
+          onRetry={() => {
+            if (fileOpenError.target.kind === 'file') requestOpenFile(fileOpenError.target.path)
+            else requestOpenSession(fileOpenError.target.id)
+          }}
           t={t}
         />
       )}
@@ -262,10 +291,11 @@ export function ChatView({
   )
 }
 
-/** In-page Host open-path refusal: the wire reason plus a retry of the same path. */
+/** In-page open refusal for a file or session link: the reason plus a retry of the same target. */
 function FileOpenErrorDialog({
-  message, busy, onClose, onRetry, t,
+  title, message, busy, onClose, onRetry, t,
 }: {
+  title: string
   message: string
   busy: boolean
   onClose: () => void
@@ -277,7 +307,7 @@ function FileOpenErrorDialog({
       open
       onClose={onClose}
       closeLabel={t('close')}
-      title={t('fileOpen.title')}
+      title={title}
       description={message}
       footer={(
         <>

@@ -279,6 +279,14 @@ export function apply(ctx: Context): void {
             else ctx.sidebarRight.openResource(url, { params: { line: options.line } })
             await Promise.resolve()
           },
+          openSession: (targetId) => {
+            // uiWorkspace.openSession does not check existence; an unknown id would open an empty view.
+            if (ctx.sessions.list.getSnapshot().byId[targetId] === undefined) {
+              return Promise.reject(new Error(t('sessionOpen.notFound', { id: targetId })))
+            }
+            ctx.uiWorkspace.openSession(targetId)
+            return Promise.resolve()
+          },
           openExternalLink: (url) => {
             if (linkOpening.getSnapshot() === 'sidebar' && ctx.get('sidebarRightTabs')?.get('browser') !== undefined) {
               ctx.sidebarRight.openTab('browser', { params: { url } })

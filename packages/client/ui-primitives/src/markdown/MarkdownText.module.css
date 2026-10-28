@@ -321,6 +321,11 @@
   text-align: inherit;
 }
 
+.sessionLink {
+  max-width: 100%;
+  text-align: inherit;
+}
+
 .fileMention:hover,
 .fileMention:focus {
   outline: none;

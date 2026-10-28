@@ -313,6 +313,12 @@ export interface ChatViewInjected {
   /** Open one HTTP(S) message link at the selected destination, using an external tab if Sidebar Browser is unavailable. */
   openExternalLink: (url: string) => void
   openFile: (path: string, options?: OpenFileOptions) => Promise<void>
+  /**
+   * Switch the main view to a session named by a message link.
+   * @param sessionId - Session to open.
+   * @returns Resolves once navigation was issued; rejects with localized text when the session is not in the client's session list.
+   */
+  openSession: (sessionId: SessionId) => Promise<void>
   loadOlder: () => void
   /** Jump loader: page history back through seq; resolves when the window covers it. */
   loadThrough: (seq: SessionSeq) => Promise<void>

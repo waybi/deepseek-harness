@@ -456,6 +456,20 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('opens a listed session and rejects an unknown one with localized text', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(b.rootReference)
+    await injected.openSession(ROOT)
+    expect(b.openSession).toHaveBeenCalledExactlyOnceWith(ROOT)
+    b.openSession.mockClear()
+    const failure = await injected.openSession('session-gone' as SessionId).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(Error)
+    expect((failure as Error).message).toContain('session-gone')
+    expect((failure as Error).message).not.toContain('ENOENT')
+    expect(b.openSession).not.toHaveBeenCalled()
+    await b.runtime.dispose()
+  })
+
   it('fails loud when a Chat View inject resolves no Session', async () => {
     const b = await bench()
     const entry = b.runtime.slots.entries('conversation.view')[0]!

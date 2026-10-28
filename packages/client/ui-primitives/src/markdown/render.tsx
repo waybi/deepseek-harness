@@ -25,6 +25,8 @@ import { normalizeUri } from 'micromark-util-sanitize-uri'
 import type { CodeToolbarLabels } from '../CodeToolbar.tsx'
 import { CodeBlock } from './CodeBlock.tsx'
 import { parseFileLink } from './file-link.ts'
+import { parseSessionLink } from './session-link.ts'
+import { ReferenceIconMedium } from '../ReferenceIcon.tsx'
 import { renderTexToReact } from './katex.tsx'
 import { LinkIconMedium, classifyLinkPath } from '../LinkIcon.tsx'
 import { useMarkdownDelegate } from './MarkdownDelegate.tsx'
@@ -571,11 +573,41 @@ function MarkdownAnchor({ href, glyph, children }: {
 
 /** Local destinations use the scoped file delegate after settlement. */
 function renderAnchor(url: string, children: ReactNode[], key: Key, glyph = true, streaming = false): ReactNode {
+  // Session destinations never fall through to file or href rendering.
+  const sessionId = parseSessionLink(url)
+  if (sessionId !== undefined) {
+    return streaming
+      ? <Fragment key={key}>{children}</Fragment>
+      : <MarkdownSessionLink key={key} sessionId={sessionId} glyph={glyph}>{children}</MarkdownSessionLink>
+  }
   const file = streaming ? undefined : parseFileLink(url)
   if (file !== undefined) {
     return <MarkdownFileLink key={key} file={file} glyph={glyph}>{children}</MarkdownFileLink>
   }
   return renderSafeLink(normalizeUri(url), children, key, glyph)
+}
+
+function MarkdownSessionLink({ sessionId, glyph, children }: {
+  readonly sessionId: string
+  readonly glyph: boolean
+  readonly children: ReactNode[]
+}): ReactNode {
+  const { openSession } = useMarkdownDelegate()
+  if (openSession === undefined) return <>{children}</>
+  return (
+    <button
+      type="button"
+      className={clsx(css.fileMention, css.sessionLink)}
+      title={sessionId}
+      onClick={(event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+        openSession(sessionId)
+      }}
+    >
+      {glyph && <ReferenceIconMedium kind="session" className={css.linkIcon} />}
+      {children}
+    </button>
+  )
 }
 
 function MarkdownFileLink({ file, glyph, children }: {
