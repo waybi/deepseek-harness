@@ -113,7 +113,7 @@ describe('Markdown session links', () => {
   })
 
   it('keeps file links and external links unchanged', () => {
-    const openFile = vi.fn()
+    const openFile = vi.fn<(path: string) => void>()
     const openSession = vi.fn()
     const view = render(
       <MarkdownDelegateProvider openFile={openFile} openSession={openSession}>
@@ -134,5 +134,29 @@ describe('Markdown session links', () => {
     expect(view.getByRole('link', { name: 'f' }).getAttribute('href')).toBe('mailto:a@b.c')
     expect(view.container.querySelectorAll('a')).toHaveLength(2)
     expect(view.container.textContent).toContain('g')
+  })
+
+  it('opens a session link whose target has surrounding spaces', () => {
+    const openSession = vi.fn()
+    const view = render(
+      <MarkdownDelegateProvider openSession={openSession}>
+        <MarkdownText text={`[t]( ${ID} )`} />
+      </MarkdownDelegateProvider>,
+    )
+    fireEvent.click(view.getByRole('button', { name: 't' }))
+    expect(openSession).toHaveBeenCalledWith(ID)
+  })
+
+  it('does not treat an upper-case DSH-SESSION: scheme as a session link', () => {
+    const openSession = vi.fn()
+    const view = render(
+      <MarkdownDelegateProvider openSession={openSession}>
+        <MarkdownText text="[t](DSH-SESSION:InNlc3Npb24tMGM4ODBkNWEtNTJlYy00NWY0LWIwZjUtNTU3OGQ3MGU1NDBhIg)" />
+      </MarkdownDelegateProvider>,
+    )
+    expect(view.container.querySelector('a')).toBeNull()
+    expect(view.queryByRole('button')).toBeNull()
+    expect(view.container.textContent).toContain('t')
+    expect(openSession).not.toHaveBeenCalled()
   })
 })
