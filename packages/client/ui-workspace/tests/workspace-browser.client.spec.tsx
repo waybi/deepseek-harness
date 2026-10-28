@@ -3303,36 +3303,79 @@ describe('By project prefix grouping', () => {
     }
     const flatCount = countFor('flat')
     const prefixCount = countFor('prefix')
-    expect(prefixCount).toBeLessThan(100)
+    // Ten groups of five rows each, plus headers and Show more rows: 70 lines, of which only a window mounts.
+    expect(prefixCount).toBeLessThan(60)
     expect(prefixCount).toBeLessThanOrEqual(flatCount + 4)
     expect(prefixCount).toBeGreaterThan(10)
     const spacer = screen.getAllByRole('treeitem')[0]?.parentElement?.parentElement as HTMLElement
-    expect(Number.parseInt(spacer.style.height, 10)).toBeGreaterThan(1_000 * 32)
+    expect(Number.parseInt(spacer.style.height, 10)).toBeGreaterThan(70 * 28)
+  })
+
+  describe('per-group watermark', () => {
+    const twelve = (current?: string) => sessionState(
+      Array.from({ length: 12 }, (_, index) =>
+        titled(`g-${String(index + 1).padStart(2, '0')}`, `店铺｜会话 ${String(index + 1)}`, 100 - index)),
+      current === undefined ? {} : { main: sid(current) },
+    )
+    const more = () => screen.getByRole('button', { name: /展开其余|收起/ })
+
+    it('shows five rows of a twelve-row group and a Show more row, then grows by the Workspace rule', () => {
+      usePrefix()
+      mount({ useSessions: hook(twelve()) })
+      expect(headers()[0]?.textContent).toBe('店铺12')
+      expect(rowIds()).toHaveLength(5)
+      expect(more().textContent).toBe('展开其余 7 个会话')
+      fireEvent.click(more())
+      expect(rowIds()).toHaveLength(10)
+      expect(more().textContent).toBe('展开其余 2 个会话')
+      fireEvent.click(more())
+      expect(rowIds()).toHaveLength(12)
+      expect(more().getAttribute('aria-expanded')).toBe('true')
+      fireEvent.click(more())
+      expect(rowIds()).toHaveLength(5)
+    })
+
+    it('keeps the current Session visible at position nine and resets a grown group when it folds', () => {
+      usePrefix()
+      mount({ useSessions: hook(twelve('g-09')) })
+      expect(rowIds()).toEqual(['g-01', 'g-02', 'g-03', 'g-04', 'g-05', 'g-06', 'g-07', 'g-08', 'g-09'])
+      expect(screen.getByText('会话 9').closest('[role="treeitem"]')?.getAttribute('aria-selected')).toBe('true')
+      expect(more().textContent).toBe('展开其余 3 个会话')
+      fireEvent.click(more())
+      expect(rowIds()).toHaveLength(12)
+      const header = screen.getByRole('treeitem', { name: '“店铺”分组，12 个会话' })
+      fireEvent.click(header)
+      expect(rowIds()).toHaveLength(0)
+      expect(screen.queryByRole('button', { name: /展开其余|收起/ })).toBeNull()
+      fireEvent.click(header)
+      expect(rowIds()).toHaveLength(9)
+    })
   })
 
   it('keeps the current Session row and a focused row mounted outside the window', () => {
     const many = Array.from({ length: 400 }, (_, index) =>
       titled(`s-${String(index).padStart(4, '0')}`, `店铺｜会话 ${String(index)}`, 400 - index))
     usePrefix()
-    mount({ useSessions: hook(sessionState(many, { main: sid('s-0300') })) })
-    const current = screen.getByText('会话 300').closest('[role="treeitem"]') as HTMLElement
+    // The current Session at position 50 raises the group's watermark to 50 lines, beyond the first window.
+    mount({ useSessions: hook(sessionState(many, { main: sid('s-0049') })) })
+    const current = screen.getByText('会话 49').closest('[role="treeitem"]') as HTMLElement
     expect(current.getAttribute('aria-selected')).toBe('true')
-    expect(screen.getAllByRole('treeitem').length).toBeLessThan(80)
+    expect(screen.getAllByRole('treeitem').length).toBeLessThan(45)
     const tree = screen.getByRole('tree', { name: '会话' })
     act(() => {
-      tree.scrollTop = 100 * 34
+      tree.scrollTop = 20 * 34
       fireEvent.scroll(tree)
     })
-    const focused = screen.getByText('会话 110').closest('[role="treeitem"]') as HTMLElement
+    const focused = screen.getByText('会话 40').closest('[role="treeitem"]') as HTMLElement
     act(() => { focused.focus() })
     fireEvent.focus(focused)
     act(() => {
       tree.scrollTop = 0
       fireEvent.scroll(tree)
     })
-    expect(screen.getByText('会话 110')).toBeTruthy()
+    expect(screen.getByText('会话 40')).toBeTruthy()
     fireEvent.blur(focused)
-    expect(screen.getByText('会话 300').closest('[role="treeitem"]')).toBe(current)
+    expect(screen.getByText('会话 49').closest('[role="treeitem"]')).toBe(current)
   })
 
   it('shows the empty state when no session is visible', () => {

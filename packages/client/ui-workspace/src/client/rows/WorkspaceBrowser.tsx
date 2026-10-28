@@ -985,10 +985,11 @@ const EMPTY_EXPANSION: Readonly<Record<string, boolean>> = {}
 /** Height of a prefix group header row: the project row plus its trailing gap. */
 const PREFIX_HEADER_HEIGHT_PX = 34
 
-/** One line of the prefix-grouped list: a group header or a Session row. */
+/** One line of the prefix-grouped list: a group header, a Session row, or a group's Show more row. */
 type PrefixItem =
   | { kind: 'header'; key: string; label: string; count: number; expanded: boolean }
   | { kind: 'row'; node: SessionNode; display: string | undefined }
+  | { kind: 'overflow'; key: string; hiddenCount: number; watermark: number }
 
 /** Estimated wrapper height of a prefix-list line: its row plus the trailing gap. */
 function prefixItemEstimate(item: PrefixItem | undefined, last: boolean): number {
@@ -1015,8 +1016,9 @@ function measurePrefixItem(
  * title prefix, Uncategorized last. Group headers and the rows of expanded
  * groups form one sequence rendered through a single virtualizer, so the DOM
  * holds only the visible window, {@link FLAT_OVERSCAN} lines beyond each edge,
- * the reveal target, the current Session, and the row holding focus. Rows are
- * not draggable: order follows the single-list order.
+ * the reveal target, the current Session, and the row holding focus. Each open
+ * group shows rows up to its watermark with the Workspace tree's Show more
+ * rule. Rows are not draggable: order follows the single-list order.
  */
 function PrefixGroupList({
   list, sessionIds, rowState, onLeaveArchivedOnly, useSessionStatus, open, onSessionRenameRequest,
@@ -1051,22 +1053,6 @@ function PrefixGroupList({
     return next
   }, [list, sessionIds, rowState, statuses])
   const groups = useMemo(() => groupSessionsByPrefix(rows), [rows])
-  const items = useMemo(() => groups.flatMap((group): PrefixItem[] => {
-    const expanded = prefixGroupExpanded(expansion, group.key)
-    return [
-      {
-        kind: 'header', key: group.key, expanded, count: group.rows.length,
-        label: group.prefix ?? t('group.prefix.uncategorized'),
-      },
-      ...(expanded
-        ? group.rows.map((node): PrefixItem => ({ kind: 'row', node, display: group.displayById.get(node.id) }))
-        : []),
-    ]
-  }), [expansion, groups, t])
-  const itemKeys = useMemo(
-    () => items.map(item => item.kind === 'header' ? `prefix-group:${item.key}` : `session:${item.node.id}`),
-    [items],
-  )
   // A reveal into a folded group opens it, so the row mounts and acknowledges.
   const revealGroup = revealSessionId === undefined
     ? undefined
@@ -1077,6 +1063,45 @@ function PrefixGroupList({
   const currentId = panelActive
     ? undefined
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+  // Per-group raised watermarks, as in the Workspace tree; an absent key means the base watermark.
+  const [storedWatermarks, setStoredWatermarks] = useState<Readonly<Record<string, number>>>({})
+  const [watermarkMotionKey, setWatermarkMotionKey] = useState(0)
+  const baselines = useMemo(() => new Map(groups.map(group => [
+    group.key,
+    Math.max(SESSION_WATERMARK_BASE, requiredWatermark(
+      group.rows, currentId, group.key === revealGroup ? revealSessionId : undefined,
+    )),
+  ])), [groups, currentId, revealGroup, revealSessionId])
+  const requiredWatermarks = new Map([...baselines].filter(([key]) => prefixGroupExpanded(expansion, key)))
+  const sessionWatermarks = raiseWatermarks(storedWatermarks, requiredWatermarks)
+  if (sessionWatermarks !== storedWatermarks) setStoredWatermarks(marks => raiseWatermarks(marks, requiredWatermarks))
+  const setWatermark = (key: string, watermark: number | undefined): void => {
+    setStoredWatermarks(marks => watermark === undefined
+      ? Object.fromEntries(Object.entries(marks).filter(([owner]) => owner !== key))
+      : { ...marks, [key]: watermark })
+    setWatermarkMotionKey(motion => motion + 1)
+  }
+  const items = useMemo(() => groups.flatMap((group): PrefixItem[] => {
+    const expanded = prefixGroupExpanded(expansion, group.key)
+    const watermark = sessionWatermarks[group.key] ?? SESSION_WATERMARK_BASE
+    const visible = watermarkRows(group.rows, watermark)
+    const collapsed = watermarkRows(group.rows, baselines.get(group.key) ?? SESSION_WATERMARK_BASE)
+    return [
+      {
+        kind: 'header', key: group.key, expanded, count: group.rows.length,
+        label: group.prefix ?? t('group.prefix.uncategorized'),
+      },
+      ...(expanded
+        ? visible.rows.map((node): PrefixItem => ({ kind: 'row', node, display: group.displayById.get(node.id) }))
+        : []),
+      ...(expanded && collapsed.hiddenCount > 0
+        ? [{ kind: 'overflow', key: group.key, hiddenCount: visible.hiddenCount, watermark } as const]
+        : []),
+    ]
+  }), [baselines, expansion, groups, sessionWatermarks, t])
+  const itemKeys = useMemo(() => items.map(item => item.kind === 'row'
+    ? `session:${item.node.id}`
+    : `${item.kind === 'header' ? 'prefix-group' : 'overflow'}:${item.key}`), [items])
   const [focusedId, setFocusedId] = useState<SessionId | undefined>(undefined)
   const scrollElement = useRef<HTMLDivElement | null>(null)
   const attachScrollElement = useCallback((element: HTMLDivElement | null) => { scrollElement.current = element }, [])
@@ -1112,7 +1137,7 @@ function PrefixGroupList({
         label={t('section.sessions')}
         rowKeys={rows.length === 0 ? ['empty'] : itemKeys}
         ready={list.phase === 'ready' && workspaceReady}
-        resetKey={animationResetKey}
+        resetKey={JSON.stringify([animationResetKey, watermarkMotionKey])}
         listRef={attachScrollElement}
       >
         {rows.length === 0 && (
@@ -1140,30 +1165,47 @@ function PrefixGroupList({
                   data-index={virtual.index}
                   ref={(wrapper) => { virtualizer.measureElement(wrapper) }}
                 >
-                  {item.kind === 'header'
-                    ? (
-                      <PrefixGroupHeader
-                        groupKey={item.key}
-                        label={item.label}
-                        count={item.count}
-                        expanded={item.expanded}
-                        onToggle={() => { setExpanded(item.key, !item.expanded) }}
-                        t={t}
-                      />
-                    )
-                    : (
-                      <SessionNodeItem
-                        node={item.node}
-                        display={item.display}
-                        currentId={currentId}
-                        now={now}
-                        onOpen={open}
-                        onRenameRequest={onSessionRenameRequest}
-                        renderSlot={renderSlot}
-                        onReveal={item.node.id === revealSessionId ? reveal : undefined}
-                        t={t}
-                      />
-                    )}
+                  {item.kind === 'header' && (
+                    <PrefixGroupHeader
+                      groupKey={item.key}
+                      label={item.label}
+                      count={item.count}
+                      expanded={item.expanded}
+                      onToggle={() => {
+                        if (item.expanded && storedWatermarks[item.key] !== undefined) setWatermark(item.key, undefined)
+                        setExpanded(item.key, !item.expanded)
+                      }}
+                      t={t}
+                    />
+                  )}
+                  {item.kind === 'overflow' && (
+                    <button
+                      type="button"
+                      className={css.sessionOverflowButton}
+                      data-row-key={`overflow:${item.key}`}
+                      aria-expanded={item.hiddenCount === 0}
+                      onClick={() => {
+                        setWatermark(item.key, item.hiddenCount === 0
+                          ? undefined
+                          : item.hiddenCount <= SESSION_WATERMARK_BASE ? Infinity : item.watermark + SESSION_WATERMARK_BASE)
+                      }}
+                    >
+                      {item.hiddenCount === 0 ? t('sessions.collapse') : t('sessions.expand', { n: item.hiddenCount })}
+                    </button>
+                  )}
+                  {item.kind === 'row' && (
+                    <SessionNodeItem
+                      node={item.node}
+                      display={item.display}
+                      currentId={currentId}
+                      now={now}
+                      onOpen={open}
+                      onRenameRequest={onSessionRenameRequest}
+                      renderSlot={renderSlot}
+                      onReveal={item.node.id === revealSessionId ? reveal : undefined}
+                      t={t}
+                    />
+                  )}
                 </div>
               )
             })}
