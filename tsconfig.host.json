@@ -128,6 +128,7 @@
     "apps/web/tests/stats-paged-history.e2e.ts",
     "apps/web/tests/sidebar-scrollbar.e2e.ts",
     "apps/web/tests/sidebar-background-sessions.e2e.ts",
+    "apps/web/tests/sidebar-recent-visits.e2e.ts",
     "apps/web/tests/sidebar-flat-hidden-row.e2e.ts",
     "apps/web/tests/sidebar-title-hover-scroll.e2e.ts",
     "apps/web/tests/rail-search-expand.e2e.ts",

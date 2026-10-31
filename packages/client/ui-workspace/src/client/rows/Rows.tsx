@@ -15,7 +15,7 @@ import type { RefObject } from 'react'
 import clsx from 'clsx'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  HoverCard, IconArchiveOutlineRegular, IconEditOutlineRegular,
+  HoverCard, IconArchiveOutlineRegular, IconClockOutlineRegular, IconEditOutlineRegular,
   IconEllipsisOutlineRegular, IconFolderCloseRegular, IconFolderOpenRegular,
   IconNewChatOutlineRegular, IconPinFillRegular, IconTrashOutlineRegular,
   IconTriangleRightFillRegular, IconUnarchiveOutlineRegular, Menu, relativeTime, StateDot, Tooltip,
@@ -582,15 +582,21 @@ export function PrefixGroupHeader({ groupKey, label, count, expanded, onToggle, 
  * @param props.onReveal - scroll this row into view after search navigation, then acknowledge it.
  * @param props.drag - optional row-drag target wiring; blank rows cannot start a drag.
  * @param props.display - optional row text shown instead of the title; the hover card and rename keep the full title.
+ * @param props.rowKeyPrefix - `data-row-key` namespace, default `session`.
+ * @param props.rowRole - ARIA role, default `treeitem`.
  * @param props.t - the browser root's locale seat.
  * @returns the session row; props that keep their identities skip re-rendering.
  */
 export const SessionNodeItem = memo(function SessionNodeItem({
-  node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, display, t,
+  node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, display, rowKeyPrefix = 'session', rowRole = 'treeitem', t,
 }: {
   node: SessionNode
   /** Row text replacing the stored title (the prefix grouping drops `prefix｜`); tooltip and rename keep the full title. */
   display?: string | undefined
+  /** `data-row-key` namespace; a second listing of the same Session uses its own so row lookups by `session:<id>` stay unique. */
+  rowKeyPrefix?: string
+  /** ARIA role of the row; a listing outside the session tree uses `option` so tree row queries skip it. */
+  rowRole?: 'treeitem' | 'option'
   currentId: string | undefined
   now: number
   onOpen: (id: SessionNode['id']) => void
@@ -632,13 +638,13 @@ export const SessionNodeItem = memo(function SessionNodeItem({
   const ownRow = (
     <div
       ref={rowRef}
-      data-row-key={`session:${node.id}`}
+      data-row-key={`${rowKeyPrefix}:${node.id}`}
       className={clsx(
         css.sessionRow, selected && css.selected, menuOpen && css.menuOpen,
         row.archived && css.archived,
         drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
       )}
-      role="treeitem"
+      role={rowRole}
       aria-selected={selected}
       aria-description={row.archived ? t('toast.archivedNotOpenable') : undefined}
       onClick={() => { onOpen(node.id) }}
@@ -748,3 +754,89 @@ export const SessionNodeItem = memo(function SessionNodeItem({
     />
   )
 })
+
+/**
+ * The Recent section above the Workspace list: a collapsible header with the
+ * row count, then the rows through {@link SessionNodeItem}. It is a separate
+ * `group`, not part of the session tree, so tree keyboard navigation and
+ * `session:<id>` row lookups never reach it.
+ * @param props.rows - the Recent rows, already filtered and ordered.
+ * @param props.collapsed - whether the rows are hidden.
+ * @param props.onToggle - flip the collapsed flag.
+ * @param props.currentId - selected session id (row highlight).
+ * @param props.now - epoch ms for relative-time formatting.
+ * @param props.onOpen - open a session by id.
+ * @param props.onRenameRequest - open the rename dialog from a title double-click.
+ * @param props.renderSlot - child-seat renderer shared with the session rows.
+ * @param props.t - the browser root's locale seat.
+ * @returns the section.
+ */
+export function RecentSection({ rows, collapsed, onToggle, currentId, now, onOpen, onRenameRequest, renderSlot, t }: {
+  rows: readonly SessionNode[]
+  collapsed: boolean
+  onToggle: () => void
+  currentId: string | undefined
+  now: number
+  onOpen: (id: SessionNode['id']) => void
+  onRenameRequest: (id: SessionNode['id'], currentTitle: string) => void
+  t: RowTranslate
+} & PropsRenderSlots<
+  | 'sidebar.workspaces.session.menu.item'
+  | 'sidebar.workspaces.session.row.action'
+  | 'sidebar.session.row.leading'
+  | 'sidebar.session.row.hover'
+>) {
+  const expanded = !collapsed
+  return (
+    <div
+      className={css.recentSection}
+      data-section="recent"
+      role="group"
+      aria-label={t('section.recent.aria', { n: rows.length })}
+    >
+      <div
+        className={css.projectRow}
+        data-row-key="recent-header"
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        aria-label={t('section.recent.aria', { n: rows.length })}
+        onClick={onToggle}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          onToggle()
+        }}
+      >
+        <span className={clsx(css.slot, css.folder)}>
+          <IconClockOutlineRegular />
+        </span>
+        <span className={clsx(css.slot, css.chevron)}>
+          <IconTriangleRightFillRegular className={clsx(css.arrow, expanded && css.arrowOpen)} />
+        </span>
+        <span className={css.projectText}>
+          <span className={css.title}>{t('section.recent')}</span>
+        </span>
+        <span className={css.time} aria-hidden>{rows.length}</span>
+      </div>
+      {expanded && (
+        <div role="listbox" aria-label={t('section.recent')} className={css.recentRows}>
+          {rows.map(node => (
+            <SessionNodeItem
+              key={node.id}
+              node={node}
+              currentId={currentId}
+              now={now}
+              onOpen={onOpen}
+              onRenameRequest={onRenameRequest}
+              renderSlot={renderSlot}
+              rowKeyPrefix="recent-session"
+              rowRole="option"
+              t={t}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}

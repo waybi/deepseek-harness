@@ -41,7 +41,8 @@ import {
   pinCurrentBlank, reconcileManualOrder, reuseSessionNodes, sessionActive, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
 import { compileHiddenSessionIdPatterns } from '../../config.ts'
-import { PrefixGroupHeader, ProjectRowItem, type RowDragProps, SearchResultItem, SessionNodeItem } from './Rows.tsx'
+import { selectRecentRows } from '../recent-visits.ts'
+import { PrefixGroupHeader, ProjectRowItem, RecentSection, type RowDragProps, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { minuteNow } from './minute-clock.ts'
 import { AnimatedRows } from './AnimatedRows.tsx'
 import { FLAT_SESSION_ORDER_KEY, normalizeGroupBy, type SessionGroupBy } from '../stores.ts'
@@ -1318,6 +1319,59 @@ function SearchResults({
 }
 
 /**
+ * Recent section seat: reads the visit account, filters it against the live
+ * session list, and renders nothing while no visit is listable.
+ * @param props.list - sessions list snapshot.
+ * @param props.rowState - registry-global pin/archive sets and background hiding.
+ * @param props.setCollapsed - persist the section's collapsed flag.
+ * @returns the Recent section, or null when empty.
+ */
+function RecentVisitsSection({
+  list, rowState, useRecentVisits, setCollapsed, usePanelInfo, useSessionStatus, open,
+  onSessionRenameRequest, renderSlot, t,
+}: Pick<
+  WorkspaceBrowserProps,
+  | 'useRecentVisits'
+  | 'usePanelInfo'
+  | 'useSessionStatus'
+  | 'open'
+  | 'renderSlot'
+  | 't'
+> & {
+  list: SessionListState
+  rowState: SessionRowState
+  setCollapsed: (collapsed: boolean) => void
+  onSessionRenameRequest: WorkspaceBrowserProps['requestSessionRename']
+}) {
+  const recent = useRecentVisits(state => state)
+  const statuses = useSessionStatus(s => s)
+  const panelActive = usePanelInfo(info => info.activePanelId !== null)
+  const rows = useMemo(
+    () => selectRecentRows(recent.visits, list, rowState, statuses),
+    [recent.visits, list, rowState, statuses],
+  )
+  if (rows.length === 0) return null
+  const currentId = panelActive
+    ? undefined
+    : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+  return (
+    <HoverCardGroup>
+      <RecentSection
+        rows={rows}
+        collapsed={recent.collapsed}
+        onToggle={() => { setCollapsed(!recent.collapsed) }}
+        currentId={currentId}
+        now={minuteNow()}
+        onOpen={open}
+        onRenameRequest={onSessionRenameRequest}
+        renderSlot={renderSlot}
+        t={t}
+      />
+    </HoverCardGroup>
+  )
+}
+
+/**
  * Render the browsing region.
  * @param props - composed slot props (shell owner share + store + injected actions).
  * @returns the region element tree.
@@ -1346,6 +1400,8 @@ export function WorkspaceBrowser({
   hiddenSessionIdPatterns,
   useDirectoryFlow,
   useHostInfo,
+  useRecentVisits,
+  setRecentCollapsed,
   useShortcuts,
   useWorkspaceShortcuts,
   requestSearch,
@@ -1843,6 +1899,20 @@ export function WorkspaceBrowser({
       {/* Always-mounted seat keeps the region's flex slot while the list
           itself is wide-only. */}
       <div className={css.listArea}>
+        {wide && normalizedQuery === '' && (
+          <RecentVisitsSection
+            list={list}
+            rowState={rowState}
+            useRecentVisits={useRecentVisits}
+            setCollapsed={setRecentCollapsed}
+            usePanelInfo={usePanelInfo}
+            useSessionStatus={useSessionStatus}
+            open={guardedOpen}
+            onSessionRenameRequest={requestSessionRename}
+            renderSlot={renderSlot}
+            t={t}
+          />
+        )}
         {wide && (normalizedQuery !== ''
           ? (
             <SearchResults

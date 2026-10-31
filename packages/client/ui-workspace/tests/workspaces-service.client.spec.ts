@@ -21,6 +21,7 @@ import type { DraftInitializationOptions, SessionInputResolver } from '@deepseek
 import type { RowToast } from '../src/client/contract/slots.ts'
 import { DirectoryBrowseError, UiWorkspaceService } from '../src/client/navigation.ts'
 import { en, zh } from '../src/client/locales.ts'
+import { createRecentVisitsStore } from '../src/client/recent-visits.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
 
@@ -302,6 +303,7 @@ function bench(options: BenchOptions = {}) {
   options.configureWorkspaces?.(workspaces)
   options.configureSessions?.(sessions)
   const view = createWorkspaceViewStore().create()
+  const recent = createRecentVisitsStore().create()
   const notify = vi.fn<(toast: RowToast) => void>()
   const uiWorkspace = new UiWorkspaceService(
     ctx,
@@ -310,9 +312,10 @@ function bench(options: BenchOptions = {}) {
     sessions,
     view.actions,
     notify,
+    recent.actions,
   )
   return {
-    ctx, directoryPicker, sessions, uiWorkspace, workspaces, layout, selectPanel, view, notify,
+    ctx, directoryPicker, sessions, uiWorkspace, workspaces, layout, selectPanel, view, recent, notify,
     requestDraftInitialization, adoptSavedDraft,
   }
 }
@@ -432,6 +435,27 @@ describe('UiWorkspaceService', () => {
     expect(b.selectPanel).toHaveBeenCalledWith(null)
     expect(b.sessions.retain).toHaveBeenCalledWith(sid('target'), { source: 'mainView' })
     expect(b.sessions.refreshProjections).not.toHaveBeenCalled()
+  })
+
+  it('records each opened Session as a Recent visit, newest first, once per Session', () => {
+    const b = bench()
+    b.uiWorkspace.openSession(sid('first'))
+    b.uiWorkspace.openSession(sid('second'))
+    b.uiWorkspace.openSession(sid('first'))
+    expect(b.recent.getSnapshot().visits.map(visit => visit.sessionId)).toEqual(['first', 'second'])
+  })
+
+  it('records a Recent visit for a Session created and entered through a Workspace', async () => {
+    const b = bench({ workspaces: workspaceState([workspace('a')]), sessions: sessionState() })
+    await b.uiWorkspace.openWorkspace(wid('a'))
+    expect(b.recent.getSnapshot().visits.map(visit => visit.sessionId)).toEqual(['created-a'])
+  })
+
+  it('records no Recent visit when retaining the target fails', () => {
+    const b = bench()
+    b.sessions.retain.mockImplementationOnce(() => { throw new Error('open failed') })
+    expect(() => { b.uiWorkspace.openSession(sid('target')) }).toThrow('open failed')
+    expect(b.recent.getSnapshot().visits).toEqual([])
   })
 
   it('keeps the current panel when retaining the target fails', () => {

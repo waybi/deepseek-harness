@@ -521,6 +521,35 @@ function sessionNode(
 }
 
 /**
+ * Derive the Recent section rows: the given Session ids in the given order,
+ * minus archived, subagent, blank, unknown and background-hidden Sessions.
+ * Archived Sessions are hidden whatever the archived filter says.
+ * @param list - sessions list snapshot; ids it does not know are skipped.
+ * @param sessionIds - candidate Session ids in display order.
+ * @param rowState - registry-global pin and archive sets plus background hiding.
+ * @param statuses - unified UI status by Session; running rows escape background hiding.
+ * @returns the visible rows in the given order.
+ */
+export function deriveRecent(
+  list: SessionListState,
+  sessionIds: readonly SessionId[],
+  rowState: SessionRowState,
+  statuses: SessionStatuses,
+): SessionNode[] {
+  const archived = new Set(rowState.archivedSessionIds)
+  const pinned = new Set(rowState.pinnedSessionIds)
+  const current = mainSessionId(list)
+  return sessionIds.flatMap((id) => {
+    const session = list.byId[id]
+    return session !== undefined && !session.blank
+      && sessionVisible(session, current, archived, 'default')
+      && !hiddenAsBackground(session, current, rowState, statuses)
+      ? [sessionNode(session, list, statuses, pinned, archived)]
+      : []
+  })
+}
+
+/**
  * Derive the workspace browser groups with every session as a top-level row.
  *
  * Every group shows, except that the archived-only filter drops groups

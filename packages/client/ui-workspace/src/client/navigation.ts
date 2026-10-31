@@ -22,6 +22,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { DraftInitializationOptions } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { RowToast } from './contract/slots.ts'
 import { pinOrderAccounts, pinOrderSource } from './pin-order.ts'
+import type { RecentVisitsStoreActions } from './recent-visits.ts'
 import type { WorkspaceViewStoreActions } from './stores.ts'
 
 interface MainSelection {
@@ -168,6 +169,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
    * @param sessions - pure Session Controller.
    * @param view - the browser's viewing-store write set (one instance shared with its registration).
    * @param notify - show one notice through the Workspace notice channel.
+   * @param recent - the Recent visits write set; every Session that becomes the main view is recorded.
    */
   constructor(
     ctx: Context,
@@ -176,6 +178,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     private readonly sessions: ISessions,
     private readonly view: Pick<WorkspaceViewStoreActions, 'pinSessionOrder'>,
     private readonly notify: (toast: RowToast) => void,
+    private readonly recent: Pick<RecentVisitsStoreActions, 'recordVisit'>,
   ) {
     super(ctx, 'uiWorkspace')
     ctx.effect(() => {
@@ -548,6 +551,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const previous = this.mainReference
     this.mainReference = reference
     previous?.release()
+    this.recent.recordVisit(reference.sessionId, Date.now())
     if (panel === 'reveal') this.ctx.layout.selectPanel(null)
   }
 

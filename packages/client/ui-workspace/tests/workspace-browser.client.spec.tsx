@@ -15,6 +15,7 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { DirectoryFlowOwnerProps, WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { createWorkspaceShortcutControls } from '../src/client/shortcuts.ts'
+import { createRecentVisitsStore } from '../src/client/recent-visits.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY, normalizeGroupBy } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
@@ -107,6 +108,7 @@ const renderDirectoryFlowOnly: WorkspaceBrowserProps['renderSlot'] = (name: stri
 function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
   const controls = createWorkspaceShortcutControls()
   const store = createWorkspaceViewStore().create()
+  const recent = createRecentVisitsStore().create()
   const props: WorkspaceBrowserProps = {
     useShortcuts: select => select([]),
     useWorkspaceShortcuts: bindSnapshotSelector(controls.state),
@@ -139,12 +141,14 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
+    useRecentVisits: bindSnapshotSelector(recent),
+    setRecentCollapsed: recent.actions.setCollapsed,
     renderSlot: renderDirectoryFlowOnly,
     t,
     ...overrides,
   }
   const view = render(<WorkspaceBrowser {...props} />)
-  return { view, props, store, controls }
+  return { view, props, store, controls, recent }
 }
 
 /** Re-render with (possibly) changed props — WorkspaceBrowser has no side channel. */
@@ -3382,5 +3386,156 @@ describe('By project prefix grouping', () => {
     usePrefix()
     mount({ useSessions: hook(sessionState([])) })
     expect(screen.getByText('暂无会话')).toBeTruthy()
+  })
+})
+
+describe('WorkspaceBrowser Recent section', () => {
+  const recentSection = () => document.querySelector<HTMLElement>('[data-section="recent"]')
+  const recentTitles = () => [...(recentSection()?.querySelectorAll('[data-row-key^="recent-session:"]') ?? [])]
+    .map(row => row.getAttribute('data-row-key')?.slice('recent-session:'.length))
+  const visit = (id: string, at: number) => { createRecentVisitsStore().create().actions.recordVisit(id, at) }
+  const items = [summary('a', 10), summary('b', 20), summary('c', 30)]
+  const base = () => ({
+    useSessions: hook(sessionState(items)),
+    useWorkspaces: hook(workspaceState([workspace('alpha', ['a', 'b', 'c'])])),
+  })
+
+  it.each(['workspace', 'workspace-tree', 'flat', 'prefix'] as const)(
+    'shows the section above the %s list, latest visit first, with a count and an expanded arrow',
+    (mode) => {
+      createWorkspaceViewStore().create().actions.setGroupBy(mode)
+      visit('a', 1)
+      visit('c', 2)
+      mount(base())
+      const section = recentSection()
+      expect(section).not.toBeNull()
+      expect(section?.getAttribute('role')).toBe('group')
+      expect(recentTitles()).toEqual(['c', 'a'])
+      const header = within(section!).getByRole('button', { name: '最近访问，2 个会话' })
+      expect(header.getAttribute('aria-expanded')).toBe('true')
+      expect(header.textContent).toContain('2')
+      const lowerList = document.querySelector('[data-row-key^="session:"], [data-row-key^="workspace:"], [data-row-key^="prefix-group:"]')
+      expect(lowerList).not.toBeNull()
+      expect(section!.compareDocumentPosition(lowerList!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      // The search control stays above the section.
+      const search = screen.getByRole('button', { name: '搜索会话' })
+      expect(search.compareDocumentPosition(section!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    },
+  )
+
+  it('lists at most five Sessions', () => {
+    const many = Array.from({ length: 8 }, (_, i) => summary(`s${String(i)}`, i + 1))
+    many.forEach((item, i) => { visit(item.id, i) })
+    mount({
+      useSessions: hook(sessionState(many)),
+      useWorkspaces: hook(workspaceState([workspace('alpha', many.map(item => item.id))])),
+    })
+    expect(recentTitles()).toEqual(['s7', 's6', 's5', 's4', 's3'])
+  })
+
+  it('renders nothing when no visit is listable', () => {
+    visit('missing', 1)
+    mount(base())
+    expect(recentSection()).toBeNull()
+  })
+
+  it.each([
+    ['archived', { archived: ['b'] }],
+    ['unknown to the list', { visitOnly: 'ghost' }],
+    ['background by cwd', { cwd: '/bg' }],
+  ] as const)('leaves out a %s Session', (_name, how) => {
+    visit('a', 1)
+    if ('visitOnly' in how) visit(how.visitOnly, 2)
+    else visit('b', 2)
+    const sessionItems = 'cwd' in how ? [summary('a', 10), summary('b', 20, { cwd: '/bg/x' })] : [summary('a', 10), summary('b', 20)]
+    mount({
+      useSessions: hook(sessionState(sessionItems)),
+      useWorkspaces: hook(workspaceState(
+        [workspace('alpha', ['a', 'b'])],
+        'archived' in how ? how.archived.map(sid) : [],
+      )),
+      hiddenSessionCwdPrefixes: 'cwd' in how ? [how.cwd] : [],
+    })
+    expect(recentTitles()).toEqual(['a'])
+  })
+
+  it('keeps an archived Session out even when the archived filter shows archived rows', () => {
+    createWorkspaceViewStore().create().actions.setArchivedFilter('show')
+    visit('a', 1)
+    visit('b', 2)
+    mount({
+      ...base(),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['a', 'b', 'c'])], [sid('b')])),
+    })
+    expect(recentTitles()).toEqual(['a'])
+  })
+
+  it('hides while a search query is typed and returns when it is cleared', () => {
+    visit('a', 1)
+    mount(base())
+    expect(recentSection()).not.toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    const input = screen.getByPlaceholderText('搜索会话名称')
+    fireEvent.change(input, { target: { value: 'abc' } })
+    expect(recentSection()).toBeNull()
+    fireEvent.change(input, { target: { value: '' } })
+    expect(recentSection()).not.toBeNull()
+  })
+
+  it('keeps the collapsed state across a remount', () => {
+    visit('a', 1)
+    const first = mount(base())
+    fireEvent.click(screen.getByRole('button', { name: '最近访问，1 个会话' }))
+    expect(recentTitles()).toEqual([])
+    expect(screen.getByRole('button', { name: '最近访问，1 个会话' }).getAttribute('aria-expanded')).toBe('false')
+    first.view.unmount()
+    mount(base())
+    expect(recentTitles()).toEqual([])
+    const header = screen.getByRole('button', { name: '最近访问，1 个会话' })
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(header)
+    expect(recentTitles()).toEqual(['a'])
+  })
+
+  it('opens the clicked Session, highlights the current one, and keeps the lower rows addressable by session key', () => {
+    visit('a', 1)
+    visit('b', 2)
+    const b = mount({
+      useSessions: hook(sessionState(items, { main: sid('b') })),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['a', 'b', 'c'])])),
+    })
+    const rowA = recentSection()!.querySelector<HTMLElement>('[data-row-key="recent-session:a"]')!
+    const rowB = recentSection()!.querySelector<HTMLElement>('[data-row-key="recent-session:b"]')!
+    expect(rowB.getAttribute('aria-selected')).toBe('true')
+    expect(rowA.getAttribute('aria-selected')).toBe('false')
+    fireEvent.click(rowA)
+    expect(b.props.open).toHaveBeenCalledWith('a')
+    // The lower list's own row keeps the plain key, one element per Session.
+    expect(document.querySelectorAll('[data-row-key="session:a"]')).toHaveLength(1)
+  })
+
+  it('shows running status and row slots on Recent rows', () => {
+    visit('a', 1)
+    const slotCalls: string[] = []
+    const renderSlot: WorkspaceBrowserProps['renderSlot'] = (name: string) => { slotCalls.push(name); return null }
+    mount({
+      ...base(),
+      renderSlot,
+      useSessionStatus: hook<SessionStatusSnapshot>(new Map([[sid('a'), {
+        running: true, pendingInteraction: undefined, completionUnread: false,
+      }]])),
+    })
+    const row = recentSection()!.querySelector<HTMLElement>('[data-row-key="recent-session:a"]')!
+    expect(row.textContent).toContain('进行中')
+    expect(slotCalls).toContain('sidebar.workspaces.session.row.action')
+    expect(slotCalls).toContain('sidebar.workspaces.session.menu.item')
+  })
+
+  it('keeps every older control visible beside the section', () => {
+    visit('a', 1)
+    mount(base())
+    expect(screen.getByRole('button', { name: '搜索会话' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: '视图选项' })).toBeTruthy()
+    expect(screen.getByText('alpha')).toBeTruthy()
   })
 })

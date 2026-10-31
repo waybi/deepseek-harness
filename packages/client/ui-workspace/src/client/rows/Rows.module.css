@@ -419,3 +419,23 @@
     transition: none;
   }
 }
+
+/* Recent section: a fixed block above the scrolling list. Its right inset
+   equals the list's offset plus padding plus the 5px scrollbar gutter, so the
+   rows end where the list rows below end; the bottom gap separates it from
+   the first Workspace header. */
+.recentSection {
+  flex: none;
+  margin-left: -4px;
+  margin-right: var(--dsh-session-list-scrollbar-offset);
+  padding-left: 4px;
+  padding-right: calc(
+    var(--dsh-session-list-edge-inset) - var(--dsh-session-list-scrollbar-offset)
+  );
+  padding-bottom: 8px;
+}
+
+.recentSection > * + *,
+.recentRows > * + * {
+  margin-top: 2px;
+}

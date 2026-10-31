@@ -3,6 +3,10 @@
 - textbox "Search session names"
 - button "View options"
 - button "Add workspace"
+- group "Recent, 1 sessions":
+  - button "Recent, 1 sessions" [expanded]: Recent
+  - listbox "Recent":
+    - option "T4 source 1min" [selected]
 - tree "Sessions":
   - treeitem "Ungrouped" [expanded]
   - treeitem "T4 source (1) now"
