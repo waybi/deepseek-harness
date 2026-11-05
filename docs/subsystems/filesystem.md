@@ -371,7 +371,11 @@ import { FS_ERROR_CODES } from '@deepseek-ai/dsh-fs'
 ```
 
 ```ts type-equiv
-/** One machine-routable filesystem failure code from FS_ERROR_CODES. */
+/**
+ * One machine-routable filesystem failure code from FS_ERROR_CODES. Carried on
+ * `FsError`; the tool registry exposes `{ name, code }` on `isError`
+ * results so retry/permission/UI layers can branch without parsing messages.
+ */
 type FsErrorCode = typeof FS_ERROR_CODES[number]
 ```
 

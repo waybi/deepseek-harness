@@ -28,7 +28,7 @@ interface ToolDefinition extends ToolSchema {
   /** Mandatory canonical output declaration. */
   readonly output: ToolOutputDefinition
   /** Model-visible exposure; see {@link DefineToolOptions.exposure}. Defaults to `direct`. */
-  readonly exposure?: ToolExposure
+  readonly exposure?: 'direct' | 'deferred'
   /**
    * Run one accepted call and return only its canonical lossless-JSON value.
    * Async work must observe or forward `exec.signal` and settle only after its
