@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-05-fork-tool-reveal-instruction-content.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-05-fork-tool-reveal-instruction-content.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-05-fork-tool-reveal-instruction-content:
+  en: a743d2b499d8e6e0
+  zh: 82902bedeba2d2b9
+/2026-11-05-fork-tool-reveal-instruction-content/summary:
+  en: ba92620d106592bb
+  zh: 5b9950879b70c463
+/2026-11-05-fork-tool-reveal-instruction-content/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-05-fork-tool-reveal-instruction-content/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-05-fork-tool-reveal-instruction-content/compatibility:
+  en: dd8fbb889b4ad12d
+  zh: 26be70e1715f0e8a
+/2026-11-05-fork-tool-reveal-instruction-content/verification:
+  en: 95ec9c8f40623fba
+  zh: bb165a3ee6f45667
+/2026-11-05-fork-tool-reveal-instruction-content/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

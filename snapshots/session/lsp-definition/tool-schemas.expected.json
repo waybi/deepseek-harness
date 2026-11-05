@@ -1,6 +1,34 @@
 {
   "initial": [
     {
+      "name": "apply_patch",
+      "description": "Create, update, delete, or move UTF-8 text files with one Codex-style patch; prefer it over multiple edit calls when a change spans several files or separated regions.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "input": {
+            "type": "string",
+            "description": "Codex patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "input"
+        ]
+      }
+    },
+    {
       "name": "bash",
       "description": "Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell; pass `workdir` instead of using `cd`. Managed `$DSH_*` variables expose current harness environment facts. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Provide `description` before `command` in the arguments. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]`, a policy denial: do not retry another way.",
       "parameters": {
@@ -104,22 +132,6 @@
           "file_path",
           "old_string",
           "new_string"
-        ]
-      }
-    },
-    {
-      "name": "exit_plan_mode",
-      "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "plan": {
-            "type": "string",
-            "description": "The complete plan, as markdown, starting with a # heading that names it."
-          }
-        },
-        "required": [
-          "plan"
         ]
       }
     },
@@ -464,6 +476,22 @@
       }
     },
     {
+      "name": "tool_search",
+      "description": "Reveal tools that are registered but not declared yet. The tools below exist but their full schemas are\nnot loaded; when a task needs one of them, call tool_search with a short query (tool name, or words\nfrom its purpose). Matching tools become callable from the next step and stay available for the rest of\nthe session. Do not call tool_search for a tool that is already declared.\n\nAvailable deferred tools:\n- workflow: Run a JavaScript workflow script that orchestrates subagents at scale.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Tool name or a few words describing what you need (e.g. \"broadcast message\", \"spawn session\", \"feishu doc\")."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    {
       "name": "update_goal",
       "description": "Update the current goal.",
       "parameters": {
@@ -540,84 +568,6 @@
         },
         "required": [
           "queries"
-        ]
-      }
-    },
-    {
-      "name": "workflow",
-      "description": "Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.\n\nScript-body hooks:\n- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides.\n- `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. A stage throw drops that ITEM to `null` and skips its remaining stages.\n- `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.\n- `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.\n\nMisused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "script": {
-            "type": "string",
-            "description": "The plain JavaScript body, not TypeScript and without an `export const meta` statement; top-level await is allowed. End with `return <value>`; the JSON-serializable value is this tool's result."
-          },
-          "meta": {
-            "type": "object",
-            "description": "The workflow identity as plain JSON, not code.",
-            "additionalProperties": true,
-            "properties": {
-              "name": {
-                "type": "string",
-                "description": "Short kebab-case workflow name."
-              },
-              "description": {
-                "type": "string",
-                "description": "One-line description of what the workflow does."
-              },
-              "whenToUse": {
-                "type": "string",
-                "description": "Optional guidance on when this workflow applies."
-              },
-              "phases": {
-                "type": "array",
-                "description": "Optional phase declarations matched by phase() calls.",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "title": {
-                      "type": "string",
-                      "description": "The phase title phase() calls match by exact string."
-                    },
-                    "detail": {
-                      "type": "string",
-                      "description": "Optional one-line description of the phase."
-                    },
-                    "provider": {
-                      "type": "string",
-                      "description": "Optional provider override this phase is expected to use."
-                    },
-                    "model": {
-                      "type": "string",
-                      "description": "Optional model override this phase is expected to use."
-                    }
-                  },
-                  "required": [
-                    "title"
-                  ]
-                }
-              }
-            },
-            "required": [
-              "name",
-              "description"
-            ]
-          },
-          "args": {
-            "type": "object",
-            "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
-            "additionalProperties": true
-          },
-          "run_in_background": {
-            "type": "boolean",
-            "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
-          }
-        },
-        "required": [
-          "script",
-          "meta"
         ]
       }
     },

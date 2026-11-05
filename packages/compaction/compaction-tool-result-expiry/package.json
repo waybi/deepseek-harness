@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-compaction-tool-result-expiry",
   "description": "Replay-safe model-free expiry of cold tool results: older turns' oversized tool output is replaced by a one-line stub before each model request, read from a host-only tool-result surface projection",
-  "version": "0.2.1-rc.2",
+  "version": "0.2.2-rc.1",
   "publishConfig": {
     "access": "public"
   },
@@ -56,6 +56,7 @@
     "@deepseek-ai/dsh-spill": "workspace:*",
     "@deepseek-ai/dsh-spill-policy": "workspace:*",
     "@deepseek-ai/dsh-token-meter": "workspace:*",
+    "@deepseek-ai/dsh-tool-testkit": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*"
   }
 }

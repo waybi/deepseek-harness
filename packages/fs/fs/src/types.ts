@@ -6,6 +6,7 @@
  */
 
 import type { FsTargetKey, FsVersion } from './ids.ts'
+import type { FS_ERROR_CODES } from './errors.ts'
 
 export type { FsTargetKey, FsVersion } from './ids.ts'
 
@@ -132,22 +133,28 @@ export interface FsEditOutcome {
   after: string
 }
 
+/** Outcome of a guarded delete; the bounded basis follows FsWriteOutcome.before. */
+export interface FsDeleteOutcome {
+  /** LF-normalized removed content, or null for an unavailable, binary, or over-limit basis. */
+  before: string | null
+}
+
+/** Serializable failure after a move has published its destination but retained its source. */
+export interface FsMoveSourceFailure {
+  /** Filesystem failure code for source removal. */
+  code: FsErrorCode
+  /** Diagnostic identifying the source and the failed removal. */
+  message: string
+}
+
+/** Published destination and removal status; sourceBefore is the bounded LF source basis captured under the move lock. */
+export type FsMoveOutcome =
+  | { sourceBefore: string | null; destination: FsWriteOutcome; sourceDeleted: true }
+  | { sourceBefore: string | null; destination: FsWriteOutcome; sourceDeleted: false; sourceFailure: FsMoveSourceFailure }
+
 /**
- * Stable, machine-routable codes for filesystem failures. Carried on
- * {@link FsError}; the tool registry exposes `{ name, code }` on `isError`
+ * One machine-routable filesystem failure code from FS_ERROR_CODES. Carried on
+ * `FsError`; the tool registry exposes `{ name, code }` on `isError`
  * results so retry/permission/UI layers can branch without parsing messages.
  */
-export type FsErrorCode =
-  | 'FS_NOT_FOUND'
-  | 'FS_NOT_DIRECTORY'
-  | 'FS_NOT_TEXT'
-  | 'FS_NOT_REGULAR_FILE'
-  | 'FS_TOO_LARGE'
-  | 'FS_PERMISSION_DENIED'
-  | 'FS_SANDBOX_DENIED'
-  | 'FS_IO_ERROR'
-  | 'FS_STALE_VERSION'
-  | 'FS_NOT_OBSERVED'
-  | 'FS_AMBIGUOUS_EDIT'
-  | 'FS_EDIT_NOT_FOUND'
-  | 'FS_ABORTED'
+export type FsErrorCode = typeof FS_ERROR_CODES[number]

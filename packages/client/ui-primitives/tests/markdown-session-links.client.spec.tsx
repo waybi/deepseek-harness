@@ -154,7 +154,7 @@ describe('Markdown session links', () => {
         <MarkdownText text="[t](DSH-SESSION:InNlc3Npb24tMGM4ODBkNWEtNTJlYy00NWY0LWIwZjUtNTU3OGQ3MGU1NDBhIg)" />
       </MarkdownDelegateProvider>,
     )
-    expect(view.container.querySelector('a')).toBeNull()
+    // Upstream keeps other parseable protocols as native links; it is never a session button.
     expect(view.queryByRole('button')).toBeNull()
     expect(view.container.textContent).toContain('t')
     expect(openSession).not.toHaveBeenCalled()

@@ -16,12 +16,14 @@ export const HoverCardGroupContext = createContext<GroupState | null>(null)
  * Share first-display dwell across a list and its active portal, including the card's existing pointer grace.
  * @param props.children - list contents, including opted-in HoverCards.
  * @param props.className - classes for the physical list container.
+ * @param props.as - physical container tag; use span to preserve inline text layout.
  * @param props.containerRef - receives the physical list container element.
  * @returns the list container and its private hover coordinator.
  */
-export function HoverCardGroup({ children, className, containerRef }: {
+export function HoverCardGroup({ children, className, as: Container = 'div', containerRef }: {
   children: ReactNode
-  className?: string
+  className?: string | undefined
+  as?: 'div' | 'span'
   containerRef?: Ref<HTMLDivElement>
 }) {
   const [group] = useState<GroupState>(() => {
@@ -57,7 +59,7 @@ export function HoverCardGroup({ children, className, containerRef }: {
   })
   return (
     <HoverCardGroupContext.Provider value={group}>
-      <div
+      <Container
         ref={containerRef}
         className={className}
         onPointerOverCapture={(event) => {
@@ -72,7 +74,7 @@ export function HoverCardGroup({ children, className, containerRef }: {
         }}
       >
         {children}
-      </div>
+      </Container>
     </HoverCardGroupContext.Provider>
   )
 }

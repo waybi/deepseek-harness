@@ -16,7 +16,7 @@
 
 import { z } from 'zod'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { ProjectionDefinition, SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionDefinition, ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type { ToolDefinition } from './index.ts'
 import { defineTool } from './schema.ts'
 
@@ -187,13 +187,20 @@ export const toolsRevealedProjection = {
 
 /**
  * Durable per-session record of revealed deferred tools. Reads the
- * `toolsRevealed` projection when a registry is mounted; without one the
- * reveal is still logged but only remembered in this process.
+ * `toolsRevealed` projection once its registration handle is attached;
+ * without one the reveal is still logged but only remembered in this process.
  */
 export class RevealLog {
   private readonly local = new WeakMap<Session, Set<string>>()
+  private handle: ProjectionHandle<ToolsRevealedState> | undefined
 
-  constructor(private readonly projections: () => SessionProjectionRegistry | undefined) {}
+  /**
+   * Read reveals through a registered `toolsRevealed` projection.
+   * @param handle - the awaited registration of {@link toolsRevealedProjection}.
+   */
+  attach(handle: ProjectionHandle<ToolsRevealedState>): void {
+    this.handle = handle
+  }
 
   /**
    * Names revealed so far in `session`.
@@ -201,7 +208,7 @@ export class RevealLog {
    * @returns the revealed-name set (do not mutate).
    */
   revealed(session: Session): ReadonlySet<string> {
-    const state = this.projections()?.stateOf(session, 'toolsRevealed')
+    const state = this.handle?.stateOf(session)
     if (state !== undefined) return new Set(state.names)
     return this.local.get(session) ?? new Set()
   }
@@ -236,16 +243,16 @@ export interface ToolSearchBridgeOptions {
 }
 
 /**
- * Build the reserved `tool_search` transport. The description is a getter so
- * the catalog reflects the live registry and the caller's remaining deferred
- * tools at schema-emission time.
+ * Build the reserved `tool_search` transport. The registry replaces its
+ * placeholder description with the calling scope's catalog whenever it
+ * declares the transport.
  * @param options - registry capabilities.
  * @returns the transport definition.
  */
 export function createToolSearchTool(options: ToolSearchBridgeOptions): ToolDefinition {
   const definition = defineTool({
     name: TOOL_SEARCH_NAME,
-    description: 'placeholder — replaced by the scope-aware getter below',
+    description: 'placeholder — the registry renders the scope catalog when declaring this tool',
     parameters: {
       query: {
         type: 'string',
@@ -295,21 +302,4 @@ export function createToolSearchTool(options: ToolSearchBridgeOptions): ToolDefi
     },
   })
   return definition
-}
-
-/**
- * Scope-aware description installer; separate so the registry owns the view.
- * @param definition - the `tool_search` definition; mutated in place.
- * @param describe - renders the current description each time it is read.
- * @returns the same definition with `description` replaced by a getter.
- */
-export function withSearchDescription(
-  definition: ToolDefinition,
-  describe: () => string,
-): ToolDefinition {
-  return Object.defineProperty(definition, 'description', {
-    get: describe,
-    enumerable: true,
-    configurable: true,
-  })
 }

@@ -9,9 +9,11 @@ Check the [exit code: N] marker on every bash result; investigate failures befor
 
 Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.
 
-Read an existing file before overwriting it with write (the default fs-observation-policy requires it) and prefer edit for targeted changes.
+Read an existing file before overwriting it with write and prefer edit for targeted changes.
 
-Read a file before editing it (the default fs-observation-policy requires it), unless you just created or edited it in this session.
+Read a file before editing it unless you just created or edited it in this session.
+
+Prefer apply_patch over separate edit calls for changes across files or separated regions. Give every hunk enough surrounding context lines to match one place in the current file. The whole patch is checked first (syntax, hunk matching, missing files) and a rejected patch changes nothing; once applying starts, operations run in order, stop at the first failure, and are not rolled back, so re-read affected files before retrying when needed.
 
 Use the glob tool — not shell find — to discover files by path pattern.
 
@@ -27,7 +29,9 @@ create_goal may infer goal intent from a direct human request in any language. A
 
 Use the workflow tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
 
-Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run.
+Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run. When only waiting for their results remains, end your turn instead of sleeping or polling; the next result starts a new turn.
+
+Some tools are registered but not declared to save context. If no declared tool fits a task, call `tool_search` with a short description of what you need; its description lists every hidden tool by name. A revealed tool stays available for the rest of the session.
 
 <!-- system/message change 1 -->
 
@@ -44,9 +48,11 @@ Check the [exit code: N] marker on every bash result; investigate failures befor
 
 Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.
 
-Read an existing file before overwriting it with write (the default fs-observation-policy requires it) and prefer edit for targeted changes.
+Read an existing file before overwriting it with write and prefer edit for targeted changes.
 
-Read a file before editing it (the default fs-observation-policy requires it), unless you just created or edited it in this session.
+Read a file before editing it unless you just created or edited it in this session.
+
+Prefer apply_patch over separate edit calls for changes across files or separated regions. Give every hunk enough surrounding context lines to match one place in the current file. The whole patch is checked first (syntax, hunk matching, missing files) and a rejected patch changes nothing; once applying starts, operations run in order, stop at the first failure, and are not rolled back, so re-read affected files before retrying when needed.
 
 Use the glob tool — not shell find — to discover files by path pattern.
 
@@ -62,7 +68,7 @@ create_goal may infer goal intent from a direct human request in any language. A
 
 Use the workflow tool ONLY when the user explicitly asks for a workflow or for large multi-agent orchestration: you write a JavaScript script (the tool description documents the exact format) that fans work out across many subagents with phases and structured results. For one or two delegations, prefer plain subagent calls.
 
-Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run.
+Start independent delegations with `subagent` or `subagent_fork` together in one assistant message and continue useful work while they run. When only waiting for their results remains, end your turn instead of sleeping or polling; the next result starts a new turn.
 
 ## Writing code for run_code
 
@@ -83,6 +89,15 @@ Program-only SDK bindings:
 type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 
 interface ToolArgsMap {
+  /** Create, update, delete, or move UTF-8 text files with one Codex-style patch; prefer it over multiple edit calls when a change spans several files or separated regions. */
+  apply_patch: {
+    /** Codex patch text: start with *** Begin Patch and end with *** End Patch. Use *** Add File: path with + lines; *** Update File: path, optionally followed by *** Move to: path, with @@ or @@ context and space-prefixed context, + added, or - removed lines; *** End of File anchors the last hunk to the file end. Use *** Delete File: path to delete. Paths are relative to the Session working directory. */
+    input: string;
+    /** The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval. */
+    sandbox_permissions?: "workspace-write" | "danger-full-access";
+    /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request. */
+    justification?: string;
+  } & Record<string, JsonValue>;
   /** Execute a bash command (`bash -c`) and return its stdout/stderr. Each call runs in a fresh shell; pass `workdir` instead of using `cd`. Managed `$DSH_*` variables expose current harness environment facts. Long output is truncated to its tail; the full output is saved to a file whose path is reported when available. Provide `description` before `command` in the arguments. Before any delete or move, verify that the resolved absolute target path is the intended one; never run it against a computed path you have not checked. An unset variable expands to an empty string, so guard variables in such paths with `${VAR:?}`. Commands may run under a file sandbox; a blocked file operation is reported as `[sandbox: file access denied under <mode> mode]`, a policy denial: do not retry another way. */
   bash: {
     /** Clear, concise description of what this command does in active voice, 5-10 words (shown in the UI). Examples: "ls" → "List files in current directory"; "git status" → "Show working tree status"; "npm install" → "Install package dependencies". */
@@ -121,11 +136,6 @@ interface ToolArgsMap {
     sandbox_permissions?: "workspace-write" | "danger-full-access";
     /** Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request. */
     justification?: string;
-  } & Record<string, JsonValue>;
-  /** Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again. */
-  exit_plan_mode: {
-    /** The complete plan, as markdown, starting with a # heading that names it. */
-    plan: string;
   } & Record<string, JsonValue>;
   /** Read the current session goal, including the id and revision that update_goal requires. */
   get_goal: Record<string, JsonValue>;
@@ -227,6 +237,11 @@ interface ToolArgsMap {
       status: "pending" | "in_progress" | "completed";
     })[];
   } & Record<string, JsonValue>;
+  /** Reveal tools that are registered but not declared yet. The tools below exist but their full schemas are not loaded; when a task needs one of them, call tool_search with a short query (tool name, or words from its purpose). Matching tools become callable from the next step and stay available for the rest of the session. Do not call tool_search for a tool that is already declared. Available deferred tools: - workflow: Run a JavaScript workflow script that orchestrates subagents at scale. */
+  tool_search: {
+    /** Tool name or a few words describing what you need (e.g. "broadcast message", "spawn session", "feishu doc"). */
+    query: string;
+  } & Record<string, JsonValue>;
   /** Update the current goal. */
   update_goal: {
     /** Exact id returned by get_goal. */
@@ -252,35 +267,6 @@ interface ToolArgsMap {
     /** 1–4 search queries; their results are merged. */
     queries: string[];
   } & Record<string, JsonValue>;
-  /** Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn. Script-body hooks: - `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides. - `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. A stage throw drops that ITEM to `null` and skips its remaining stages. - `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`. - `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim. Misused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work. */
-  workflow: {
-    /** The plain JavaScript body, not TypeScript and without an `export const meta` statement; top-level await is allowed. End with `return <value>`; the JSON-serializable value is this tool's result. */
-    script: string;
-    /** The workflow identity as plain JSON, not code. */
-    meta: {
-      /** Short kebab-case workflow name. */
-      name: string;
-      /** One-line description of what the workflow does. */
-      description: string;
-      /** Optional guidance on when this workflow applies. */
-      whenToUse?: string;
-      /** Optional phase declarations matched by phase() calls. */
-      phases?: ({
-        /** The phase title phase() calls match by exact string. */
-        title: string;
-        /** Optional one-line description of the phase. */
-        detail?: string;
-        /** Optional provider override this phase is expected to use. */
-        provider?: string;
-        /** Optional model override this phase is expected to use. */
-        model?: string;
-      } & Record<string, JsonValue>)[];
-    } & Record<string, JsonValue>;
-    /** Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {"files": [...]}). */
-    args?: Record<string, JsonValue>;
-    /** Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice. */
-    run_in_background?: boolean;
-  } & Record<string, JsonValue>;
   /** Read the current working directory, or change it with cd. Relative paths use the current directory. Existing shells and running processes keep their own directories. */
   working_directory: {
     /** Existing directory to enter. Omit to read the current directory. */
@@ -300,6 +286,27 @@ interface ToolArgsMap {
 }
 
 interface ToolOutputMap {
+  apply_patch: {
+    phase: "commit";
+    cancelled: boolean;
+    operations: ({
+      index: number;
+      kind: "add" | "update" | "delete" | "move";
+      path: string;
+      destination?: string;
+      patchLine: number;
+      status: "completed" | "failed" | "unknown" | "skipped";
+      code?: string;
+      message?: string;
+      hunkLine?: number;
+      changes?: ({
+        path: string;
+        before: string | null;
+        after: string | null;
+      })[];
+    })[];
+    affectedPaths: string[];
+  };
   bash: {
     kind: "background";
     jobId: string;
@@ -358,9 +365,6 @@ interface ToolOutputMap {
     path: string;
     before: string;
     after: string;
-  };
-  exit_plan_mode: {
-    approved: boolean;
   };
   get_goal: {
     goal: null;
@@ -503,6 +507,13 @@ interface ToolOutputMap {
       completed: number;
     };
   };
+  tool_search: {
+    revealed: string[];
+    tools: {
+      name: string;
+      description: string;
+    }[];
+  };
   update_goal: {
     goal: null;
   } | {
@@ -538,19 +549,10 @@ interface ToolOutputMap {
       url: string;
       title?: string;
       snippet?: string;
+      summary?: string;
       publishedAt?: string;
     }[];
     truncated: boolean;
-  };
-  workflow: {
-    kind: "background";
-    jobId: string;
-    runId: string;
-  } | {
-    kind: "foreground";
-    runId: string;
-    agentsStarted: number;
-    result: JsonValue;
   };
   working_directory: {
     /** Current absolute working directory. */
@@ -576,3 +578,5 @@ declare const tools: {
   [K in ToolName]: (args: ToolArgsMap[K]) => Promise<ToolOutputMap[K]>;
 }
 ```
+
+Some tools are registered but not declared to save context. If no declared tool fits a task, call `tool_search` with a short description of what you need; its description lists every hidden tool by name. A revealed tool stays available for the rest of the session.

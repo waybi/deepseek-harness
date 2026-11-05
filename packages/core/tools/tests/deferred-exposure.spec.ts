@@ -9,6 +9,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 
 const testToolSignal = new AbortController().signal
 
@@ -20,6 +21,7 @@ async function mount(deferred: string[] = [], projections = true): Promise<Conte
   await ctx.plugin(SystemPrompt, {})
   if (projections) await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(ToolRuntime, { deferred })
+  await ctx.plugin(NativeToolExecutor)
   return ctx
 }
 
@@ -50,15 +52,14 @@ function tool(name: string, description = `tool ${name}`, exposure?: 'direct' | 
 }
 
 async function run(ctx: Context, name: string, agent: Agent | undefined, args: unknown = {}): Promise<string> {
-  const result = await ctx.tools.execute({
+  const batch = await ctx.tools.execute({
     signal: testToolSignal,
-    callId: ToolCallId(`c-${name}`),
-    name,
-    arguments: args,
+    calls: [{ type: 'tool-call', id: ToolCallId(`c-${name}`), name, arguments: JSON.stringify(args) }],
     ...agent ? { agent } : {},
   })
-  const first = result.content[0]
-  return first?.type === 'text' ? first.text : JSON.stringify(result.content)
+  const { content } = batch.results[0]!.result
+  const first = content[0]
+  return first?.type === 'text' ? first.text : JSON.stringify(content)
 }
 
 function names(ctx: Context, agent?: Agent): string[] {

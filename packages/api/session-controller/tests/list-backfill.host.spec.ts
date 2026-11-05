@@ -20,7 +20,7 @@ import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import { ApiSessionList } from '../src/list.ts'
 import type { SessionSummary } from '../src/types.ts'
-import { createSessionTestRemote, installSessionReadTestServices } from './test-remote.ts'
+import { createSessionTestRemote, installSessionReadTestServices, TEST_IMAGE_LIMITS } from './test-remote.ts'
 
 const contexts: Context[] = []
 const roots: string[] = []
@@ -58,16 +58,18 @@ async function harness(options: Options = {}) {
   await ctx.plugin(StorageDomain, { backend: 'json' })
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
-  ctx.sessionProjections.register(titleProjectionDefinition)
+  await ctx.sessionProjections.register(titleProjectionDefinition)
   await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'logs'), compression: 'none' })
   await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
   installSessionReadTestServices(ctx)
+  ctx.provide('attachments', { imageLimits: TEST_IMAGE_LIMITS } as never)
   const added: SessionSummary[] = []
   const list = new ApiSessionList(ctx, 8, {
     maxLogBytes: options.maxLogBytes ?? 1_000_000,
     concurrency: options.concurrency ?? 2,
     onBackfilled: (summary) => { added.push(summary) },
   })
+  await list.initialize()
   const store = async (id: string, events: SessionEvent[]): Promise<SessionHeader> => {
     const header: SessionHeader = {
       version: SESSION_FORMAT_VERSION, id: SessionId(id), createdAt: 10, isSeeded: false, cwd: '/proj',
@@ -236,7 +238,7 @@ describe('cold list backfill', () => {
   it('the Session Controller emits api-session/added with the backfilled summary', async () => {
     const { ctx, store } = await harness()
     await store('via-controller', initEvents())
-    const remote = createSessionTestRemote(ctx, {
+    const remote = await createSessionTestRemote(ctx, {
       defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
       cwd: '/tmp',
     })
