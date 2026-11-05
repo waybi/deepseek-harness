@@ -19,6 +19,12 @@
   config:
     maxBytes: 65536
 
+# Prompt and schemas come from cordis-inspect-jsdoc, which defers nothing behind tool_search.
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+  config:
+    deferred: []
+
 - id: tool-executor-native
   disabled: false
 

@@ -16,6 +16,12 @@
   config:
     maxBytes: 65536
 
+# Scenarios on this composition call workflow directly, so nothing is deferred behind tool_search.
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+  config:
+    deferred: []
+
 - id: tool-executor-native
   disabled: false
 
