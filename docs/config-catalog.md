@@ -3201,21 +3201,30 @@ export type JsonlCompression = 'zstd' | 'none'
 ## `@deepseek-ai/dsh-session-projection-cache`
 
 - `inject`: `storageDomain` · `sessionProjections` · `sessions`
-- `source`: [`packages/session/session-projection-cache/src/index.ts:76`](../packages/session/session-projection-cache/src/index.ts)
+- `source`: [`packages/session/session-projection-cache/src/index.ts:82`](../packages/session/session-projection-cache/src/index.ts)
 
 ```ts config-catalog
 /**
- * Plugin config. Both throttle triggers are deployment choices with no
- * universally correct value, so the composition states them explicitly
- * (cordis.yml); the three mandatory write points (session creation,
- * `turn/end`, and session disposal) are policy, not tunables, and always
- * fire.
+ * Plugin config. Both throttle triggers and both residency bounds are
+ * deployment choices with no universally correct value, so the composition
+ * states them explicitly (cordis.yml); the three mandatory write points
+ * (session creation, `turn/end`, and session disposal) are policy, not
+ * tunables, and always fire.
  */
 export interface Config {
   /** Committed events per session that force a durable checkpoint write between mandatory points. */
   writeEveryEvents: number
   /** Longest time (milliseconds) a dirty checkpoint may stay unwritten between mandatory points. */
   writeIntervalMs: number
+  /** Startup loads only records whose stored document changed within this many days (window start inclusive). */
+  startupMaxAgeDays: number
+  /**
+   * Most complete records startup loads (newest first), and the bound on
+   * complete records kept in memory afterwards. Records of live sessions and
+   * records with a pending write are never evicted, so memory may exceed the
+   * bound while more of them exist.
+   */
+  maxResidentRecords: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-projection-cache -->
@@ -3592,7 +3601,7 @@ export type HelperLaunch = {
 ## `@deepseek-ai/dsh-storage-domain`
 
 - `inject`: `storage`
-- `source`: [`packages/storage/storage-domain/src/index.ts:52`](../packages/storage/storage-domain/src/index.ts)
+- `source`: [`packages/storage/storage-domain/src/index.ts:73`](../packages/storage/storage-domain/src/index.ts)
 
 ```ts config-catalog
 /**

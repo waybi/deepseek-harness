@@ -193,7 +193,7 @@ async function mountHost(ctx: Context, root: string, workload: typeof WORKLOADS[
   }
   await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions'), compression: 'zstd' })
   await mountStorage(ctx, root)
-  await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 200, writeIntervalMs: 5_000 })
+  await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 200, writeIntervalMs: 5_000, startupMaxAgeDays: 30, maxResidentRecords: 300 })
   await ctx.plugin(SqliteSessionQueryEngine, { path: ':memory:', openAt: 'never' })
   // No Agents, uploads, model calls, or workspace actions occur on this list path.
   const dispose = (): void => {}

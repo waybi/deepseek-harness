@@ -75,6 +75,14 @@ export interface KvUnitDescriptor {
   readonly compatibleVersions?: readonly number[]
 }
 
+/** One stored record's key and last-modified time, listed without reading the record. */
+export interface KvRecordStamp {
+  /** Record key. */
+  readonly key: string
+  /** Last-modified time of the stored record, in epoch milliseconds. */
+  readonly modifiedAt: number
+}
+
 /**
  * One opened unit. Values are opaque JSON to this layer: no schema, no
  * events, no domain meaning. The unit does NOT serialize concurrent writes —
@@ -151,6 +159,28 @@ export interface KvUnit {
    * @returns the medium location the document was moved to (diagnostics).
    */
   backupRecord?(table: string, key: string): Promise<string>
+
+  /**
+   * List one table's stored record keys with their last-modified times
+   * without reading record contents. Backends that store one document per
+   * record implement this together with {@link readRecord}; the domain layer
+   * requires both for partially loaded domains and omits neither silently.
+   * The listing may include a document that a later {@link readRecord} reads
+   * as absent (malformed or an unaccepted version stamp).
+   * @param table - Declared table name.
+   * @returns one stamp per stored record document, in no particular order.
+   */
+  listRecordStamps?(table: string): Promise<KvRecordStamp[]>
+
+  /**
+   * Read one stored record. A missing, unreadable, or unaccepted record reads
+   * as absent, matching {@link loadAll}. Implemented exactly when
+   * {@link listRecordStamps} is.
+   * @param table - Declared table name.
+   * @param key - Record key.
+   * @returns the opaque stored record, or `undefined` when absent.
+   */
+  readRecord?(table: string, key: string): Promise<unknown>
 
   /**
    * Write the global singleton durably. Only valid when the descriptor

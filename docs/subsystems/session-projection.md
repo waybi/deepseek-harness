@@ -250,6 +250,30 @@ The persisted projection cache service. Opens the `session_projcache` domain at 
 
 ```ts cordis-catalog
 /**
+ * Make one session's complete stored record resident, reading it from the
+ * medium when memory does not hold it. Callers await this before a
+ * synchronous fold read ({@link hydratePrepared}) for a session that may be
+ * outside the resident set. Fail-soft: a failed read logs a warning and
+ * leaves the session uncached (the fold replays its log).
+ * @param id - the session whose record is read.
+ * @returns whether a record is resident afterwards.
+ */
+async ensureLoaded(id: SessionId): Promise<boolean>
+
+/**
+ * Serve one session's summary-key block, reading its record from the medium
+ * when memory holds neither the record nor its listing view. A record read
+ * here is reduced to its listing view and leaves memory again unless it is
+ * pinned, so listing every session never keeps every complete record.
+ * Fail-soft like {@link ensureLoaded}.
+ * @param meta - the listed session's header (identity witness).
+ * @returns the same block {@link cachedSnapshot} with the summary keys, or
+ *   else {@link cachedPredecessorTitle}, would serve; `undefined` when the
+ *   medium holds no usable record.
+ */
+async loadListing(meta: SessionHeader): Promise<ProjectionSnapshot | undefined>
+
+/**
  * The zero-I/O listing read: whole values viewed straight from the stored
  * rows (version-matching keys only) of the record bound to the caller's
  * lifecycle. The header is the only identity witness a listing holds, so
@@ -263,10 +287,15 @@ The persisted projection cache service. Opens the `session_projcache` domain at 
  * cannot relate to the log the caller later opens. The Session list
  * therefore labels the block as cached, and the client lets every value the
  * connected Session produces supersede it whatever this number says.
+ *
+ * When the complete record is not resident, a listing view of the record
+ * serves the call if `keys` names only summary keys; otherwise the read
+ * misses. Callers that need a non-resident record await
+ * {@link ensureLoaded} or {@link loadListing} first.
  * @param meta - the listed session's header (identity witness; no log read).
  * @param keys - optional projection keys required by the caller's audience.
  * @returns the viewed block, or `undefined` when no usable row exists for
- *   this lifecycle at the current Session format.
+ *   this lifecycle at the current Session format or the record is not in memory.
  */
 cachedSnapshot( meta: SessionHeader, keys?: ProjectionKeySelection, ): ProjectionSnapshot | undefined
 
@@ -289,7 +318,9 @@ cachedPredecessorTitle(meta: SessionHeader): ProjectionSnapshot | undefined
 
 /**
  * Hydrate projection cells for an already-prepared Session without another
- * persistence read. The cache seeds matching rows; the supplied exact log
+ * persistence read. The cache seeds matching resident rows (await
+ * {@link ensureLoaded} first for a session outside the resident set; a
+ * non-resident record folds from the log alone); the supplied exact log
  * advances every unit to the observation cut. No checkpoint is written
  * because the logical observation may contain recovery events not yet durable.
  * @param session - exact unpublished Session retained by persistence.
@@ -325,7 +356,7 @@ async write(session: Session): Promise<void>
 coldSnapshot( meta: SessionHeader, inheritedEventCount: SessionLogOffset, events: readonly SessionEvent[], ): ProjectionSnapshot
 ```
 
-Types: [Session](session.md) · [SessionEvent](session.md) · [SessionHeader](persistence.md) · [SessionLogOffset](session.md)
+Types: [Session](session.md) · [SessionEvent](session.md) · [SessionHeader](persistence.md) · [SessionId](core.md) · [SessionLogOffset](session.md)
 
 Source: [`packages/session/session-projection-cache/src/index.ts`](../../packages/session/session-projection-cache/src/index.ts)
 

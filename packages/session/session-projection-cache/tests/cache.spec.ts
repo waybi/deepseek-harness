@@ -38,6 +38,9 @@ import SessionProjectionCache from '../src/index.ts'
 import { checkpointRecord, projectionCacheDomainSpec } from '../src/spec.ts'
 import type { CheckpointRecord } from '../src/spec.ts'
 
+/** Residency bounds wide enough that these cases never evict. */
+const RESIDENCY = { startupMaxAgeDays: 30, maxResidentRecords: 300 }
+
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     'cache-test/marks': { marks: string[] }
@@ -133,7 +136,7 @@ const headerOf = (id: SessionId, createdAt = 0, cwd?: string): SessionHeader =>
 
 interface HarnessOptions {
   root?: string
-  config?: { writeEveryEvents: number; writeIntervalMs: number }
+  config?: { writeEveryEvents: number; writeIntervalMs: number } & typeof RESIDENCY
   stateVersion?: number
 }
 
@@ -153,7 +156,7 @@ async function harness(options: HarnessOptions = {}) {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.sessionProjections.register(marksUnit(options.stateVersion))
-  const fiber = await ctx.plugin(SessionProjectionCache, options.config ?? { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+  const fiber = await ctx.plugin(SessionProjectionCache, options.config ?? { writeEveryEvents: 100, writeIntervalMs: 60_000, ...RESIDENCY })
   return { ctx, root, fiber, cache: ctx.sessionProjectionCache }
 }
 
@@ -373,7 +376,7 @@ describe('SessionProjectionCache write policy', () => {
   })
 
   it('flushes when the in-turn event count reaches the configured threshold', async () => {
-    const { ctx, root } = await harness({ config: { writeEveryEvents: 3, writeIntervalMs: 60_000 } })
+    const { ctx, root } = await harness({ config: { writeEveryEvents: 3, writeIntervalMs: 60_000, ...RESIDENCY } })
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     const id = SessionId('count')
     const created = whenWritten(ctx, id)
@@ -390,7 +393,7 @@ describe('SessionProjectionCache write policy', () => {
   })
 
   it('flushes on the configured interval when the count threshold is not reached', async () => {
-    const { ctx, cache } = await harness({ config: { writeEveryEvents: 100, writeIntervalMs: 20 } })
+    const { ctx, cache } = await harness({ config: { writeEveryEvents: 100, writeIntervalMs: 20, ...RESIDENCY } })
     const write = vi.spyOn(cache, 'write').mockResolvedValue()
     vi.useFakeTimers()
     const session = ctx.sessions.create(SessionId('interval'))
@@ -421,7 +424,7 @@ describe('SessionProjectionCache write policy', () => {
 
   it('plugin disposal clears armed interval timers and leaves cleaned sessions alone', async () => {
     vi.useFakeTimers()
-    const { ctx, root, fiber } = await harness({ config: { writeEveryEvents: 100, writeIntervalMs: 5000 } })
+    const { ctx, root, fiber } = await harness({ config: { writeEveryEvents: 100, writeIntervalMs: 5000, ...RESIDENCY } })
     const armed = ctx.sessions.create(SessionId('armed'))
     const cleaned = ctx.sessions.create(SessionId('cleaned'))
     mark(armed, ['pending']) // timer armed, no write yet
@@ -446,7 +449,7 @@ describe('SessionProjectionCache write policy', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.sessionProjections.register(marksUnit())
-    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000, ...RESIDENCY })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     // A directory where the record document must land makes the atomic
     // rename fail — including the creation write, so no row ever lands.
@@ -904,7 +907,7 @@ describe('SessionProjectionCache cold-read seeding', () => {
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.sessionProjections.register(marksUnit())
-    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000, ...RESIDENCY })
     const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
     // A directory where the record document must land makes the write-back
     // fail; the cold read itself still succeeds and never throws.

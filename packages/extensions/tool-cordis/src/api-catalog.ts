@@ -2924,10 +2924,22 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'The persisted projection cache service. Opens the `session_projcache` domain at init, checkpoints live sessions on a throttled write-behind (count/interval triggers from Config) plus three mandatory points — session creation, `turn/end`, and session disposal (the live-to-cold moment) — and serves the cached rows for a session header. Every durable write is fail-soft: failures log a warning and the cache self-heals on the next write.',
     methods: [
       {
+        signature: 'async ensureLoaded(id: SessionId): Promise<boolean>',
+        description: 'Make one session\'s complete stored record resident, reading it from the medium when memory does not hold it. Callers await this before a synchronous fold read (hydratePrepared) for a session that may be outside the resident set. Fail-soft: a failed read logs a warning and leaves the session uncached (the fold replays its log).',
+        parameters: [{ name: 'id', description: 'the session whose record is read.' }],
+        returns: 'whether a record is resident afterwards.',
+      },
+      {
+        signature: 'async loadListing(meta: SessionHeader): Promise<ProjectionSnapshot | undefined>',
+        description: 'Serve one session\'s summary-key block, reading its record from the medium when memory holds neither the record nor its listing view. A record read here is reduced to its listing view and leaves memory again unless it is pinned, so listing every session never keeps every complete record. Fail-soft like ensureLoaded.',
+        parameters: [{ name: 'meta', description: 'the listed session\'s header (identity witness).' }],
+        returns: 'the same block {@link cachedSnapshot} with the summary keys, or else {@link cachedPredecessorTitle}, would serve; `undefined` when the medium holds no usable record.',
+      },
+      {
         signature: 'cachedSnapshot( meta: SessionHeader, keys?: ProjectionKeySelection, ): ProjectionSnapshot | undefined',
-        description: 'The zero-I/O listing read: whole values viewed straight from the stored rows (version-matching keys only) of the record bound to the caller\'s lifecycle. The header is the only identity witness a listing holds, so this face matches the lifecycle identity (`formatVersion`, `createdAt`, `cwd`, `isSeeded`) and not the inherited cut: within one format generation the cut is fixed at fork time, so it distinguishes no lifecycle the other fields do not, and a viewed value never seeds a fold. The view is as stale as the last durable checkpoint but never wrong and never from an unrelated log. Its `asOfSeq` is the lowest watermark among the served rows: the stored record\'s own position, which the header cannot relate to the log the caller later opens. The Session list therefore labels the block as cached, and the client lets every value the connected Session produces supersede it whatever this number says.',
+        description: 'The zero-I/O listing read: whole values viewed straight from the stored rows (version-matching keys only) of the record bound to the caller\'s lifecycle. The header is the only identity witness a listing holds, so this face matches the lifecycle identity (`formatVersion`, `createdAt`, `cwd`, `isSeeded`) and not the inherited cut: within one format generation the cut is fixed at fork time, so it distinguishes no lifecycle the other fields do not, and a viewed value never seeds a fold. The view is as stale as the last durable checkpoint but never wrong and never from an unrelated log. Its `asOfSeq` is the lowest watermark among the served rows: the stored record\'s own position, which the header cannot relate to the log the caller later opens. The Session list therefore labels the block as cached, and the client lets every value the connected Session produces supersede it whatever this number says.\n\nWhen the complete record is not resident, a listing view of the record serves the call if `keys` names only summary keys; otherwise the read misses. Callers that need a non-resident record await ensureLoaded or loadListing first.',
         parameters: [{ name: 'meta', description: 'the listed session\'s header (identity witness; no log read).' }, { name: 'keys', description: 'optional projection keys required by the caller\'s audience.' }],
-        returns: 'the viewed block, or `undefined` when no usable row exists for this lifecycle at the current Session format.',
+        returns: 'the viewed block, or `undefined` when no usable row exists for this lifecycle at the current Session format or the record is not in memory.',
       },
       {
         signature: 'cachedPredecessorTitle(meta: SessionHeader): ProjectionSnapshot | undefined',
@@ -2937,7 +2949,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'hydratePrepared( session: Session, events: readonly SessionEvent[], ): ProjectionSnapshot',
-        description: 'Hydrate projection cells for an already-prepared Session without another persistence read. The cache seeds matching rows; the supplied exact log advances every unit to the observation cut. No checkpoint is written because the logical observation may contain recovery events not yet durable.',
+        description: 'Hydrate projection cells for an already-prepared Session without another persistence read. The cache seeds matching resident rows (await ensureLoaded first for a session outside the resident set; a non-resident record folds from the log alone); the supplied exact log advances every unit to the observation cut. No checkpoint is written because the logical observation may contain recovery events not yet durable.',
         parameters: [{ name: 'session', description: 'exact unpublished Session retained by persistence.' }, { name: 'events', description: 'exact logical event prefix represented by the observation.' }],
         returns: 'all projection values at the event cut.',
       },
@@ -3633,9 +3645,9 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'The mounted domain facility. Opens declared domains over routed backends; one facility instance owns the open-domain table and enforces single-open per domain name.',
     methods: [
       {
-        signature: 'async open<S extends DomainSpec>(spec: S): Promise<Domain<S>>',
-        description: 'Open one declared domain. Steps, each failing the whole call: reject a name that is already open (`already-open`); resolve the backend route (`backend-not-found` passes through from the hub); require its `kv` facet (`facet-unsupported`); open the unit projected from the spec (backend `version-mismatch`/`malformed-medium` pass through); load and validate every stored record against the spec\'s zod schemas (`invalid-record` with the offending table and key — unless the spec declares `invalidRecords: \'backup-and-skip\'` and the unit can move documents aside, in which case the failing record is backed up, logged, and skipped); construct the domain.\n\nLifecycle: the CALLER owns the returned handle and closes it via `Domain.close()` (typically as its own `ctx.effect` disposer) — the facility does not tie the domain to any consumer fiber. Domains still open when the facility unmounts are closed by the plugin disposer.',
-        parameters: [{ name: 'spec', description: 'The domain declaration, typically from `defineDomain`.' }],
+        signature: 'async open<S extends DomainSpec>(spec: S, options: DomainOpenOptions<S> = {}): Promise<Domain<S>>',
+        description: 'Open one declared domain. Steps, each failing the whole call: reject a name that is already open (`already-open`); resolve the backend route (`backend-not-found` passes through from the hub); require its `kv` facet (`facet-unsupported`); open the unit projected from the spec (backend `version-mismatch`/`malformed-medium` pass through); load and validate every stored record against the spec\'s zod schemas (`invalid-record` with the offending table and key — unless the spec declares `invalidRecords: \'backup-and-skip\'` and the unit can move documents aside, in which case the failing record is backed up, logged, and skipped); construct the domain. With `options.select` the load step reads only the selected records of each table (see DomainOpenOptions).\n\nLifecycle: the CALLER owns the returned handle and closes it via `Domain.close()` (typically as its own `ctx.effect` disposer) — the facility does not tie the domain to any consumer fiber. Domains still open when the facility unmounts are closed by the plugin disposer.',
+        parameters: [{ name: 'spec', description: 'The domain declaration, typically from `defineDomain`.' }, { name: 'options', description: 'Optional partial loading.' }],
         returns: 'the opened domain handle, typed by the spec.',
       },
       {
@@ -6348,7 +6360,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'DomainImpl',
-    declaration: 'export class DomainImpl {\n    readonly name: string;\n    constructor(private readonly ctx: Context, spec: DomainSpec, private readonly unit: KvUnit, records: Map<string, Map<string, unknown>>, globalValue: unknown, private readonly onClosed: () => void);\n    get global(): DomainGlobal<unknown>;\n    table(name: string): KvTable<string, unknown>;\n    close(): Promise<void>;\n}',
+    declaration: 'export class DomainImpl {\n    readonly name: string;\n    constructor(private readonly ctx: Context, spec: DomainSpec, private readonly unit: KvUnit, records: Map<string, Map<string, unknown>>, globalValue: unknown, private readonly onClosed: () => void, loading: Pick<TableHost, \'partial\' | \'admit\'>);\n    get global(): DomainGlobal<unknown>;\n    table(name: string): KvTable<string, unknown>;\n    close(): Promise<void>;\n}',
+  },
+  {
+    name: 'DomainOpenOptions',
+    declaration: 'export interface DomainOpenOptions<S extends DomainSpec = DomainSpec> {\n    readonly select?: {\n        readonly [N in keyof S[\'tables\']]?: RecordSelector;\n    };\n}',
   },
   {
     name: 'DomainSpec',
@@ -6959,12 +6975,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface KvFacet {\n    open(descriptor: KvUnitDescriptor): Promise<KvUnit>;\n}',
   },
   {
+    name: 'KvRecordStamp',
+    declaration: 'export interface KvRecordStamp {\n    readonly key: string;\n    readonly modifiedAt: number;\n}',
+  },
+  {
     name: 'KvTable',
-    declaration: 'export interface KvTable<K extends string, V> {\n    get(key: K): V | undefined;\n    entries(): IterableIterator<[\n        K,\n        V\n    ]>;\n    keys(): IterableIterator<K>;\n    readonly size: number;\n    put(key: K, value: V): Promise<void>;\n    delete(key: K): Promise<boolean>;\n    deleteMany(keys: readonly K[]): Promise<number>;\n    update(key: K, fn: (current: V) => V): Promise<V>;\n}',
+    declaration: 'export interface KvTable<K extends string, V> {\n    get(key: K): V | undefined;\n    entries(): IterableIterator<[\n        K,\n        V\n    ]>;\n    keys(): IterableIterator<K>;\n    readonly size: number;\n    load(key: K): Promise<V | undefined>;\n    evict(key: K): boolean;\n    put(key: K, value: V): Promise<void>;\n    delete(key: K): Promise<boolean>;\n    deleteMany(keys: readonly K[]): Promise<number>;\n    update(key: K, fn: (current: V) => V): Promise<V>;\n}',
   },
   {
     name: 'KvUnit',
-    declaration: 'export interface KvUnit {\n    loadAll(): Promise<{\n        tables: Record<string, Record<string, unknown>>;\n        global: unknown;\n    }>;\n    putRecord(table: string, key: string, value: unknown): Promise<void>;\n    deleteRecord(table: string, key: string): Promise<void>;\n    deleteRecords(table: string, keys: readonly string[]): Promise<void>;\n    backupRecord?(table: string, key: string): Promise<string>;\n    setGlobal(value: unknown): Promise<void>;\n    close(): Promise<void>;\n}',
+    declaration: 'export interface KvUnit {\n    loadAll(): Promise<{\n        tables: Record<string, Record<string, unknown>>;\n        global: unknown;\n    }>;\n    putRecord(table: string, key: string, value: unknown): Promise<void>;\n    deleteRecord(table: string, key: string): Promise<void>;\n    deleteRecords(table: string, keys: readonly string[]): Promise<void>;\n    backupRecord?(table: string, key: string): Promise<string>;\n    listRecordStamps?(table: string): Promise<KvRecordStamp[]>;\n    readRecord?(table: string, key: string): Promise<unknown>;\n    setGlobal(value: unknown): Promise<void>;\n    close(): Promise<void>;\n}',
   },
   {
     name: 'KvUnitDescriptor',
@@ -7857,6 +7877,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RecommendationDetails',
     declaration: 'export type RecommendationDetails = {\n    readonly status: \'available\';\n    readonly title: LocalizedText;\n    readonly description: LocalizedText;\n    readonly enabled: boolean;\n} | {\n    readonly status: \'refused\';\n    readonly reason: \'unknown\' | \'unavailable\' | \'not-live-root\' | \'closing\';\n};',
+  },
+  {
+    name: 'RecordSelector',
+    declaration: 'export type RecordSelector = (stamps: readonly KvRecordStamp[]) => readonly string[];',
   },
   {
     name: 'RecurringScheduleRecord',

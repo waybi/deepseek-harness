@@ -34,6 +34,9 @@ import {
 import SessionProjectionCache from '../src/index.ts'
 import { checkpointRow, projectionCacheDomainSpec } from '../src/spec.ts'
 
+/** Residency bounds wide enough that these cases never evict. */
+const RESIDENCY = { startupMaxAgeDays: 30, maxResidentRecords: 300 }
+
 // Declarations must match the shipped title unit's exactly (the repo-wide
 // compile face sees both).
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -108,7 +111,7 @@ async function harness(root: string) {
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.sessionProjections.register(titleUnit)
-  await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+  await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000, ...RESIDENCY })
   return { ctx, cache: ctx.sessionProjectionCache }
 }
 
@@ -324,7 +327,7 @@ describe('archived version recovery', () => {
     await ctx.sessionProjections.register(titleUnit)
     const error = vi.spyOn(ctx.logger, 'error').mockImplementation(() => {})
     // The boot survives the broken record — this line rejecting IS the fixed bug.
-    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000, ...RESIDENCY })
 
     // Concrete console diagnostics: which record, where it went, and why.
     expect(error).toHaveBeenCalledWith(expect.stringContaining("record 'broken'"))

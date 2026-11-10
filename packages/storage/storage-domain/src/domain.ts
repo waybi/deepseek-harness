@@ -6,7 +6,10 @@
  * backend write leaves memory untouched (no divergence between reads and the
  * medium) unless the backend reports `unknown-state`, which quarantines the
  * domain: reads and later writes reject until close. Events carry values that
- * equal the in-memory state at emission, in write order.
+ * equal the in-memory state at emission, in write order. A partially loaded
+ * domain holds only the records its open selected plus those later read by
+ * `load`; `load` runs on the same write chain, so it observes every write
+ * queued before it, and `evict` drops a record from memory only.
  * @module @deepseek-ai/dsh-storage-domain/src/domain
  */
 
@@ -42,27 +45,53 @@ export interface DomainGlobal<G> {
  */
 export interface KvTable<K extends string, V> {
   /**
-   * Read one record, synchronously from memory.
+   * Read one record, synchronously from memory. In a partially loaded
+   * domain a stored record that is not loaded reads as `undefined`.
    * @param key - Record key.
-   * @returns the record, or `undefined` when absent.
+   * @returns the record, or `undefined` when absent from memory.
    */
   get(key: K): V | undefined
 
   /**
-   * Snapshot iterator over `[key, record]` pairs. A snapshot, not a live
-   * view: iteration stays stable while queued writes land.
+   * Snapshot iterator over `[key, record]` pairs in memory. A snapshot, not
+   * a live view: iteration stays stable while queued writes land. A partially
+   * loaded domain iterates loaded records only.
    * @returns the pair iterator.
    */
   entries(): IterableIterator<[K, V]>
 
   /**
-   * Snapshot iterator over keys.
+   * Snapshot iterator over keys in memory (loaded keys only in a partially
+   * loaded domain).
    * @returns the key iterator.
    */
   keys(): IterableIterator<K>
 
-  /** Current record count. */
+  /** Record count in memory (loaded records only in a partially loaded domain). */
   readonly size: number
+
+  /**
+   * Read one record, loading it from the medium when a partially loaded
+   * domain does not hold it. Queued on the domain's write chain, so the
+   * result reflects every write queued before this call; a loaded record
+   * stays in memory until {@link evict}. A stored record that fails its
+   * schema follows the spec's `invalidRecords` policy (backed up and read as
+   * absent, or rejected with `invalid-record`). In a fully loaded domain
+   * this resolves the in-memory record without I/O.
+   * @param key - Record key.
+   * @returns the record, or `undefined` when the medium holds no usable record.
+   */
+  load(key: K): Promise<V | undefined>
+
+  /**
+   * Drop one record from memory without touching the medium. Only a
+   * partially loaded domain accepts this; a fully loaded domain throws,
+   * because its `get` would then misreport a stored record as absent. A
+   * write queued for the key still lands and puts the record back.
+   * @param key - Record key.
+   * @returns `true` when the record was in memory.
+   */
+  evict(key: K): boolean
 
   /**
    * Insert or overwrite one record durably.
@@ -144,6 +173,14 @@ interface TableHost {
   enqueue<T>(job: () => Promise<T>): Promise<T>
   /** Throw `closed` after teardown, or the recorded `unknown-state` while quarantined. */
   assertReadable(): void
+  /** Whether open loaded only selected records; enables `load` misses and `evict`. */
+  readonly partial: boolean
+  /**
+   * Validate one stored record read after open, applying the spec's invalid
+   * record policy.
+   * @returns the parsed record, or `undefined` when it was backed up and skipped.
+   */
+  admit(table: string, key: string, raw: unknown): Promise<unknown>
   /** Emit `domain/changed` for one durably landed write. */
   emitChanged(change: DomainChanged): void
 }
@@ -184,6 +221,9 @@ export class DomainImpl {
    * when the medium held none; `undefined` when the spec declares no global.
    * @param onClosed - Facility hook run once after teardown completes; frees
    * the domain name for a later open.
+   * @param loading - Partial-loading state: `partial` marks a domain whose
+   * `records` hold only selected keys, and `admit` validates a record read
+   * after open.
    */
   constructor(
     private readonly ctx: Context,
@@ -192,6 +232,7 @@ export class DomainImpl {
     records: Map<string, Map<string, unknown>>,
     globalValue: unknown,
     private readonly onClosed: () => void,
+    loading: Pick<TableHost, 'partial' | 'admit'>,
   ) {
     this.name = spec.name
     const host: TableHost = {
@@ -200,6 +241,8 @@ export class DomainImpl {
       enqueue: job => this.enqueue(job),
       assertReadable: () => { this.assertReadable() },
       emitChanged: (change) => { this.emitChanged(change) },
+      partial: loading.partial,
+      admit: loading.admit,
     }
     for (const [table, tableRecords] of records) {
       this.tables.set(table, new KvTableImpl(host, table, tableRecords))
@@ -337,6 +380,42 @@ class KvTableImpl<K extends string, V> implements KvTable<K, V> {
     return this.records.size
   }
 
+  load(key: K): Promise<V | undefined> {
+    return this.host.enqueue(async () => {
+      if (this.records.has(key) || !this.host.partial) return this.records.get(key) as V | undefined
+      const value = await this.readStored(key)
+      if (value !== undefined) this.records.set(key, value)
+      return value
+    })
+  }
+
+  evict(key: K): boolean {
+    if (!this.host.partial) {
+      throw new Error(`domain '${this.host.domainName}' is fully loaded; table '${this.tableName}' cannot evict records`)
+    }
+    this.host.assertReadable()
+    return this.records.delete(key)
+  }
+
+  /**
+   * Read and validate one stored record that memory does not hold. Only a
+   * partially loaded domain calls this, and its unit implements `readRecord`.
+   */
+  private async readStored(key: K): Promise<V | undefined> {
+    const { unit } = this.host
+    /* v8 ignore next -- the facility opens a partial domain only over a unit with readRecord */
+    if (unit.readRecord === undefined) return undefined
+    const raw = await unit.readRecord(this.tableName, key)
+    if (raw === undefined) return undefined
+    return await this.host.admit(this.tableName, key, raw) as V | undefined
+  }
+
+  /** Whether the record exists in memory or, for a partially loaded domain, on the medium. */
+  private async exists(key: K): Promise<boolean> {
+    if (this.records.has(key)) return true
+    return this.host.partial && await this.readStored(key) !== undefined
+  }
+
   put(key: K, value: V): Promise<void> {
     return this.host.enqueue(async () => {
       await this.host.unit.putRecord(this.tableName, key, value)
@@ -349,7 +428,7 @@ class KvTableImpl<K extends string, V> implements KvTable<K, V> {
     return this.host.enqueue(async () => {
       // Existence is decided at this job's chain slot, not at call time: an
       // earlier queued put of the same key makes this delete observe it.
-      if (!this.records.has(key)) return false
+      if (!await this.exists(key)) return false
       await this.host.unit.deleteRecord(this.tableName, key)
       this.records.delete(key)
       this.emitDeleted(key)
@@ -361,7 +440,10 @@ class KvTableImpl<K extends string, V> implements KvTable<K, V> {
     return this.host.enqueue(async () => {
       // Existence and the backend write happen at this job's chain slot, so an
       // earlier queued put of a key is observed and the batch is one unit call.
-      const present = [...new Set(keys)].filter(key => this.records.has(key))
+      const present: K[] = []
+      for (const key of new Set(keys)) {
+        if (await this.exists(key)) present.push(key)
+      }
       if (present.length === 0) return 0
       await this.host.unit.deleteRecords(this.tableName, present)
       // Memory reaches the committed batch state before the first listener runs,
@@ -374,6 +456,10 @@ class KvTableImpl<K extends string, V> implements KvTable<K, V> {
 
   update(key: K, fn: (current: V) => V): Promise<V> {
     return this.host.enqueue(async () => {
+      if (!this.records.has(key) && this.host.partial) {
+        const stored = await this.readStored(key)
+        if (stored !== undefined) this.records.set(key, stored)
+      }
       if (!this.records.has(key)) {
         throw new DomainError(
           'missing-key',

@@ -2,11 +2,17 @@
  * Persisted projection cache (`ctx.sessionProjectionCache`): durable
  * checkpoints of every projection unit's state, one record per session on
  * the `session_projcache` domain (`per-record` layout — the shipped json
- * backend stores one document per session under its root). Reads and writes
- * share ONE coherent state: the domain's in-memory tables serve every read
- * synchronously, and each write lands on the domain's write chain (durability
- * first, then memory), so a read can never observe a disk write the memory
- * has not applied, or a memory value the disk does not hold. The cache is a
+ * backend stores one document per session under its root). The domain opens
+ * partially loaded: startup reads only the newest records inside the
+ * configured window, and other records are read one at a time on demand
+ * (`ensureLoaded`, `loadListing`). Memory holds a bounded set of complete
+ * records (least recently used clean records leave first; records of live
+ * sessions and records with a pending write stay) plus a small listing view
+ * per evicted record. Reads and writes share ONE coherent state: the
+ * domain's in-memory tables serve every synchronous read, and each write and
+ * each on-demand read lands on the domain's write chain (durability first,
+ * then memory), so a read can never observe a disk write the memory has not
+ * applied, or a memory value the disk does not hold. The cache is a
  * fold shortcut, never an authority: a row
  * is possibly stale (its `seq` says how stale) but never wrong, so every
  * write path is fail-soft (a lost write costs a longer tail replay on the
@@ -19,12 +25,11 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { snapshotJsonValue } from '@deepseek-ai/dsh-util-values'
-import { SessionLogOffset } from '@deepseek-ai/dsh-session'
+import { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type {
   Session,
   SessionEvent,
   SessionHeader,
-  SessionId,
 } from '@deepseek-ai/dsh-session'
 import type {
   ProjectionCheckpoint,
@@ -33,6 +38,7 @@ import type {
   SessionProjectionMap,
 } from '@deepseek-ai/dsh-session-projection'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import { RecencyOrder, selectStartupKeys } from './residency.ts'
 import { projectionCacheDomainSpec } from './spec.ts'
 import type { CheckpointIdentity, CheckpointRecord } from './spec.ts'
 
@@ -67,23 +73,46 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /**
- * Plugin config. Both throttle triggers are deployment choices with no
- * universally correct value, so the composition states them explicitly
- * (cordis.yml); the three mandatory write points (session creation,
- * `turn/end`, and session disposal) are policy, not tunables, and always
- * fire.
+ * Plugin config. Both throttle triggers and both residency bounds are
+ * deployment choices with no universally correct value, so the composition
+ * states them explicitly (cordis.yml); the three mandatory write points
+ * (session creation, `turn/end`, and session disposal) are policy, not
+ * tunables, and always fire.
  */
 export interface Config {
   /** Committed events per session that force a durable checkpoint write between mandatory points. */
   writeEveryEvents: number
   /** Longest time (milliseconds) a dirty checkpoint may stay unwritten between mandatory points. */
   writeIntervalMs: number
+  /** Startup loads only records whose stored document changed within this many days (window start inclusive). */
+  startupMaxAgeDays: number
+  /**
+   * Most complete records startup loads (newest first), and the bound on
+   * complete records kept in memory afterwards. Records of live sessions and
+   * records with a pending write are never evicted, so memory may exceed the
+   * bound while more of them exist.
+   */
+  maxResidentRecords: number
 }
 
 export const Config: z<Config> = z.object({
   writeEveryEvents: z.natural().min(1).required(),
   writeIntervalMs: z.natural().min(1).required(),
+  startupMaxAgeDays: z.natural().min(1).required(),
+  maxResidentRecords: z.natural().min(1).required(),
 })
+
+/**
+ * Summary-key view of one record that left memory: enough for the Session
+ * list and other summary-key readers without the complete record.
+ */
+interface ListingView {
+  readonly identity: CheckpointIdentity
+  /** The summary key set the view was taken with. */
+  readonly keys: ReadonlySet<string>
+  /** Viewed summary values with the seq of the row each came from. */
+  readonly rows: ReadonlyMap<string, { readonly seq: ProjectionSnapshot['asOfSeq']; readonly value: unknown }>
+}
 
 /** Per-session write-behind bookkeeping (live sessions only; dropped at retire). */
 interface DirtyState {
@@ -109,17 +138,94 @@ export class SessionProjectionCache extends Service {
 
   private table?: KvTable<SessionId, CheckpointRecord>
   private readonly dirty = new Map<Session, DirtyState>()
+  /** Use order of resident complete records. */
+  private readonly recency = new RecencyOrder<SessionId>()
+  /** Durable writes in flight per session; such a record is never evicted. */
+  private readonly pendingWrites = new Map<SessionId, number>()
+  /** Summary-key views of records that were read or evicted while not resident. */
+  private readonly listings = new Map<SessionId, ListingView>()
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'sessionProjectionCache')
   }
 
-  /** Open the domain and install the write-behind listeners. */
+  /**
+   * Open the domain partially loaded with the newest records inside the
+   * startup window, and install the write-behind listeners.
+   */
   protected async [Service.init](): Promise<void> {
-    const domain = await this.ctx.storageDomain.open(projectionCacheDomainSpec)
+    let selected: string[] = []
+    const domain = await this.ctx.storageDomain.open(projectionCacheDomainSpec, {
+      select: {
+        sessions: (stamps) => {
+          selected = selectStartupKeys(stamps, Date.now(), this.config.startupMaxAgeDays, this.config.maxResidentRecords)
+          return selected
+        },
+      },
+    })
     this.ctx.effect(() => () => domain.close(), 'sessionProjectionCache.domainClose')
     this.table = domain.table('sessions')
+    // Oldest first, so the newest selected record is the most recently used.
+    for (const key of selected.toReversed()) {
+      if (this.table.get(SessionId(key)) !== undefined) this.recency.touch(SessionId(key))
+    }
     this.installWritePath()
+  }
+
+  /**
+   * Make one session's complete stored record resident, reading it from the
+   * medium when memory does not hold it. Callers await this before a
+   * synchronous fold read ({@link hydratePrepared}) for a session that may be
+   * outside the resident set. Fail-soft: a failed read logs a warning and
+   * leaves the session uncached (the fold replays its log).
+   * @param id - the session whose record is read.
+   * @returns whether a record is resident afterwards.
+   */
+  async ensureLoaded(id: SessionId): Promise<boolean> {
+    const table = this.requireTable()
+    let record: CheckpointRecord | undefined
+    try {
+      record = await table.load(id)
+    } catch (error) {
+      this.ctx.logger.warn(`session projection cache: reading the record for "${id}" failed (served uncached): ${String(error)}`)
+      return false
+    }
+    if (record === undefined) return false
+    this.listings.delete(id)
+    this.recency.touch(id)
+    this.trim()
+    return true
+  }
+
+  /**
+   * Serve one session's summary-key block, reading its record from the medium
+   * when memory holds neither the record nor its listing view. A record read
+   * here is reduced to its listing view and leaves memory again unless it is
+   * pinned, so listing every session never keeps every complete record.
+   * Fail-soft like {@link ensureLoaded}.
+   * @param meta - the listed session's header (identity witness).
+   * @returns the same block {@link cachedSnapshot} with the summary keys, or
+   *   else {@link cachedPredecessorTitle}, would serve; `undefined` when the
+   *   medium holds no usable record.
+   */
+  async loadListing(meta: SessionHeader): Promise<ProjectionSnapshot | undefined> {
+    const keys = this.ctx.sessionProjections.summaryKeys()
+    const cached = this.cachedSnapshot(meta, keys) ?? this.cachedPredecessorTitle(meta)
+    if (cached !== undefined) return cached
+    const table = this.requireTable()
+    if (table.get(meta.id) !== undefined) return undefined
+    let record: CheckpointRecord | undefined
+    try {
+      record = await table.load(meta.id)
+    } catch (error) {
+      this.ctx.logger.warn(`session projection cache: reading the record for "${meta.id}" failed (served uncached): ${String(error)}`)
+      return undefined
+    }
+    if (record === undefined) return undefined
+    if (table.get(meta.id) === record && !this.pinned(meta.id)) this.demote(meta.id, record)
+    else this.recency.touch(meta.id)
+    this.trim()
+    return this.cachedSnapshot(meta, keys) ?? this.cachedPredecessorTitle(meta)
   }
 
   /**
@@ -135,9 +241,16 @@ export class SessionProjectionCache extends Service {
    * @returns the identity-matching record, or `undefined` (absent or unrelated).
    */
   private recordFor(id: SessionId, expected: CurrentCheckpointIdentity): CheckpointRecord | undefined {
-    const record = this.requireTable().get(id)
+    const record = this.resident(id)
     if (record === undefined) return undefined
     return identityMatches(record.identity, expected) ? record : undefined
+  }
+
+  /** The resident complete record for one session, marking it used. */
+  private resident(id: SessionId): CheckpointRecord | undefined {
+    const record = this.requireTable().get(id)
+    if (record !== undefined) this.recency.touch(id)
+    return record
   }
 
   /**
@@ -154,19 +267,28 @@ export class SessionProjectionCache extends Service {
    * cannot relate to the log the caller later opens. The Session list
    * therefore labels the block as cached, and the client lets every value the
    * connected Session produces supersede it whatever this number says.
+   *
+   * When the complete record is not resident, a listing view of the record
+   * serves the call if `keys` names only summary keys; otherwise the read
+   * misses. Callers that need a non-resident record await
+   * {@link ensureLoaded} or {@link loadListing} first.
    * @param meta - the listed session's header (identity witness; no log read).
    * @param keys - optional projection keys required by the caller's audience.
    * @returns the viewed block, or `undefined` when no usable row exists for
-   *   this lifecycle at the current Session format.
+   *   this lifecycle at the current Session format or the record is not in memory.
    */
   cachedSnapshot(
     meta: SessionHeader,
     keys?: ProjectionKeySelection,
   ): ProjectionSnapshot | undefined {
     const expected = lifecycleIdentityOf(meta)
-    const record = this.requireTable().get(meta.id)
-    if (record === undefined || !currentLifecycleMatches(record.identity, expected)) return undefined
-    return this.viewRecord(record, keys)
+    const record = this.resident(meta.id)
+    if (record !== undefined) {
+      return currentLifecycleMatches(record.identity, expected) ? this.viewRecord(record, keys) : undefined
+    }
+    const listing = this.listings.get(meta.id)
+    if (listing === undefined || keys === undefined || !currentLifecycleMatches(listing.identity, expected)) return undefined
+    return viewListing(listing, keys)
   }
 
   /**
@@ -186,9 +308,13 @@ export class SessionProjectionCache extends Service {
    */
   cachedPredecessorTitle(meta: SessionHeader): ProjectionSnapshot | undefined {
     const expected = lifecycleIdentityOf(meta)
-    const record = this.requireTable().get(meta.id)
-    if (record === undefined || !predecessorIdentityMatches(record.identity, expected)) return undefined
-    return this.viewRecord(record, [PREDECESSOR_TITLE_KEY])
+    const record = this.resident(meta.id)
+    if (record !== undefined) {
+      return predecessorIdentityMatches(record.identity, expected) ? this.viewRecord(record, [PREDECESSOR_TITLE_KEY]) : undefined
+    }
+    const listing = this.listings.get(meta.id)
+    if (listing === undefined || !predecessorIdentityMatches(listing.identity, expected)) return undefined
+    return viewListing(listing, [PREDECESSOR_TITLE_KEY])
   }
 
   /**
@@ -213,7 +339,9 @@ export class SessionProjectionCache extends Service {
 
   /**
    * Hydrate projection cells for an already-prepared Session without another
-   * persistence read. The cache seeds matching rows; the supplied exact log
+   * persistence read. The cache seeds matching resident rows (await
+   * {@link ensureLoaded} first for a session outside the resident set; a
+   * non-resident record folds from the log alone); the supplied exact log
    * advances every unit to the observation cut. No checkpoint is written
    * because the logical observation may contain recovery events not yet durable.
    * @param session - exact unpublished Session retained by persistence.
@@ -386,13 +514,67 @@ export class SessionProjectionCache extends Service {
     }
   }
 
-  /** Replace one session's stored record with its log identity and a detached snapshot of `rows`. */
+  /**
+   * Replace one session's stored record with its log identity and a detached
+   * snapshot of `rows`. The record stays pinned in memory while the write is
+   * in flight; afterwards it is the most recently used resident record.
+   */
   private async put(id: SessionId, identity: CheckpointIdentity, rows: ProjectionCheckpoint): Promise<void> {
     const detached = snapshotJsonValue(rows)
     if (detached === undefined) {
       throw new TypeError('projection checkpoint is not losslessly JSON-serializable (a unit state violates the plain-JSON contract)')
     }
-    await this.requireTable().put(id, { identity, rows: detached as CheckpointRecord['rows'] })
+    this.pendingWrites.set(id, (this.pendingWrites.get(id) ?? 0) + 1)
+    try {
+      await this.requireTable().put(id, { identity, rows: detached as CheckpointRecord['rows'] })
+      this.listings.delete(id)
+      this.recency.touch(id)
+    } finally {
+      const pending = (this.pendingWrites.get(id) ?? 1) - 1
+      if (pending === 0) this.pendingWrites.delete(id)
+      else this.pendingWrites.set(id, pending)
+      this.trim()
+    }
+  }
+
+  /** Whether one session's record must stay resident: the session is live or a write for it is in flight. */
+  private pinned(id: SessionId): boolean {
+    return this.pendingWrites.has(id) || this.ctx.sessions.get(id) !== undefined
+  }
+
+  /**
+   * Evict least recently used unpinned records until the resident count is
+   * within {@link Config.maxResidentRecords}; each evicted record keeps its
+   * listing view. Pinned records stay, so the count may remain above the
+   * bound until they are released.
+   */
+  private trim(): void {
+    const table = this.requireTable()
+    if (table.size <= this.config.maxResidentRecords) return
+    for (const id of this.recency.evictionCandidates()) {
+      if (table.size <= this.config.maxResidentRecords) return
+      const record = table.get(id)
+      if (record === undefined) {
+        this.recency.forget(id)
+        continue
+      }
+      if (!this.pinned(id)) this.demote(id, record)
+    }
+  }
+
+  /** Replace one resident record with its summary-key listing view and drop it from memory. */
+  private demote(id: SessionId, record: CheckpointRecord): void {
+    const keys = this.ctx.sessionProjections.summaryKeys()
+    const viewKeys = new Set([...keys, PREDECESSOR_TITLE_KEY])
+    const values = this.ctx.sessionProjections.viewCheckpoint(record.rows, viewKeys)
+    const rows = new Map<string, { seq: ProjectionSnapshot['asOfSeq']; value: unknown }>()
+    for (const [key, value] of Object.entries(values)) {
+      const row = record.rows[key]
+      if (row !== undefined) rows.set(key, { seq: row.seq, value })
+    }
+    this.listings.set(id, { identity: record.identity, keys: viewKeys, rows })
+    this.requireTable().evict(id)
+    this.recency.forget(id)
   }
 
   private requireTable(): KvTable<SessionId, CheckpointRecord> {
@@ -400,6 +582,24 @@ export class SessionProjectionCache extends Service {
     if (this.table === undefined) throw new Error('session projection cache is not initialized')
     return this.table
   }
+}
+
+/**
+ * View a listing for `keys`, which must all be keys the view was taken with;
+ * otherwise the view cannot tell an absent row from an unviewed one and the
+ * read misses.
+ */
+function viewListing(listing: ListingView, keys: ProjectionKeySelection): ProjectionSnapshot | undefined {
+  const values: Record<string, unknown> = {}
+  let asOfSeq: ProjectionSnapshot['asOfSeq'] | undefined
+  for (const key of keys) {
+    if (!listing.keys.has(key)) return undefined
+    const row = listing.rows.get(key)
+    if (row === undefined) continue
+    values[key] = row.value
+    if (asOfSeq === undefined || row.seq < asOfSeq) asOfSeq = row.seq
+  }
+  return asOfSeq === undefined ? undefined : { asOfSeq, values }
 }
 
 /** Project a header onto the identity fields a header alone can witness. */

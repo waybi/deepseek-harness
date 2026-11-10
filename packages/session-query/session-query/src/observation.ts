@@ -149,6 +149,14 @@ export class SessionObservationReader {
       }
 
       let projections: ProjectionSnapshot | undefined
+      // The cache keeps a bounded resident set; make this Session's stored
+      // record resident so the synchronous hydration below can seed from it.
+      if (projectionMode !== 'none') {
+        await this.ctx.get('sessionProjectionCache')?.ensureLoaded(sessionId)
+        throwIfObservationAborted(signal)
+        const attachedDuringLoad = this.ctx.sessions.get(sessionId)
+        if (attachedDuringLoad !== undefined) return this.live(attachedDuringLoad, projectionMode)
+      }
       try {
         projections = projectionMode === 'none' ? undefined : this.preparedProjections(entry)
       } catch (error: unknown) {

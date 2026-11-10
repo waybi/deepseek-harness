@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/projection-cache-residency/guide.md
+/:
+  en: bcdbd493b5c104c0
+  zh: 2eefc5f581becbf1
+/projection-cache-startup-window-and-memory-bound:
+  en: f8d2b39c71e1fe1e
+  zh: 116ef1df0d21dce4
+/projection-cache-startup-window-and-memory-bound/change:
+  en: 00adb1a370f80c18
+  zh: a39654badc76260e
+/projection-cache-startup-window-and-memory-bound/migration:
+  en: 8f597730ee81d6be
+  zh: 3c0d2b7fe7514150

@@ -220,16 +220,18 @@ The mounted domain facility. Opens declared domains over routed backends; one fa
  * with the offending table and key — unless the spec declares
  * `invalidRecords: 'backup-and-skip'` and the unit can move documents aside, in
  * which case the failing record is backed up, logged, and skipped);
- * construct the domain.
+ * construct the domain. With `options.select` the load step reads only the
+ * selected records of each table (see {@link DomainOpenOptions}).
  *
  * Lifecycle: the CALLER owns the returned handle and closes it via
  * `Domain.close()` (typically as its own `ctx.effect` disposer) — the
  * facility does not tie the domain to any consumer fiber. Domains still
  * open when the facility unmounts are closed by the plugin disposer.
  * @param spec - The domain declaration, typically from `defineDomain`.
+ * @param options - Optional partial loading.
  * @returns the opened domain handle, typed by the spec.
  */
-async open<S extends DomainSpec>(spec: S): Promise<Domain<S>>
+async open<S extends DomainSpec>(spec: S, options: DomainOpenOptions<S> = {}): Promise<Domain<S>>
 
 /**
  * Look up an open domain by name, untyped. Diagnostic surface; typed

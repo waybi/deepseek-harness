@@ -33,7 +33,7 @@ Choose it when a deployment restarts sessions and needs durable projection value
 
 ### Minimal configuration
 
-Both throttle fields are required — flush cadence is a deployment choice with no universally correct value:
+All four fields are required — flush cadence and the memory bound are deployment choices with no universally correct value; base ships 30 days and 300 records:
 
 The cache opens its domain through the storage stack, so base mounts `storage`, `storage-json` (root `dshHomePath('storages')`), and `storage-domain` (`backend: json`) before it:
 
@@ -43,12 +43,16 @@ The cache opens its domain through the storage stack, so base mounts `storage`, 
   config:
     writeEveryEvents: 200
     writeIntervalMs: 5000
+    startupMaxAgeDays: 30
+    maxResidentRecords: 300
 ```
 
 | Field | Default | Meaning |
 |---|---|---|
 | `writeEveryEvents` | required | Committed events per session that force a durable checkpoint write between mandatory points |
 | `writeIntervalMs` | required | Longest time a dirty checkpoint may stay unwritten between mandatory points |
+| `startupMaxAgeDays` | required (base: `30`) | Startup reads only records whose document changed in the last this-many days; a record changed exactly at the window start is included |
+| `maxResidentRecords` | required (base: `300`) | Most records startup reads (newest first), and the most complete records kept in memory afterwards |
 
 The plugin injects `storageDomain`, `sessionProjections`, and `sessions`. The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-session-projection-cache) is the exhaustive source for every accepted field and its JSDoc.
 
@@ -56,9 +60,13 @@ The plugin injects `storageDomain`, `sessionProjections`, and `sessions`. The ge
 
 Three mandatory points always write: session creation persists the seed-derived cut, `turn/end` persists the value that listing reads want, and session disposal persists the final live cut. Between them, the configured count and interval throttles write as events accumulate. Every write atomically replaces the session's complete record through the domain write chain; a failure logs a warning and keeps the cache stale, and the next write self-heals.
 
+### Startup and memory bound
+
+Startup lists the stored record documents without reading them and reads only those changed inside the `startupMaxAgeDays` window, newest first, at most `maxResidentRecords` of them. Other records stay on disk until a reader needs one. `ensureLoaded(id)` reads one session's complete record before a fold (`hydratePrepared`); Session observation reads and the migration-required projection read call it. `loadListing(meta)` reads one record for the Session list, keeps only its summary-key values as a listing view, and drops the complete record again, so listing every session never keeps every complete record. After any read or write, the least recently used clean complete records leave memory until at most `maxResidentRecords` remain, each keeping its listing view. A record whose session is live, or whose write is still in flight, never leaves memory, so the count can exceed the bound while more such sessions exist. A failed on-demand read logs a warning and serves the session as uncached.
+
 ### Reading cached values
 
-`cachedSnapshot(meta, keys?)` is the read-only face: it synchronously serves client values from the storage domain's in-memory tables with zero I/O. It accepts a record whose lifecycle identity (`formatVersion`, `createdAt`, `cwd`, `isSeeded`) matches the header and serves its version- and schema-matching keys as one block whose `asOfSeq` is the lowest watermark among the served rows. That watermark is the stored record's own: a header witnesses no inherited cut and cannot vouch that the row sequence is comparable with the log a consumer later opens, so the Session list labels the block `cached` and the client lets every value the connected Session later produces supersede it. A row can also be frozen where its projection unit was released before the write, so its watermark may trail the log by more than the last checkpoint interval. Within one format generation the cut is fixed at fork time and distinguishes no lifecycle the other fields do not, and a viewed value never seeds a fold, so seeded (forked) sessions are served exactly like unseeded ones. `cachedPredecessorTitle(meta)` is the narrower listing-only exception across a Session-format edge: a structurally admitted predecessor record whose lifecycle matches may expose only a current-version-compatible `title` row, because title text is invariant across the adjacent edges. All other predecessor rows remain unavailable. `coldSnapshot(meta, inheritedEventCount, events)` is a fold face: it accepts the exact cut with a complete ordered log, skips the checkpointed prefix while folding, and refreshes the record without reading persistence itself.
+`cachedSnapshot(meta, keys?)` is the read-only face: it synchronously serves client values from the storage domain's in-memory tables with zero I/O. When the complete record is not in memory, its listing view answers if every requested key is a summary key; otherwise the read misses. It accepts a record whose lifecycle identity (`formatVersion`, `createdAt`, `cwd`, `isSeeded`) matches the header and serves its version- and schema-matching keys as one block whose `asOfSeq` is the lowest watermark among the served rows. That watermark is the stored record's own: a header witnesses no inherited cut and cannot vouch that the row sequence is comparable with the log a consumer later opens, so the Session list labels the block `cached` and the client lets every value the connected Session later produces supersede it. A row can also be frozen where its projection unit was released before the write, so its watermark may trail the log by more than the last checkpoint interval. Within one format generation the cut is fixed at fork time and distinguishes no lifecycle the other fields do not, and a viewed value never seeds a fold, so seeded (forked) sessions are served exactly like unseeded ones. `cachedPredecessorTitle(meta)` is the narrower listing-only exception across a Session-format edge: a structurally admitted predecessor record whose lifecycle matches may expose only a current-version-compatible `title` row, because title text is invariant across the adjacent edges. All other predecessor rows remain unavailable. `coldSnapshot(meta, inheritedEventCount, events)` is a fold face: it accepts the exact cut with a complete ordered log, skips the checkpointed prefix while folding, and refreshes the record without reading persistence itself.
 
 ### What the cache guarantees
 
@@ -90,6 +98,7 @@ The cache stores one version-stamped document per session in the `session_projca
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `SessionProjectionCache` service, write-behind listeners, cache reads |
 | [`src/spec.ts`](src/spec.ts) | The `session_projcache` domain spec and record identity types |
+| [`src/residency.ts`](src/residency.ts) | Startup record selection and least-recently-used order of resident records |
 
 </details>
 
@@ -124,7 +133,10 @@ None; the cache never assembles or sends provider requests.
 
 These limits define where the cache needs operational care. They are current package constraints, not a task backlog.
 
-- **No eviction or retention surface** — records accumulate per session; pruning stored checkpoints is out-of-band maintenance, same stance as session persistence itself.
+- **No retention surface on disk** — stored records accumulate per session; pruning stored checkpoints is out-of-band maintenance, same stance as session persistence itself. Only memory is bounded.
+- **First read outside the window costs one disk read** — the first open, history read, or list row of a session outside the startup set reads its record document; the list reads such rows in the background within its backfill concurrency, so their titles arrive after the first list response.
+- **Synchronous consumers miss until a record is read** — session mentions (`session-reference`) and forge change-request states read `cachedSnapshot` synchronously; before the Session list or an open has read a cold record, they fall back to their uncached behavior (an id label, no bindings).
+- **Listing views are not bounded** — each session whose record was read or evicted keeps one summary-key view in memory; summary values are small, but their count grows with the number of listed sessions.
 - **Interval throttle is per-session coarse** — the timer arms at the first dirty event after a clean write; a steady sub-threshold trickle writes once per interval, not a sliding window.
 - **No cache-side cold refold** — the cache serves and refreshes its rows but never reads the session log (it does not depend on the persistence layer); a consumer that needs a guaranteed cold snapshot refolds from the log itself.
 - **Every schema or domain-version change must prove its upgrade story** — a change to the stored record schema or the domain version lands in the same PR with an archived fixture of the previously shipped on-disk format under `tests/fixtures/` and test cases in `tests/fixtures.spec.ts` proving the chosen disposition: read-compat recovery (`compatibleVersions`), current-version rewrite, or backup-and-skip salvage. A bump whose old records are simply discarded still proves that the discard neither causes startup to fail nor poisons the tree.

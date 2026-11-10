@@ -6,7 +6,9 @@
  * put or delete touches one durable document, and a batch delete renames its
  * documents out of the readable set before unlinking them. The domain layer owns the live
  * in-memory tables (seeded by the open-time `loadAll`) and serializes writes
- * through its write chain. A rejected write leaves domain memory unchanged;
+ * through its write chain. `listRecordStamps` and `readRecord` serve partially
+ * loaded domains: the first stats documents without reading them, the second
+ * reads one document. A rejected write leaves domain memory unchanged;
  * a failed deletion restores its staged documents or quarantines the unit
  * with `unknown-state` when restoration cannot be established.
  *
@@ -27,11 +29,11 @@
  * @module @deepseek-ai/dsh-storage-json/src/per-record-unit
  */
 
-import { mkdir, readFile, readdir, rename, rm } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Dirent } from 'node:fs'
 import { StorageError } from '@deepseek-ai/dsh-storage'
-import type { KvUnit, KvUnitDescriptor } from '@deepseek-ai/dsh-storage'
+import type { KvRecordStamp, KvUnit, KvUnitDescriptor } from '@deepseek-ai/dsh-storage'
 import { fsyncDirectory, writeAtomic } from './atomic.ts'
 import { parseRecord, serializeRecord } from './format.ts'
 import type { UnitState } from './format.ts'
@@ -196,6 +198,8 @@ export class PerRecordJsonUnit implements KvUnit {
   private unusable: StorageError | undefined
   /** In-flight durable writes; close() drains them before releasing the unit. */
   private readonly inFlight = new Set<Promise<void>>()
+  /** Settles once the legacy bootstrap check ran for the per-record read capabilities. */
+  private bootstrap: Promise<void> | undefined
 
   constructor(
     private readonly descriptor: KvUnitDescriptor,
@@ -212,6 +216,76 @@ export class PerRecordJsonUnit implements KvUnit {
       tables[table] = Object.fromEntries(records)
     }
     return { tables, global: state.global }
+  }
+
+  /**
+   * List one table's `<key>.json` documents with their mtimes, statting each
+   * file without reading it. Runs the legacy bootstrap first when the tree
+   * is unmaterialized, exactly as {@link loadAll} would.
+   */
+  async listRecordStamps(table: string): Promise<KvRecordStamp[]> {
+    this.assertOpen()
+    const dir = this.tableDir(table)
+    await this.bootstrapOnce()
+    let files: Dirent[]
+    try {
+      files = await readdir(dir, { withFileTypes: true })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      return []
+    }
+    const stamps = await Promise.all(files.map(async (file): Promise<KvRecordStamp | undefined> => {
+      if (!file.isFile() || !file.name.endsWith('.json')) return undefined
+      const key = file.name.slice(0, -'.json'.length)
+      if (!SAFE_KEY_RE.test(key)) return undefined
+      try {
+        return { key, modifiedAt: (await stat(join(dir, file.name))).mtimeMs }
+      } catch (error) {
+        // A document removed between readdir and stat is simply absent.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+        throw error
+      }
+    }))
+    return stamps.filter(stamp => stamp !== undefined)
+  }
+
+  /** Read one record document; missing, malformed, or unaccepted documents read as absent. */
+  async readRecord(table: string, key: string): Promise<unknown> {
+    this.assertOpen()
+    const dir = this.tableDir(table)
+    if (!SAFE_KEY_RE.test(key)) return undefined
+    await this.bootstrapOnce()
+    return readRecord(join(dir, `${key}.json`), acceptedStamps(this.descriptor))
+  }
+
+  /**
+   * Run the legacy whole-unit bootstrap once for the per-record read
+   * capabilities, under the same conditions as {@link loadAll}: only when no
+   * declared table directory or declared global document exists yet.
+   */
+  private bootstrapOnce(): Promise<void> {
+    this.bootstrap ??= (async () => {
+      let entries: Dirent[] | undefined
+      try {
+        entries = await readdir(this.dir, { withFileTypes: true })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      const materialized = entries?.some(entry =>
+        (entry.isDirectory() && this.descriptor.tables.includes(entry.name))
+        || (entry.name === 'global.json' && this.descriptor.hasGlobal)) ?? false
+      if (materialized) return
+      const scratch: UnitState = {
+        version: this.descriptor.version,
+        global: null,
+        tables: new Map(this.descriptor.tables.map(table => [table, new Map<string, unknown>()])),
+      }
+      await bootstrapLegacyUnit(this.descriptor, this.dir, scratch)
+    })().catch((error: unknown) => {
+      this.bootstrap = undefined
+      throw error
+    })
+    return this.bootstrap
   }
 
   /** Durably replace one record: its own document, atomically. */

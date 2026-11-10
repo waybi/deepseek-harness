@@ -9,7 +9,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
-import { storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
+import { storageBackendServiceKey, type KvRecordStamp, type KvUnit } from '@deepseek-ai/dsh-storage'
 import { DomainError } from './error.ts'
 import { descriptorOf } from './spec.ts'
 import type { DomainSpec } from './spec.ts'
@@ -24,6 +24,27 @@ export type {
   TableKeyOf, TableValueOf, GlobalValueOf,
 } from './spec.ts'
 export type { DomainChanged } from './events.ts'
+export type { KvRecordStamp } from '@deepseek-ai/dsh-storage'
+
+/**
+ * Chooses which stored records a partially loaded table reads at open.
+ * @param stamps - every stored record key of the table with its last-modified time.
+ * @returns the keys to load; keys without a usable stored record are skipped.
+ */
+export type RecordSelector = (stamps: readonly KvRecordStamp[]) => readonly string[]
+
+/** Options for {@link DomainFacility.open}. */
+export interface DomainOpenOptions<S extends DomainSpec = DomainSpec> {
+  /**
+   * Open the domain partially loaded: each table lists its stored keys and
+   * reads only the keys its selector returns (a table without a selector
+   * reads every key). Other records stay on the medium until
+   * `KvTable.load` reads them. Requires a backend unit with
+   * `listRecordStamps` and `readRecord` and a spec without a global slot;
+   * otherwise `open` rejects with `facet-unsupported`.
+   */
+  readonly select?: { readonly [N in keyof S['tables']]?: RecordSelector }
+}
 export type { Domain, DomainGlobal, DomainGlobalHandleOf, KvTable } from './domain.ts'
 
 declare module '@deepseek-ai/dsh-storage' {
@@ -91,16 +112,18 @@ export class DomainFacility {
    * with the offending table and key — unless the spec declares
    * `invalidRecords: 'backup-and-skip'` and the unit can move documents aside, in
    * which case the failing record is backed up, logged, and skipped);
-   * construct the domain.
+   * construct the domain. With `options.select` the load step reads only the
+   * selected records of each table (see {@link DomainOpenOptions}).
    *
    * Lifecycle: the CALLER owns the returned handle and closes it via
    * `Domain.close()` (typically as its own `ctx.effect` disposer) — the
    * facility does not tie the domain to any consumer fiber. Domains still
    * open when the facility unmounts are closed by the plugin disposer.
    * @param spec - The domain declaration, typically from `defineDomain`.
+   * @param options - Optional partial loading.
    * @returns the opened domain handle, typed by the spec.
    */
-  async open<S extends DomainSpec>(spec: S): Promise<Domain<S>> {
+  async open<S extends DomainSpec>(spec: S, options: DomainOpenOptions<S> = {}): Promise<Domain<S>> {
     if (this.reserved.has(spec.name)) {
       throw new DomainError('already-open', `domain '${spec.name}' is already open`)
     }
@@ -114,48 +137,64 @@ export class DomainFacility {
           `backend '${backendName}' routed for domain '${spec.name}' has no kv facet`,
         )
       }
+      const select = options.select
+      const partial = select !== undefined
+      if (partial && spec.global !== undefined) {
+        throw new DomainError('facet-unsupported', `domain '${spec.name}' declares a global slot and cannot open partially loaded`)
+      }
       const unit = await backend.kv.open(descriptorOf(spec))
       try {
-        const snapshot = await unit.loadAll()
+        const admit = (table: string, key: string, raw: unknown): Promise<unknown> =>
+          this.admitRecord(spec, unit, table, key, raw)
         const tables = new Map<string, Map<string, unknown>>()
-        for (const [table, tableSpec] of Object.entries(spec.tables)) {
-          const records = new Map<string, unknown>()
-          for (const [key, raw] of Object.entries(snapshot.tables[table] ?? {})) {
-            let parsed: unknown
-            try {
-              parsed = parseRecord(spec.name, table, key, () => tableSpec.valueSchema.parse(raw))
-            } catch (error) {
-              // Backup-and-skip policy (disposable derived data): move the record's
-              // document aside, log the concrete failure, and open without the
-              // record. Backends that cannot move a document keep the loud path.
-              if (spec.invalidRecords !== 'backup-and-skip' || unit.backupRecord === undefined) throw error
-              const moved = await unit.backupRecord(table, key)
-              // parseRecord always wraps the zod failure as the cause.
-              this.ctx.logger.error(
-                `domain '${spec.name}': stored record '${key}' in table '${table}' failed schema validation; `
-                + `moved to '${moved}' and treated as absent. Cause: ${String((error as DomainError).cause)}`,
-              )
-              continue
-            }
-            records.set(key, parsed)
+        let storedGlobal: unknown = null
+        if (partial) {
+          if (unit.listRecordStamps === undefined || unit.readRecord === undefined) {
+            throw new DomainError(
+              'facet-unsupported',
+              `backend '${backendName}' routed for domain '${spec.name}' cannot list and read single records, so the domain cannot open partially loaded`,
+            )
           }
-          tables.set(table, records)
+          for (const table of Object.keys(spec.tables)) {
+            const stamps = await unit.listRecordStamps(table)
+            const selector = select[table]
+            const keys = selector === undefined ? stamps.map(stamp => stamp.key) : selector(stamps)
+            const records = new Map<string, unknown>()
+            for (const key of new Set(keys)) {
+              const raw = await unit.readRecord(table, key)
+              if (raw === undefined) continue
+              const parsed = await admit(table, key, raw)
+              if (parsed !== undefined) records.set(key, parsed)
+            }
+            tables.set(table, records)
+          }
+        } else {
+          const snapshot = await unit.loadAll()
+          storedGlobal = snapshot.global
+          for (const table of Object.keys(spec.tables)) {
+            const records = new Map<string, unknown>()
+            for (const [key, raw] of Object.entries(snapshot.tables[table] ?? {})) {
+              const parsed = await admit(table, key, raw)
+              if (parsed !== undefined) records.set(key, parsed)
+            }
+            tables.set(table, records)
+          }
         }
         // A null stored global means "never written": serve `initial` without
         // materializing it — the first `set` writes.
         const globalSpec = spec.global
         const globalValue = globalSpec === undefined
           ? undefined
-          : snapshot.global === null
+          : storedGlobal === null
             ? globalSpec.initial
-            : parseRecord(spec.name, '', '', () => globalSpec.schema.parse(snapshot.global))
+            : parseRecord(spec.name, '', '', () => globalSpec.schema.parse(storedGlobal))
         // The onClosed hook runs strictly after teardown completes: writes
         // landing during the drain still emit domain/changed, and the name
         // frees up for reopening only once the domain is fully closed.
         const domain: DomainImpl = new DomainImpl(this.ctx, spec, unit, tables, globalValue, () => {
           this.domains.delete(spec.name)
           this.reserved.delete(spec.name)
-        })
+        }, { partial, admit })
         this.domains.set(spec.name, domain)
         // The single type-erasure point: DomainImpl is the untyped runtime,
         // Domain<S> the spec-typed view; the unknown hop is required because
@@ -170,6 +209,35 @@ export class DomainFacility {
       // after it), so releasing the name reservation is unconditional.
       this.reserved.delete(spec.name)
       throw error
+    }
+  }
+
+  /**
+   * Validate one stored table record. A record that fails its schema rejects
+   * with `invalid-record`, unless the spec declares
+   * `invalidRecords: 'backup-and-skip'` and the unit can move documents aside:
+   * then the document is backed up, the failure logged, and the record read
+   * as absent.
+   * @returns the parsed record, or `undefined` when it was backed up.
+   */
+  private async admitRecord(spec: DomainSpec, unit: KvUnit, table: string, key: string, raw: unknown): Promise<unknown> {
+    const tableSpec = spec.tables[table]
+    /* v8 ignore next -- callers pass declared table names only */
+    if (tableSpec === undefined) throw new Error(`domain '${spec.name}' declares no table '${table}'`)
+    try {
+      return parseRecord(spec.name, table, key, () => tableSpec.valueSchema.parse(raw))
+    } catch (error) {
+      // Backup-and-skip policy (disposable derived data): move the record's
+      // document aside, log the concrete failure, and continue without the
+      // record. Backends that cannot move a document keep the loud path.
+      if (spec.invalidRecords !== 'backup-and-skip' || unit.backupRecord === undefined) throw error
+      const moved = await unit.backupRecord(table, key)
+      // parseRecord always wraps the zod failure as the cause.
+      this.ctx.logger.error(
+        `domain '${spec.name}': stored record '${key}' in table '${table}' failed schema validation; `
+        + `moved to '${moved}' and treated as absent. Cause: ${String((error as DomainError).cause)}`,
+      )
+      return undefined
     }
   }
 

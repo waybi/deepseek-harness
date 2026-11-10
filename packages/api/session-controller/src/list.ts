@@ -81,11 +81,15 @@ interface PendingBackfill {
   readonly persistence: NonNullable<Context['sessionPersistence']>
 }
 
-/** Background cache backfill policy for cold rows the projection cache has not served. */
+/**
+ * Background backfill policy for cold rows the projection cache has not served
+ * from memory. A row whose stored cache record is readable is served from it;
+ * only a row without one has its log read and folded.
+ */
 export interface ColdBackfillOptions {
-  /** Largest stored log, in bytes, a backfill reads; larger or unmeasured logs are never read. */
+  /** Largest stored log, in bytes, a log backfill reads; larger or unmeasured logs are never read. */
   readonly maxLogBytes: number
-  /** Most backfills in flight at once. */
+  /** Most backfills (stored-record reads and log folds) in flight at once. */
   readonly concurrency: number
   /**
    * Receives the refreshed summary of a backfilled Session after its fold
@@ -247,13 +251,24 @@ export class ApiSessionList {
     }
   }
 
-  /** Fold one cold log through the projection cache's cold read and publish the refreshed row. */
+  /**
+   * Publish one cold row's projections: from its stored cache record when the
+   * medium holds one (no log read), otherwise by folding its log through the
+   * projection cache's cold read.
+   */
   private async backfillOne(
     { record, cache, persistence }: PendingBackfill,
     options: ColdBackfillOptions,
   ): Promise<void> {
     const { signal } = this.backfillAbort
     const id = record.header.id
+    const stored = await cache.loadListing(record.header)
+    signal.throwIfAborted()
+    if (this.ctx.sessions.get(id) !== undefined) return
+    if (stored !== undefined) {
+      options.onBackfilled(coldSummary(record, hintsOf('cached', stored)))
+      return
+    }
     const stat = await persistence.stat(id, { signal })
     // An unmeasured log (non-JSONL backend) cannot be bounded, so it is not read.
     if (stat?.sizeBytes === undefined || stat.sizeBytes > options.maxLogBytes) return

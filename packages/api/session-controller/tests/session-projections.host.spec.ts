@@ -34,6 +34,9 @@ import {
 } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createSessionTestRemote, testSessionPersistence, type TestSessionRemote } from './test-remote.ts'
 
+/** Residency bounds wide enough that these cases never evict. */
+const RESIDENCY = { startupMaxAgeDays: 30, maxResidentRecords: 300 }
+
 const ownedContexts = new Set<Context>()
 afterEach(async () => {
   await Promise.all([...ownedContexts].map(ctx => ctx.fiber.dispose()))
@@ -592,7 +595,7 @@ describe('session.list projections column', () => {
       await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(AgentRegistry)
       await ctx.sessionProjections.register(privatePromptUnit())
-      await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+      await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000, ...RESIDENCY })
       const gateway = await remote(ctx)
       await new Promise(resolve => setTimeout(resolve, 0))
 
@@ -647,7 +650,7 @@ describe('session.list projections column', () => {
       await ctx.plugin(SessionProjectionRegistry)
       await ctx.plugin(AgentRegistry)
       await ctx.sessionProjections.register(titleProjectionDefinition)
-      await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+      await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000, ...RESIDENCY })
       return ctx
     }
 

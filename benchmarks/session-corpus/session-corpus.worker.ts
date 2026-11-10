@@ -139,7 +139,7 @@ async function mountHost(root: string): Promise<{ readonly ctx: Context; readonl
   await ctx.plugin(Storage)
   await ctx.plugin(StorageJson, { root: join(root, 'storages') })
   await ctx.plugin(StorageDomain, { backend: 'json' })
-  await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 200, writeIntervalMs: 5_000 })
+  await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 200, writeIntervalMs: 5_000, startupMaxAgeDays: 30, maxResidentRecords: 300 })
   // Content search is opt-in; enabled deployments defer the in-memory index to the first search.
   await ctx.plugin(SqliteSessionQueryEngine, { path: ':memory:', openAt: 'first-search' })
   await ctx.sessionProjections.register(agentPresetProjectionDefinition)

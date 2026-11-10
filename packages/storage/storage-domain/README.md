@@ -57,6 +57,8 @@ domain.table('workspaces').update(id, (r) => ({ ...r, path: newPath }))
 
 The caller owns the handle's lifecycle and releases it with `domain.close()` when the feature shuts down (typically its own `ctx.effect` disposer); domains still open when the plugin unmounts are closed by the facility.
 
+A domain whose records are too many to hold in memory opens partially loaded with `open(spec, { select: { <table>: stamps => keys } })`. The selector receives every stored key with its last-modified time and returns the keys to read; other records stay on the medium. `table.load(key)` reads one more record on the domain write chain, so it observes every earlier queued write; `table.evict(key)` drops a record from memory without touching the medium. In such a domain `get`, `entries`, `keys`, and `size` cover loaded records only, while `delete`, `deleteMany`, and `update` still act on stored records that are not loaded. Partial loading needs a backend unit that lists and reads single records (the JSON `per-record` layout) and a spec without a global slot; otherwise `open` rejects with `facet-unsupported` instead of reading every record.
+
 ### Routing domains to backends
 
 The domain plugin's configuration decides which backend serves which domain — never the hub. `backend` names the default route; `routes` overrides it per domain name. A route naming an unregistered backend fails loudly at open with `backend-not-found`.
@@ -70,7 +72,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Observable behavior and failures
 
-Every write resolves only after the backend acknowledges durability, and each emits one `domain/changed` event in write order. Failures carry stable `DomainError` codes: `already-open` (the name is open or still closing), `facet-unsupported` (the routed backend serves no `kv` facet), `invalid-record` (a stored record or global fails its schema, naming the table and key), `missing-key` (an `update` on an absent record), and `closed` (any use after close). Backend failures such as `version-mismatch` pass through unchanged.
+Every write resolves only after the backend acknowledges durability, and each emits one `domain/changed` event in write order. Failures carry stable `DomainError` codes: `already-open` (the name is open or still closing), `facet-unsupported` (the routed backend serves no `kv` facet, or cannot serve a partially loaded open), `invalid-record` (a stored record or global fails its schema, naming the table and key), `missing-key` (an `update` on an absent record), and `closed` (any use after close). Backend failures such as `version-mismatch` pass through unchanged.
 
 -----
 

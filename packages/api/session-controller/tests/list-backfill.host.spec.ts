@@ -22,6 +22,9 @@ import { ApiSessionList } from '../src/list.ts'
 import type { SessionSummary } from '../src/types.ts'
 import { createSessionTestRemote, installSessionReadTestServices, TEST_IMAGE_LIMITS } from './test-remote.ts'
 
+/** Residency bounds wide enough that these cases never evict. */
+const RESIDENCY = { startupMaxAgeDays: 30, maxResidentRecords: 300 }
+
 const contexts: Context[] = []
 const roots: string[] = []
 
@@ -60,7 +63,7 @@ async function harness(options: Options = {}) {
   await ctx.plugin(SessionProjectionRegistry)
   await ctx.sessionProjections.register(titleProjectionDefinition)
   await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'logs'), compression: 'none' })
-  await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+  await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000, ...RESIDENCY })
   installSessionReadTestServices(ctx)
   ctx.provide('attachments', { imageLimits: TEST_IMAGE_LIMITS } as never)
   const added: SessionSummary[] = []

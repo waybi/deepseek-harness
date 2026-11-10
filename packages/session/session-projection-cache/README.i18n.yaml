@@ -21,14 +21,17 @@
   en: 96aa72949587ad79
   zh: 8e8727d59d3768c1
 /deepseek-ai-dsh-session-projection-cache/use-this-package/minimal-configuration:
-  en: 0ff4aa70ebfe918f
-  zh: 9235f115502717b7
+  en: 1ec2a6e4cdf95855
+  zh: 2884027fe007fc98
 /deepseek-ai-dsh-session-projection-cache/use-this-package/how-checkpoints-are-written:
   en: bae62224d0008bc0
   zh: 0daf92dab3314913
+/deepseek-ai-dsh-session-projection-cache/use-this-package/startup-and-memory-bound:
+  en: 7ec385131dd55831
+  zh: 979632a87bbb23dc
 /deepseek-ai-dsh-session-projection-cache/use-this-package/reading-cached-values:
-  en: 342e5c8be6ab3a37
-  zh: ff09481eebf0b4cc
+  en: 40c46488a4f6d74b
+  zh: 1ffa0152eec56386
 /deepseek-ai-dsh-session-projection-cache/use-this-package/what-the-cache-guarantees:
   en: 6e4878de28ea113e
   zh: 6f940a2220585b5e
@@ -42,8 +45,8 @@
   en: 8be14e573e0b3acf
   zh: be96a2859be64e95
 /deepseek-ai-dsh-session-projection-cache/understand-the-implementation/source-map:
-  en: 1087255b9f80e381
-  zh: 08ee0c5c0e04498d
+  en: d8e032284467cee6
+  zh: 8c73e80985fb41fd
 /deepseek-ai-dsh-session-projection-cache/further-exploration:
   en: 63e7495d8853b368
   zh: 754db26cb2b0bfba
@@ -54,8 +57,8 @@
   en: d483aa4968fa1955
   zh: 90f8c38f978123d2
 /deepseek-ai-dsh-session-projection-cache/known-limitations-and-deferred-work:
-  en: 1c4efba49a67f7b9
-  zh: 494f1a6fa4207c3a
+  en: 1595ccc2e823190a
+  zh: 9b80b6f270510d88
 /deepseek-ai-dsh-session-projection-cache/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

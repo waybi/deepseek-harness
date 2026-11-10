@@ -57,6 +57,8 @@ domain.table('workspaces').update(id, (r) => ({ ...r, path: newPath }))
 
 调用方拥有句柄的生命周期，并在功能关闭时用 `domain.close()` 释放它（通常作为其自身的 `ctx.effect` 资源释放函数）；插件卸载时，设施会关闭仍处于打开状态的领域。
 
+记录多到无法全部放进内存的领域，用 `open(spec, { select: { <表>: stamps => keys } })` 部分加载打开。选择函数收到每个已存键及其最后修改时间，返回要读取的键；其他记录留在介质上。`table.load(key)` 在领域写入链上再读取一条记录，因此能看到之前排队的每次写入；`table.evict(key)` 只把记录移出内存，不改动介质。在这类领域中，`get`、`entries`、`keys` 与 `size` 只覆盖已加载的记录，而 `delete`、`deleteMany` 与 `update` 对未加载的已存记录照样生效。部分加载需要能列出并读取单条记录的后端单元（JSON `per-record` 布局），且 spec 不声明全局槽；否则 `open` 以 `facet-unsupported` 拒绝，而不是读取全部记录。
+
 ### 把领域路由到后端
 
 哪个后端服务哪个领域由领域插件的配置决定——绝非枢纽。`backend` 指定默认路由；`routes` 按领域名覆盖。路由到未注册后端的领域会在打开时以 `backend-not-found` 明确报错。
@@ -70,7 +72,7 @@ domain.table('workspaces').update(id, (r) => ({ ...r, path: newPath }))
 
 ### 可观察行为与失败
 
-每次写入都要等后端确认已持久化后才完成，并按写入顺序各发出一次 `domain/changed` 事件。失败携带稳定的 `DomainError` 代码：`already-open`（名称已打开或仍在关闭）、`facet-unsupported`（已路由后端不提供 `kv` 分面）、`invalid-record`（已存记录或全局不符合其 schema，并指明表与键）、`missing-key`（对不存在的记录执行 `update`）与 `closed`（关闭后的任何使用）。`version-mismatch` 等后端失败会原样透传。
+每次写入都要等后端确认已持久化后才完成，并按写入顺序各发出一次 `domain/changed` 事件。失败携带稳定的 `DomainError` 代码：`already-open`（名称已打开或仍在关闭）、`facet-unsupported`（已路由后端不提供 `kv` 分面，或无法支持部分加载打开）、`invalid-record`（已存记录或全局不符合其 schema，并指明表与键）、`missing-key`（对不存在的记录执行 `update`）与 `closed`（关闭后的任何使用）。`version-mismatch` 等后端失败会原样透传。
 
 -----
 

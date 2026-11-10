@@ -33,7 +33,7 @@ kind: "package-reference"
 
 ### 最小配置
 
-两个节流字段均必填——写入节奏是部署选择，没有普适正确值：
+四个字段均必填——写入节奏和内存上限都是部署选择，没有普适正确值；base 取 30 天与 300 条：
 
 缓存通过存储栈打开自己的域，因此 base 先挂 `storage`、`storage-json`（根 `dshHomePath('storages')`）与 `storage-domain`（`backend: json`）：
 
@@ -43,12 +43,16 @@ kind: "package-reference"
   config:
     writeEveryEvents: 200
     writeIntervalMs: 5000
+    startupMaxAgeDays: 30
+    maxResidentRecords: 300
 ```
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `writeEveryEvents` | 必填 | 在各必写点之间强制一次持久检查点写入的每会话已提交事件数 |
 | `writeIntervalMs` | 必填 | 各必写点之间脏检查点最长可保持未写入的时间 |
+| `startupMaxAgeDays` | 必填（base：`30`） | 启动只读取最近这么多天内改动过的记录文档；恰好在窗口起点改动的记录也算在内 |
+| `maxResidentRecords` | 必填（base：`300`） | 启动最多读取的记录数（新的优先），也是之后内存中最多保留的完整记录数 |
 
 本插件注入 `storageDomain`、`sessionProjections` 与 `sessions`。生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-session-projection-cache)是每个受支持字段及其 JSDoc 的穷尽式真源。
 
@@ -56,9 +60,13 @@ kind: "package-reference"
 
 三个必写点总是写入：会话创建保存由种子派生的切面，`turn/end` 保存列表读取所需的轮次终值，会话释放保存活会话的最终切面。其间，配置的条数与间隔节流随事件累积写入。每次写入通过领域写入链以原子方式替换该会话的完整记录；失败会记录警告并让缓存保持陈旧，后续写入会自行修复。
 
+### 启动与内存上限
+
+启动时只列出存储的记录文档而不读取内容，只读取在 `startupMaxAgeDays` 窗口内改动过的记录，新的优先，最多 `maxResidentRecords` 条。其他记录留在磁盘上，直到有读者需要。`ensureLoaded(id)` 在折叠（`hydratePrepared`）前读取一个会话的完整记录；Session observation 读取和 migration-required 投影读取会调用它。`loadListing(meta)` 为 Session 列表读取一条记录，只保留其摘要键的值作为列表视图，再把完整记录移出内存，因此列出全部会话不会把全部完整记录留在内存。每次读取或写入后，最久未用的干净完整记录会移出内存，直到最多剩 `maxResidentRecords` 条，每条移出的记录保留列表视图。会话仍在活动、或写入尚未完成的记录不会移出内存，所以这类会话较多时数量可以超过上限。按需读取失败只记录警告，该会话按未缓存处理。
+
 ### 读取缓存值
 
-`cachedSnapshot(meta, keys?)` 是只读面：以零 I/O 从存储域的内存表同步提供客户端值。它接受生命周期身份（`formatVersion`、`createdAt`、`cwd`、`isSeeded`）与 header 匹配的记录，把其中版本和 schema 均匹配的 key 作为一个 block 提供，其 `asOfSeq` 是所服务各行中最低的水位。这个水位是存储记录自己的：header 作证不了 inherited cut，也作证不了行序号与消费者稍后打开的日志可比，因此 Session list 把该 block 标为 `cached`，客户端让建连后的 Session 产出的任何值覆盖它。某一行也可能冻结在写入前投影单元被释放的那一刻，因此它的水位落后于日志的程度可能超过最近一次检查点间隔。在同一格式代内，cut 在 fork 时写死，不能区分其他字段区分不了的生命周期，而只读视图也从不播种 fold，所以 seeded（fork 出来的）会话与 unseeded 会话被同样地提供。`cachedPredecessorTitle(meta)` 是跨 Session 格式 edge 的更窄列表专用例外：生命周期匹配且已通过结构准入的 predecessor record 只能公开与当前版本兼容的 `title` row，因为 title 文本在相邻 edge 之间保持不变。其他 predecessor row 仍不可用。`coldSnapshot(meta, inheritedEventCount, events)` 是 fold 面：接受精确切点与完整有序日志，在折叠时跳过已检查点化的前缀，并在自身不读取持久化层的情况下刷新记录。
+`cachedSnapshot(meta, keys?)` 是只读面：以零 I/O 从存储域的内存表同步提供客户端值。完整记录不在内存时，若请求的键全是摘要键，由该记录的列表视图作答；否则本次读取未命中。它接受生命周期身份（`formatVersion`、`createdAt`、`cwd`、`isSeeded`）与 header 匹配的记录，把其中版本和 schema 均匹配的 key 作为一个 block 提供，其 `asOfSeq` 是所服务各行中最低的水位。这个水位是存储记录自己的：header 作证不了 inherited cut，也作证不了行序号与消费者稍后打开的日志可比，因此 Session list 把该 block 标为 `cached`，客户端让建连后的 Session 产出的任何值覆盖它。某一行也可能冻结在写入前投影单元被释放的那一刻，因此它的水位落后于日志的程度可能超过最近一次检查点间隔。在同一格式代内，cut 在 fork 时写死，不能区分其他字段区分不了的生命周期，而只读视图也从不播种 fold，所以 seeded（fork 出来的）会话与 unseeded 会话被同样地提供。`cachedPredecessorTitle(meta)` 是跨 Session 格式 edge 的更窄列表专用例外：生命周期匹配且已通过结构准入的 predecessor record 只能公开与当前版本兼容的 `title` row，因为 title 文本在相邻 edge 之间保持不变。其他 predecessor row 仍不可用。`coldSnapshot(meta, inheritedEventCount, events)` 是 fold 面：接受精确切点与完整有序日志，在折叠时跳过已检查点化的前缀，并在自身不读取持久化层的情况下刷新记录。
 
 ### 缓存保证什么
 
@@ -90,6 +98,7 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`SessionProjectionCache` 服务、后台写入监听器、缓存读取 |
 | [`src/spec.ts`](src/spec.ts) | `session_projcache` 域 spec 与记录身份类型 |
+| [`src/residency.ts`](src/residency.ts) | 启动记录选择与常驻记录的最久未用顺序 |
 
 </details>
 
@@ -124,7 +133,10 @@ kind: "package-reference"
 
 这些限制说明缓存何时需要运维注意。它们是当前包约束，不是任务积压。
 
-- **无淘汰或保留接口**——记录按会话持续累积；清理已存储检查点属于带外维护，与会话持久化采用相同策略。
+- **磁盘上没有保留期接口**——存储的记录按会话持续累积；清理已存储检查点属于带外维护，与会话持久化采用相同策略。只有内存是有界的。
+- **窗口外的首次读取多一次磁盘读**——启动集合之外的会话在首次打开、读取历史或出现在列表时会读取其记录文档；列表在回填并发数内于后台读取这类行，所以它们的标题在首个列表响应之后才到。
+- **同步消费方在记录被读取前未命中**——会话提及（`session-reference`）与 forge 变更请求状态同步调用 `cachedSnapshot`；在 Session 列表或一次打开读取冷记录之前，它们回退到未缓存行为（以 id 作标签、没有绑定）。
+- **列表视图没有上限**——每个记录被读取或移出过的会话在内存中保留一个摘要键视图；摘要值很小，但数量随列出的会话数增长。
 - **间隔节流采用按会话的粗粒度控制**——一次无脏数据的写入完成后，计时器在首个脏事件到达时启动；持续但低于条数阈值的事件流每间隔写入一次，而非滑动窗口。
 - **缓存侧不做冷重折叠**——缓存只服务并刷新自己的记录，从不读取会话日志，因为它不依赖持久化层；需要保证冷快照的消费方自行从日志重新折叠。
 - **每次 schema 或域版本变更都必须论证升级路径**——改动存储记录 schema 或域版本时，同一 PR 必须在 `tests/fixtures/` 下归档此前已发布磁盘格式的 fixture（测试前置数据），并在 `tests/fixtures.spec.ts` 中用测试论证所选的处置方式：读兼容恢复（`compatibleVersions`）、当前版本重写，或 backup-and-skip 抢救。即便选择直接丢弃旧记录的 bump，也要证明丢弃既不会导致启动失败，也不会污染缓存树。

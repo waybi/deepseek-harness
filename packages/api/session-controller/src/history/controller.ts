@@ -81,7 +81,10 @@ export class HistoryController {
         const stored = await this.ctx.get('sessionPersistence')?.stat(sessionId, { signal })
         signal.throwIfAborted()
         if (stored?.formatStatus === 'migration-required') {
-          const cached = this.ctx.get('sessionProjectionCache')?.cachedSnapshot(stored.header)
+          const cache = this.ctx.get('sessionProjectionCache')
+          await cache?.ensureLoaded(stored.header.id)
+          signal.throwIfAborted()
+          const cached = cache?.cachedSnapshot(stored.header)
           return { kind: 'migration-required', values: { ...cached?.values } as SessionProjectionValues }
         }
         return await this.usingObservation({ sessionId: request.sessionId, projection: true }, signal, observation => ({

@@ -24,6 +24,9 @@ import { subagentCatalogProjectionDefinition } from '@deepseek-ai/dsh-subagent/s
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { createSessionTestController } from './test-remote.ts'
 
+/** Residency bounds wide enough that these cases never evict. */
+const RESIDENCY = { startupMaxAgeDays: 30, maxResidentRecords: 300 }
+
 const contexts: Context[] = []
 const roots: string[] = []
 const readAudits: Array<() => void> = []
@@ -139,7 +142,7 @@ async function seedCache(
   await fixture.ctx.plugin(Storage)
   await fixture.ctx.plugin(StorageJson, { root: cacheRoot })
   await fixture.ctx.plugin(StorageDomain, { backend: 'json' })
-  await fixture.ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+  await fixture.ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000, ...RESIDENCY })
   const write = vi.spyOn(fixture.ctx.sessionProjectionCache, 'write').mockRejectedValue(new Error('unexpected cache write'))
   const hydrate = vi.spyOn(fixture.ctx.sessionProjectionCache, 'hydratePrepared').mockImplementation(() => {
     throw new Error('unexpected cached hydration')

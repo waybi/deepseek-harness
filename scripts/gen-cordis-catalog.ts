@@ -909,6 +909,7 @@ export const LINK_MAP: Readonly<Record<string, string>> = {
   StorageForms: 'storage.md',
   Domain: 'storage.md',
   DomainSpec: 'storage.md',
+  DomainOpenOptions: 'storage.md',
   DomainChanged: 'storage.md',
   DomainFacility: 'storage.md',
   Workspace: 'workspace.md',

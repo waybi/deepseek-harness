@@ -766,13 +766,17 @@ describe('SessionObservationReader cold projections', () => {
     const store = new Map([[meta.id, { header: meta, events: [messageEvent(0, 'cached')], revision: 'r1' }]])
     ctx.provide('sessionPersistence', stubPersistence(store, { stat: 0, open: 0, read: 0 }))
     const snapshot = { asOfSeq: 0, values: {} }
-    const hydratePrepared = vi.fn().mockReturnValue(snapshot)
-    ctx.provide('sessionProjectionCache', { hydratePrepared } as never)
+    const calls: string[] = []
+    const ensureLoaded = vi.fn(async (id: string) => { calls.push(`load:${id}`); return true })
+    const hydratePrepared = vi.fn(() => { calls.push('hydrate'); return snapshot })
+    ctx.provide('sessionProjectionCache', { ensureLoaded, hydratePrepared } as never)
 
     using observed = await new SessionObservationReader(ctx).read(meta.id)
 
     expect(observed.projections).toBe(snapshot)
     expect(hydratePrepared).toHaveBeenCalledOnce()
+    // The stored record is made resident before the synchronous hydration reads it.
+    expect(calls).toEqual([`load:${meta.id}`, 'hydrate'])
     await ctx.fiber.dispose()
   })
 

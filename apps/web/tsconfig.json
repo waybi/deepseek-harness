@@ -204,6 +204,7 @@
     "tests/prompt-admission.e2e.ts",
     "tests/idle-submission-handoff.e2e.ts",
     "tests/cold-blank-session.e2e.ts",
+    "tests/lazy-session-projection.e2e.ts",
     "tests/blank-writer-reuse.e2e.ts",
     "tests/blank-preset-reuse.e2e.ts",
     "tests/queue-image.e2e.ts",
