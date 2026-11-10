@@ -9,7 +9,7 @@ import type { ChangeRequestSnapshot, ForgeActionFailure, ForgeFailure, ForgeRevi
 import type { SessionChangeRequest } from '@deepseek-ai/dsh-experimental-forge-session'
 import type {} from '@deepseek-ai/dsh-experimental-worktree'
 import { appendPluginRecord } from '@deepseek-ai/dsh-session'
-import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-session-projection-cache'
 import type {} from '@deepseek-ai/dsh-session-query'
@@ -22,6 +22,7 @@ import { aheadOf, DiffTooLarge, FilterConfigError, forkPoint, localDiff, localTe
 import { missingWorktree, SessionPanel } from './panel.ts'
 import { PatchCache } from './patch-cache.ts'
 import { ChangeRequestStates, changeRequestStatesDomain } from './states.ts'
+import type { ListedSession } from './states.ts'
 import type { PanelConfig } from './panel.ts'
 import type {
   Config, ForgeBranches, ForgeChangeRequestDiff, ForgeChangeRequestStatesFrame, ForgeLocalDiff, ForgeLocalScope, ForgeMissingWorktree,
@@ -647,13 +648,19 @@ export class ForgePanelController extends TypertRemoteService {
       throw new Error('forge-panel: change request states need the sessionQuery, sessionProjectionCache, storageDomain, and sessions services')
     }
     const visibleUrls = (session: Session): string[] => ctx.forgeSession.changeRequests(session).map(entry => entry.url)
+    const bindingsOf = (header: SessionHeader): ListedSession => {
+      const live = store.get(header.id)
+      if (live !== undefined) return { id: header.id, urls: visibleUrls(live) }
+      const bindings = cache.cachedSnapshot(header, ['forgeChangeRequests'])?.values.forgeChangeRequests
+      return { id: header.id, urls: bindings?.filter(binding => !binding.dismissed).map(binding => binding.url) }
+    }
     this.states = new ChangeRequestStates({
-      sessions: async signal => (await query.listSessions(signal)).map(({ header }) => {
-        const live = store.get(header.id)
-        if (live !== undefined) return { id: header.id, urls: visibleUrls(live) }
-        const bindings = cache.cachedSnapshot(header, ['forgeChangeRequests'])?.values.forgeChangeRequests
-        return { id: header.id, urls: bindings?.filter(binding => !binding.dismissed).map(binding => binding.url) }
-      }),
+      sessions: async (signal) => {
+        const headers = (await query.listSessions(signal)).map(({ header }) => header)
+        // The cache keeps a bounded set of records in memory; read the others' summary views first.
+        await cache.loadListings(headers.filter(header => store.get(header.id) === undefined), signal)
+        return headers.map(bindingsOf)
+      },
       onBindings: listener => ctx.sessionProjections.onChanged((session, key) => {
         if (key === 'forgeChangeRequests') listener(session.id, visibleUrls(session))
       }),

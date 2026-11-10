@@ -197,6 +197,8 @@ export class SessionReferenceResolver extends TypertRemoteService {
     const records = (await settleWithCancellation(this.ctx.sessionQuery.listSessions(signal), signal))
       .filter(record => record.header.id !== agent.id)
       .map((record, index) => ({ record, index }))
+    await this.loadColdLabels(records, signal)
+    assertNotCancelled(signal)
     const labelled = this.projectedLabels(records)
     return labelled.filter(({ record, label, displayTitle }) => {
       if (needle === '') return true
@@ -215,6 +217,28 @@ export class SessionReferenceResolver extends TypertRemoteService {
         sameWorkspace: record.header.cwd !== undefined && record.header.cwd === targetCwd,
         createdAt: record.header.createdAt,
       }))
+  }
+
+  /**
+   * Make the projection cache able to answer the labels of every listed
+   * Session that is not attached: the cache keeps only a bounded set of
+   * records in memory, and the others are read once from its store (never
+   * from a log) so {@link projectedLabels} can stay synchronous.
+   * @param items - the listed sessions, live or cold.
+   * @param signal - optional cancellation boundary.
+   * @returns resolution once the cache answers for every cold listed session.
+   */
+  private async loadColdLabels(
+    items: readonly { readonly record: SessionRecord }[],
+    signal: AbortSignal | undefined,
+  ): Promise<void> {
+    const cache = this.ctx.get('sessionProjectionCache')
+    if (cache === undefined) return
+    const sessions = this.ctx.get('sessions')
+    const cold = items
+      .filter(({ record }) => sessions?.get(record.header.id) === undefined)
+      .map(({ record }) => record.header)
+    await cache.loadListings(cold, signal)
   }
 
   /**

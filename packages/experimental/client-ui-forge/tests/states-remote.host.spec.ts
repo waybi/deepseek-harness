@@ -45,8 +45,14 @@ async function composed(options: { readonly remoteAccess?: (id: SessionId) => bo
   const remove = vi.fn<StoredStates['delete']>(async key => records.delete(key))
   const table: StoredStates = { get: key => records.get(key), entries: () => records.entries(), put, delete: remove }
   provide(b.ctx, 'sessionQuery', { listSessions: async () => [{ header: b.session.header }, { header: cold }, { header: unseen }] })
+  // The cold Session's record is not in memory until its listing view is read.
+  const listed = new Set<SessionId>()
+  const loadListings = vi.fn(async (headers: readonly SessionHeader[]) => {
+    for (const header of headers) listed.add(header.id)
+  })
   provide(b.ctx, 'sessionProjectionCache', {
-    cachedSnapshot: (header: SessionHeader) => header.id === cold.id
+    loadListings,
+    cachedSnapshot: (header: SessionHeader) => header.id === cold.id && listed.has(cold.id)
       ? {
         asOfSeq: 3,
         values: {
@@ -63,7 +69,7 @@ async function composed(options: { readonly remoteAccess?: (id: SessionId) => bo
     const allows = options.remoteAccess
     provide(b.ctx, 'remoteAccess', { allows: ({ id }: { readonly id: SessionId }) => allows(id) })
   }
-  return { b, cold, records, put }
+  return { b, cold, records, put, loadListings }
 }
 
 /** Register a fake Host service with only the members the panel reads. */
@@ -127,11 +133,13 @@ describe('forgePanel.changeRequestStates', () => {
   })
 
   it('streams the states of the visible bindings of loaded and cached Sessions, then of later bindings', async () => {
-    const { b, records } = await composed()
+    const { b, records, cold, loadListings } = await composed()
     b.ctx.forgeSession.track(b.session, pullUrl(7))
     const r = reader(b)
 
     const first = await r.until(states => states.has(pullUrl(7)) && states.has(pullUrl(8)))
+    // Only Sessions that are not loaded have their cached summaries read; the cold binding came from that read.
+    expect(loadListings.mock.calls[0]?.[0].map(header => header.id)).toEqual([cold.id, SessionId('unseen')])
     expect(r.frames[0]).toEqual({ type: 'baseline', states: [] })
     expect([...first.values()]).toEqual(expect.arrayContaining([state(7), state(8)]))
     expect(first.has(pullUrl(10))).toBe(false)

@@ -274,6 +274,21 @@ async ensureLoaded(id: SessionId): Promise<boolean>
 async loadListing(meta: SessionHeader): Promise<ProjectionSnapshot | undefined>
 
 /**
+ * Make the summary-key blocks of many listed sessions answerable by the
+ * synchronous faces ({@link cachedSnapshot} with summary keys only,
+ * {@link cachedPredecessorTitle}): {@link loadListing} for each header, one
+ * at a time. Sessions already answered from memory, and sessions whose
+ * medium holds no record, cost no read. Asynchronous consumers that filter
+ * or label every listed session from the cache await this before their
+ * synchronous pass, so an evicted or never-loaded record still answers.
+ * Fail-soft like {@link loadListing}.
+ * @param metas - the listed sessions' headers.
+ * @param signal - optional cancellation; an aborted signal stops further reads.
+ * @returns resolution after every header was served or the signal aborted.
+ */
+async loadListings(metas: readonly SessionHeader[], signal?: AbortSignal): Promise<void>
+
+/**
  * The zero-I/O listing read: whole values viewed straight from the stored
  * rows (version-matching keys only) of the record bound to the caller's
  * lifecycle. The header is the only identity witness a listing holds, so
@@ -289,9 +304,10 @@ async loadListing(meta: SessionHeader): Promise<ProjectionSnapshot | undefined>
  * connected Session produces supersede it whatever this number says.
  *
  * When the complete record is not resident, a listing view of the record
- * serves the call if `keys` names only summary keys; otherwise the read
- * misses. Callers that need a non-resident record await
- * {@link ensureLoaded} or {@link loadListing} first.
+ * serves the call if `keys` names only summary keys and keys the record
+ * stored no row for; otherwise the read misses. Callers that need a
+ * non-resident record await {@link ensureLoaded}, {@link loadListing}, or
+ * {@link loadListings} first.
  * @param meta - the listed session's header (identity witness; no log read).
  * @param keys - optional projection keys required by the caller's audience.
  * @returns the viewed block, or `undefined` when no usable row exists for

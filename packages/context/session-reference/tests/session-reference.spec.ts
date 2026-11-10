@@ -59,8 +59,9 @@ async function harness(config: Config = {}): Promise<Context> {
 }
 
 /**
- * Stand in for the projection cache with a fixed checkpoint table: the
- * resolver reads `cachedSnapshot` alone, and the point under test is which
+ * Stand in for the projection cache with a fixed checkpoint table: every
+ * row is already in memory (`loadListings` has nothing to read), the
+ * resolver labels from `cachedSnapshot`, and the point under test is which
  * sessions still reach a log fold.
  */
 function withProjectionCache(
@@ -75,6 +76,7 @@ function withProjectionCache(
   }>,
 ): void {
   ctx.provide('sessionProjectionCache', {
+    loadListings: async () => {},
     cachedSnapshot: (meta: { id: SessionId }) => {
       const row = rows[meta.id]
       if (!(meta.id in rows)) return undefined

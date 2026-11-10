@@ -6,11 +6,15 @@
  *   node --expose-gc --import tsx/esm benchmarks/session-startup-memory/startup-memory.ts run <private-root>
  *
  * `seed` writes header-only zstd Session logs and per-record `session_projcache` documents whose byte sizes
- * follow a fixed-seed log-normal distribution (median 148 KB, p95 about 750 KB, capped at 3 MB); document mtimes
- * spread evenly over the past 365 days. `run` mounts the Session list path of the Host (JSON storage, storage domain,
- * projection registry and cache, JSONL persistence, SQLite query engine, Session controller) over that root, then
- * prints one JSON line: peak RSS after startup, loaded cache records, peak RSS after a full list plus cold-row drain,
- * and how many listed rows carry a title. The root never touches `~/.dsh`; the caller owns and removes it.
+ * follow a fixed-seed log-normal distribution (median 148 KB, p95 about 750 KB, capped at 3 MB); the bulk sits in a
+ * `toolResultSurface` row with the real unit's state version and state fields (tool-result nodes), as in real
+ * records. Document mtimes spread evenly over the past 365 days. `run` mounts the Session list path of the Host
+ * (JSON storage, storage domain, projection registry with the title, tool-result surface, Session stats, and turn
+ * outline units plus the controller's list metadata unit, the cache, JSONL persistence, SQLite query engine,
+ * Session controller) over that root, then prints one JSON line with three phases: startup (peak RSS, loaded
+ * records), a full list plus cold-row drain (peak RSS, titled rows, loaded records), and a cold open of the
+ * `COLD_OPENS` oldest Sessions through `sessionQuery.observeSession` (peak RSS, loaded records). The root never
+ * touches `~/.dsh`; the caller owns and removes it.
  */
 
 import assert from 'node:assert/strict'
@@ -25,12 +29,15 @@ import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-j
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SessionProjectionCache from '@deepseek-ai/dsh-session-projection-cache'
 import SqliteSessionQueryEngine from '@deepseek-ai/dsh-session-query-sqlite'
+import * as SessionStats from '@deepseek-ai/dsh-session-stats'
 import { titleProjectionDefinition } from '@deepseek-ai/dsh-session-title'
+import * as SessionTurnOutline from '@deepseek-ai/dsh-session-turn-outline'
 import Storage from '@deepseek-ai/dsh-storage'
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import * as StorageJson from '@deepseek-ai/dsh-storage-json'
 import { generationLogPath, sessionDir, toHeaderLine } from '../../packages/session/session-persistence-jsonl/src/format.ts'
 import { compressZstdFrame } from '../../packages/session/session-persistence-jsonl/src/zstd.ts'
+import { toolResultSurfaceProjection } from '../../packages/compaction/compaction-tool-result-expiry/src/projection.ts'
 import { createBenchmarkSessionController } from '../session-corpus/session-controller.ts'
 
 const CWD = '/synthetic-startup-memory'
@@ -41,6 +48,8 @@ const SIGMA = 0.987
 const MAX_BYTES = 3_000_000
 /** Cache config written explicitly; the pre-change service ignores the two window fields. */
 const CACHE_CONFIG = { writeEveryEvents: 200, writeIntervalMs: 5_000, startupMaxAgeDays: 30, maxResidentRecords: 300 }
+/** Oldest Sessions opened cold after the list drains (all outside the startup window). */
+const COLD_OPENS = 500
 
 function headerOf(ordinal: number, createdAt: number): SessionHeader {
   return { version: SESSION_FORMAT_VERSION, id: SessionId(`startup-mem-${ordinal}`), createdAt, cwd: CWD, isSeeded: false, delegationDepth: 0 }
@@ -63,16 +72,23 @@ function targetBytes(next: () => number): number {
   return Math.min(MAX_BYTES, Math.max(2_000, Math.round(MEDIAN_BYTES * Math.exp(SIGMA * normal))))
 }
 
-/** Bulk filler shaped like a tool-result surface: many small objects, not one string. */
-function filler(ordinal: number, bytes: number): Array<{ id: string; seq: number; text: string }> {
-  const items: Array<{ id: string; seq: number; text: string }> = []
+/** A tool-result surface state (`toolResultSurface` v2 fields) of about `bytes` serialized bytes. */
+function filler(ordinal: number, bytes: number): { surface: number[]; nodes: unknown[]; toolNames: Record<string, string> } {
+  const surface: number[] = []
+  const nodes: unknown[] = []
   let written = 0
   for (let index = 0; written < bytes; index++) {
+    const seq = index * 2
+    const callId = `call_${ordinal}_${index}`
     const text = `result ${ordinal}:${index} ` + 'synthetic tool output line. '.repeat(6)
-    items.push({ id: `call_${ordinal}_${index}`, seq: index, text })
-    written += text.length + 40
+    surface.push(seq)
+    nodes.push({
+      seq, turn: 1, callId, toolName: 'bash',
+      data: { turn: 1, step: index + 1, message: { role: 'tool', source: { kind: 'tool', callId }, toolCallId: callId, content: [{ type: 'text', text }] } },
+    })
+    written += text.length + 260
   }
-  return items
+  return { surface, nodes, toolNames: {} }
 }
 
 async function seed(root: string, sessions: number): Promise<void> {
@@ -92,7 +108,7 @@ async function seed(root: string, sessions: number): Promise<void> {
       rows: {
         title: { ver: 1, seq: -1, val: `Synthetic session ${ordinal}` },
         sessionListMetadata: { ver: 1, seq: -1, val: { blank: false, lastPromptAt: header.createdAt } },
-        toolResultSurface: { ver: 1, seq: -1, val: filler(ordinal, targetBytes(next)) },
+        toolResultSurface: { ver: toolResultSurfaceProjection.stateVersion, seq: -1, val: filler(ordinal, targetBytes(next)) },
       },
     }
     const text = JSON.stringify({ version: 7, record })
@@ -118,6 +134,9 @@ async function run(root: string): Promise<void> {
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
     await ctx.sessionProjections.register(titleProjectionDefinition)
+    await ctx.sessionProjections.register(toolResultSurfaceProjection)
+    await ctx.plugin(SessionStats)
+    await ctx.plugin(SessionTurnOutline)
     await ctx.plugin(JsonlSessionPersistence, { root: join(root, 'sessions'), compression: 'zstd' })
     await ctx.plugin(Storage)
     await ctx.plugin(StorageJson, { root: join(root, 'storages') })
@@ -156,12 +175,30 @@ async function run(root: string): Promise<void> {
     }
     const gc = (globalThis as typeof globalThis & { gc?: () => void }).gc
     gc?.()
+    const listPeakRssMb = peakRssMb()
     const settledRssMb = Math.round(process.memoryUsage().rss / 1_000_000)
     const loadedAfterList = ctx.storageDomain.get('session_projcache')?.table('sessions').size
+    // Cold-open the oldest Sessions, one at a time, as opening them from the sidebar does.
+    // Seed ordinal N was written N/sessions of a year ago, so the highest ordinals are the oldest Sessions.
+    const ordinalOf = (id: string): number => Number(id.slice('startup-mem-'.length))
+    const oldest = [...first.items].sort((left, right) => ordinalOf(right.sessionId) - ordinalOf(left.sessionId)).slice(0, COLD_OPENS)
+    const residentBeforeOpen = new Set(ctx.storageDomain.get('session_projcache')?.table('sessions').keys())
+    const openedOutsideResident = oldest.filter(item => !residentBeforeOpen.has(item.sessionId)).length
+    let openedTitles = 0
+    let maxLoadedDuringOpen = 0
+    for (const item of oldest) {
+      using observation = await ctx.sessionQuery.observeSession(item.sessionId)
+      if (typeof observation.projections?.values.title === 'string') openedTitles++
+      maxLoadedDuringOpen = Math.max(maxLoadedDuringOpen, ctx.storageDomain.get('session_projcache')?.table('sessions').size ?? 0)
+    }
+    gc?.()
+    const loadedAfterOpen = ctx.storageDomain.get('session_projcache')?.table('sessions').size
     assert.equal(total > 0, true)
     console.log(JSON.stringify({
       node: process.version, sessions: total, startupMs, loadedAtStartup, startupPeakRssMb,
-      listPeakRssMb: peakRssMb(), settledRssMb, loadedAfterList, titledRows: titled, backfilledEvents: backfilled,
+      listPeakRssMb, settledRssMb, loadedAfterList, titledRows: titled, backfilledEvents: backfilled,
+      coldOpened: oldest.length, openedOutsideResident, openedTitles, maxLoadedDuringOpen, loadedAfterOpen,
+      openPeakRssMb: peakRssMb(), openSettledRssMb: Math.round(process.memoryUsage().rss / 1_000_000),
     }))
   } finally {
     await ctx.fiber.dispose()

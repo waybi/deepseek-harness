@@ -110,6 +110,8 @@ interface ListingView {
   readonly identity: CheckpointIdentity
   /** The summary key set the view was taken with. */
   readonly keys: ReadonlySet<string>
+  /** Every key the record stored a row for; a key outside it has no value in the complete record either. */
+  readonly stored: ReadonlySet<string>
   /** Viewed summary values with the seq of the row each came from. */
   readonly rows: ReadonlyMap<string, { readonly seq: ProjectionSnapshot['asOfSeq']; readonly value: unknown }>
 }
@@ -144,6 +146,10 @@ export class SessionProjectionCache extends Service {
   private readonly pendingWrites = new Map<SessionId, number>()
   /** Summary-key views of records that were read or evicted while not resident. */
   private readonly listings = new Map<SessionId, ListingView>()
+  /** Sessions whose medium held no record at their last listing read; a write clears the entry. */
+  private readonly absent = new Set<SessionId>()
+  /** Count of started writes; a listing read that overlapped a write does not record absence. */
+  private writeGeneration = 0
 
   constructor(ctx: Context, public config: Config) {
     super(ctx, 'sessionProjectionCache')
@@ -213,7 +219,10 @@ export class SessionProjectionCache extends Service {
     const cached = this.cachedSnapshot(meta, keys) ?? this.cachedPredecessorTitle(meta)
     if (cached !== undefined) return cached
     const table = this.requireTable()
-    if (table.get(meta.id) !== undefined) return undefined
+    // A resident record, a listing view, or a known-absent record already
+    // answers for the medium: reading it again cannot change the result.
+    if (table.get(meta.id) !== undefined || this.listings.has(meta.id) || this.absent.has(meta.id)) return undefined
+    const generation = this.writeGeneration
     let record: CheckpointRecord | undefined
     try {
       record = await table.load(meta.id)
@@ -221,11 +230,34 @@ export class SessionProjectionCache extends Service {
       this.ctx.logger.warn(`session projection cache: reading the record for "${meta.id}" failed (served uncached): ${String(error)}`)
       return undefined
     }
-    if (record === undefined) return undefined
+    if (record === undefined) {
+      if (generation === this.writeGeneration) this.absent.add(meta.id)
+      return undefined
+    }
     if (table.get(meta.id) === record && !this.pinned(meta.id)) this.demote(meta.id, record)
     else this.recency.touch(meta.id)
     this.trim()
     return this.cachedSnapshot(meta, keys) ?? this.cachedPredecessorTitle(meta)
+  }
+
+  /**
+   * Make the summary-key blocks of many listed sessions answerable by the
+   * synchronous faces ({@link cachedSnapshot} with summary keys only,
+   * {@link cachedPredecessorTitle}): {@link loadListing} for each header, one
+   * at a time. Sessions already answered from memory, and sessions whose
+   * medium holds no record, cost no read. Asynchronous consumers that filter
+   * or label every listed session from the cache await this before their
+   * synchronous pass, so an evicted or never-loaded record still answers.
+   * Fail-soft like {@link loadListing}.
+   * @param metas - the listed sessions' headers.
+   * @param signal - optional cancellation; an aborted signal stops further reads.
+   * @returns resolution after every header was served or the signal aborted.
+   */
+  async loadListings(metas: readonly SessionHeader[], signal?: AbortSignal): Promise<void> {
+    for (const meta of metas) {
+      if (signal?.aborted === true) return
+      await this.loadListing(meta)
+    }
   }
 
   /**
@@ -269,9 +301,10 @@ export class SessionProjectionCache extends Service {
    * connected Session produces supersede it whatever this number says.
    *
    * When the complete record is not resident, a listing view of the record
-   * serves the call if `keys` names only summary keys; otherwise the read
-   * misses. Callers that need a non-resident record await
-   * {@link ensureLoaded} or {@link loadListing} first.
+   * serves the call if `keys` names only summary keys and keys the record
+   * stored no row for; otherwise the read misses. Callers that need a
+   * non-resident record await {@link ensureLoaded}, {@link loadListing}, or
+   * {@link loadListings} first.
    * @param meta - the listed session's header (identity witness; no log read).
    * @param keys - optional projection keys required by the caller's audience.
    * @returns the viewed block, or `undefined` when no usable row exists for
@@ -525,6 +558,8 @@ export class SessionProjectionCache extends Service {
       throw new TypeError('projection checkpoint is not losslessly JSON-serializable (a unit state violates the plain-JSON contract)')
     }
     this.pendingWrites.set(id, (this.pendingWrites.get(id) ?? 0) + 1)
+    this.writeGeneration += 1
+    this.absent.delete(id)
     try {
       await this.requireTable().put(id, { identity, rows: detached as CheckpointRecord['rows'] })
       this.listings.delete(id)
@@ -572,7 +607,7 @@ export class SessionProjectionCache extends Service {
       const row = record.rows[key]
       if (row !== undefined) rows.set(key, { seq: row.seq, value })
     }
-    this.listings.set(id, { identity: record.identity, keys: viewKeys, rows })
+    this.listings.set(id, { identity: record.identity, keys: viewKeys, stored: new Set(Object.keys(record.rows)), rows })
     this.requireTable().evict(id)
     this.recency.forget(id)
   }
@@ -585,15 +620,19 @@ export class SessionProjectionCache extends Service {
 }
 
 /**
- * View a listing for `keys`, which must all be keys the view was taken with;
- * otherwise the view cannot tell an absent row from an unviewed one and the
- * read misses.
+ * View a listing for `keys`. Each key must be one the view was taken with or
+ * one the record stored no row for (the complete record has no value for it
+ * either); otherwise the view cannot tell an absent value from an unviewed
+ * one and the read misses.
  */
 function viewListing(listing: ListingView, keys: ProjectionKeySelection): ProjectionSnapshot | undefined {
   const values: Record<string, unknown> = {}
   let asOfSeq: ProjectionSnapshot['asOfSeq'] | undefined
   for (const key of keys) {
-    if (!listing.keys.has(key)) return undefined
+    if (!listing.keys.has(key)) {
+      if (listing.stored.has(key)) return undefined
+      continue
+    }
     const row = listing.rows.get(key)
     if (row === undefined) continue
     values[key] = row.value
