@@ -37,6 +37,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionMap {
     'residency-test/note': string
     'residency-test/detail': SessionProjectionSummaryExcluded<string>
+    'residency-test/opaque': Record<string, unknown>
     title: string | null
   }
 }
@@ -73,6 +74,21 @@ const detailUnit = {
   wire: { viewSchema: z.string(), view: state => state, summary: false },
   stateVersion: 1,
 } satisfies ProjectionDefinition<'residency-test/detail', string>
+
+/**
+ * A unit whose state is an opaque JSON object: it stands in for the
+ * model-window, reasoning-effort, provider, and message payloads other units
+ * store, so the cache's own read paths can be judged for passing them
+ * through unchanged.
+ */
+const opaqueUnit = {
+  key: 'residency-test/opaque',
+  stateSchema: z.record(z.string(), z.unknown()),
+  init: () => ({}),
+  apply: state => state,
+  wire: { viewSchema: z.record(z.string(), z.unknown()), view: state => state },
+  stateVersion: 1,
+} satisfies ProjectionDefinition<'residency-test/opaque', Record<string, unknown>>
 
 const titleUnit = {
   key: 'title',
@@ -149,6 +165,7 @@ async function harness(root: string, startupMaxAgeDays: number, maxResidentRecor
   await ctx.sessionProjections.register(titleUnit)
   await ctx.sessionProjections.register(noteUnit)
   await ctx.sessionProjections.register(detailUnit)
+  await ctx.sessionProjections.register(opaqueUnit)
   await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000, startupMaxAgeDays, maxResidentRecords })
   const table = ctx.storageDomain.get(projectionCacheDomainSpec.name)!.table('sessions')
   return { ctx, cache: ctx.sessionProjectionCache, residentKeys: () => new Set([...table.keys()]), residentCount: () => table.size }
@@ -257,6 +274,53 @@ describe('on-demand reads of records outside the startup set', () => {
     expect(reads).toHaveBeenCalledTimes(1)
     // Another lifecycle under the same id is not served from the view.
     expect(cache.cachedSnapshot({ ...meta, createdAt: 99 }, ['title'])).toBeUndefined()
+  })
+
+  it('passes opaque model, message, and empty values through startup, on-demand, and listing views', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-projcache-opaque-'))
+    roots.push(root)
+    await mkdir(join(root, projectionCacheDomainSpec.name, 'sessions'), { recursive: true })
+    // Values shaped like the model-window, reasoning, provider, tool, and message
+    // payloads other units store; the cache must not interpret or reshape them.
+    const opaque = {
+      model: {
+        provider: 'anthropic', model: 'opus', contextWindow: 1_000_000, maxTokens: 64_000,
+        reasoningEffort: 'xhigh', forceAdaptiveThinking: true,
+      },
+      providerIds: ['anthropic-pool', 'runai-responses', 'deepseek-web'],
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: '空回复与仅思考' }] },
+        { role: 'assistant', content: [], thinking: '', toolCalls: [{ name: 'bash', arguments: {} }] },
+      ],
+      nothing: null,
+      empty: '',
+      enormous: '工'.repeat(174_762),
+    }
+    const recent = { ...headerOf(0), id: SessionId('opaque-recent') }
+    const cold = { ...headerOf(1), id: SessionId('opaque-cold') }
+    for (const [meta, ageHours] of [[recent, 0], [cold, 90 * 24]] as const) {
+      const document = {
+        version: projectionCacheDomainSpec.version,
+        record: {
+          identity: { formatVersion: meta.version, createdAt: meta.createdAt, isSeeded: false, inheritedEventCount: SessionLogOffset(0) },
+          rows: { 'residency-test/opaque': { ver: 1, seq: SessionSeq(0), val: opaque } },
+        },
+      }
+      const path = recordPath(root, meta.id)
+      await writeFile(path, JSON.stringify(document))
+      const when = new Date(NOW - ageHours * HOUR)
+      await utimes(path, when, when)
+    }
+    const { ctx, cache, residentKeys } = await harness(root, 30, 1)
+    expect(residentKeys()).toEqual(new Set([recent.id]))
+    expect(cache.cachedSnapshot(recent, ['residency-test/opaque'])).toEqual({ asOfSeq: 0, values: { 'residency-test/opaque': opaque } })
+    await expect(cache.ensureLoaded(cold.id)).resolves.toBe(true)
+    expect(cache.cachedSnapshot(cold, ['residency-test/opaque'])).toEqual({ asOfSeq: 0, values: { 'residency-test/opaque': opaque } })
+    // The on-demand read displaced the recent complete record into a listing
+    // view; that view still serves every stored value unchanged.
+    expect(residentKeys().size).toBe(1)
+    await expect(cache.loadListing(recent)).resolves.toEqual({ asOfSeq: 0, values: { 'residency-test/opaque': opaque } })
+    expect(cache.cachedSnapshot(recent, ctx.sessionProjections.summaryKeys())?.values['residency-test/opaque']).toEqual(opaque)
   })
 
   it('lists every one of 7001 records while complete residents stay within the bound', async () => {
