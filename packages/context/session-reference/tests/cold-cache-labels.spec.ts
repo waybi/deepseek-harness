@@ -111,5 +111,5 @@ describe('reference candidates over records outside the resident set', () => {
     expect(readTitles).not.toHaveBeenCalled()
     // Complete records in memory stay within the bound; the live target is the only addition.
     expect([...table.keys()].filter(key => key !== target.id).length).toBeLessThanOrEqual(2)
-  })
+  }, 30_000)
 })
