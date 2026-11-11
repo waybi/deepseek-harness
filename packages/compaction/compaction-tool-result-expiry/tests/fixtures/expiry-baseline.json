@@ -1,0 +1,239 @@
+{
+  "expired": [
+    {
+      "originalSeq": 4,
+      "callId": "c1",
+      "turn": 1,
+      "charsBefore": 400,
+      "charsAfter": 103
+    },
+    {
+      "originalSeq": 11,
+      "callId": "c2",
+      "turn": 2,
+      "charsBefore": 400,
+      "charsAfter": 104
+    },
+    {
+      "originalSeq": 26,
+      "callId": "c4",
+      "turn": 4,
+      "charsBefore": 300,
+      "charsAfter": 98
+    },
+    {
+      "originalSeq": 33,
+      "callId": "c5",
+      "turn": 5,
+      "charsBefore": 154,
+      "charsAfter": 98
+    }
+  ],
+  "charsRemoved": 851,
+  "appended": [
+    {
+      "type": "compaction/prune",
+      "data": {
+        "shadowedRange": {
+          "start": 4,
+          "end": 4
+        },
+        "shadowedSeqs": [
+          4
+        ],
+        "shadowedTokenCount": 108
+      }
+    },
+    {
+      "type": "tool/result",
+      "data": {
+        "turn": 1,
+        "step": 1,
+        "message": {
+          "role": "tool",
+          "source": {
+            "kind": "tool",
+            "callId": "c1"
+          },
+          "toolCallId": "c1",
+          "content": [
+            {
+              "type": "text",
+              "text": "[read_file output from an earlier turn expired: 400 characters removed; rerun the tool to see it again]"
+            }
+          ],
+          "isError": false,
+          "id": "msg:c1"
+        }
+      },
+      "sourceEventSeqs": [
+        4
+      ],
+      "surfaceOp": {
+        "op": "replace",
+        "startSeq": 4,
+        "endSeq": 4
+      }
+    },
+    {
+      "type": "compaction/prune",
+      "data": {
+        "shadowedRange": {
+          "start": 11,
+          "end": 11
+        },
+        "shadowedSeqs": [
+          11
+        ],
+        "shadowedTokenCount": 160
+      }
+    },
+    {
+      "type": "tool/result",
+      "data": {
+        "turn": 2,
+        "step": 1,
+        "message": {
+          "role": "tool",
+          "source": {
+            "kind": "tool",
+            "callId": "c2"
+          },
+          "toolCallId": "c2",
+          "content": [
+            {
+              "type": "text",
+              "text": "[screenshot output from an earlier turn expired: 400 characters removed; rerun the tool to see it again]"
+            },
+            {
+              "type": "image",
+              "attachment": {
+                "attachmentId": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "mediaType": "image/png",
+                "bytes": 1,
+                "width": 1,
+                "height": 1
+              },
+              "offloaded": true
+            }
+          ],
+          "isError": false,
+          "id": "msg:c2"
+        }
+      },
+      "sourceEventSeqs": [
+        11
+      ],
+      "surfaceOp": {
+        "op": "replace",
+        "startSeq": 11,
+        "endSeq": 11
+      }
+    },
+    {
+      "type": "compaction/prune",
+      "data": {
+        "shadowedRange": {
+          "start": 26,
+          "end": 26
+        },
+        "shadowedSeqs": [
+          26
+        ],
+        "shadowedTokenCount": 83
+      }
+    },
+    {
+      "type": "tool/result",
+      "data": {
+        "turn": 4,
+        "step": 1,
+        "message": {
+          "role": "tool",
+          "source": {
+            "kind": "tool",
+            "callId": "c4"
+          },
+          "toolCallId": "c4",
+          "content": [
+            {
+              "type": "text",
+              "text": "[bash output from an earlier turn expired: 300 characters removed; rerun the tool to see it again]"
+            }
+          ],
+          "isError": true,
+          "id": "msg:c4"
+        },
+        "error": {
+          "name": "Failure",
+          "code": "EXIT_1",
+          "reason": "exit 1"
+        },
+        "meta": {
+          "kind": "diff",
+          "lines": [
+            1,
+            2,
+            3
+          ]
+        }
+      },
+      "sourceEventSeqs": [
+        26
+      ],
+      "surfaceOp": {
+        "op": "replace",
+        "startSeq": 26,
+        "endSeq": 26
+      }
+    },
+    {
+      "type": "compaction/prune",
+      "data": {
+        "shadowedRange": {
+          "start": 33,
+          "end": 33
+        },
+        "shadowedSeqs": [
+          33
+        ],
+        "shadowedTokenCount": 68
+      }
+    },
+    {
+      "type": "tool/result",
+      "data": {
+        "turn": 5,
+        "step": 1,
+        "message": {
+          "role": "tool",
+          "source": {
+            "kind": "tool",
+            "callId": "c5"
+          },
+          "toolCallId": "c5",
+          "content": [
+            {
+              "type": "text",
+              "text": "[bash output from an earlier turn expired: 154 characters removed; rerun the tool to see it again]"
+            },
+            {
+              "type": "reasoning",
+              "text": "kept"
+            }
+          ],
+          "isError": false,
+          "id": "msg:c5"
+        }
+      },
+      "sourceEventSeqs": [
+        33
+      ],
+      "surfaceOp": {
+        "op": "replace",
+        "startSeq": 33,
+        "endSeq": 33
+      }
+    }
+  ]
+}

@@ -84,7 +84,7 @@ This section explains the design decisions behind expiry; the observable behavio
 
 ### Expiry mechanics
 
-`expireSession` reads the host-only `toolResultSurface` projection, which tracks every current surface node in surface order and the tool names from assistant `tool-call` blocks; a replacement removes the nodes at the surface positions from its start through its end, not the nodes whose seqs fall between them. Cold `tool/result` nodes that are no longer on the Session surface are skipped with a warning before any `compaction/prune` is appended, so every prune is followed by its replacement. Each cold result whose text exceeds the threshold is derived through the session's logged message projections, collapsed into one stub plus its non-text blocks, and appended as a content-only `tool/result` replacement preceded by `compaction/prune`. The pre-step listener is prepended so it runs before `dsh-compaction-basic`; a failure inside it is logged and the step continues. Exact signatures are in [`src/index.ts`](src/index.ts).
+`expireSession` reads the host-only `toolResultSurface` projection, which tracks every current surface node in surface order and the tool names from assistant `tool-call` blocks; a replacement removes the nodes at the surface positions from its start through its end, not the nodes whose seqs fall between them. A node keeps the result message id, the `tool/result` fields other than `message`, and a digest of the text blocks — their leading 256 code points, their code-point count, and the first 16 hex digits of their SHA-256 — instead of the message content. The digest covers text blocks only, so an image projection that rewrites images keeps a node eligible; changing the summary length or the hash input is a persisted-state change and requires a `stateVersion` bump. Version 3 rows replace version 2 rows, which are discarded and refolded from the log. Cold `tool/result` nodes that are no longer on the Session surface are skipped with a warning before any `compaction/prune` is appended, so every prune is followed by its replacement. Each cold result whose text exceeds the threshold is read from `session.deriveMessages()` by its message id, collapsed into one stub plus its non-text blocks, and appended as a content-only `tool/result` replacement preceded by `compaction/prune`; a node whose id is absent from the derived messages, or whose derived text no longer matches the recorded digest, is skipped with one warning per reason and never gets a prune. The pre-step listener is prepended so it runs before `dsh-compaction-basic`; a failure inside it is logged and the step continues. Exact signatures are in [`src/index.ts`](src/index.ts).
 
 ### Source map
 
@@ -92,6 +92,7 @@ This section explains the design decisions behind expiry; the observable behavio
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `ToolResultExpiry` service, `expireSession` / `expireContent` / `isCold` / `measureContent`, the `agent/pre-step` listener |
 | [`src/config.ts`](src/config.ts) | `expiredStub`, defaults, code-point counting, policy validation |
+| [`src/projection.ts`](src/projection.ts) | Host-only `toolResultSurface` projection: node fields, text digest, fold, `stateVersion` |
 | [`src/types.ts`](src/types.ts) | `ToolResultExpiryConfig`, `ResolvedConfig`, `ExpiredEntry`, `ExpiryResult` |
 
 </details>
