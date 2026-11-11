@@ -153,8 +153,9 @@ describe('deferred exposure through the registry', () => {
     const schemas = ctx.tools.schemas(key)
     expect(schemas.map(schema => schema.name)).toEqual(['read', TOOL_SEARCH_NAME])
     const search = schemas.find(schema => schema.name === TOOL_SEARCH_NAME)!
-    expect(search.description).toContain('- de_broadcast: Broadcast a message to other sessions.')
-    expect(search.description).toContain('- de_session: Spawn or wake a session.')
+    expect(search.description).toContain('- de_broadcast')
+    expect(search.description).toContain('- de_session')
+    expect(search.description).not.toContain('Broadcast a message')
     expect(search.description).not.toContain('Long tail')
 
     // Hidden tools are not callable before a reveal; the prompt and executor agree.
@@ -164,43 +165,17 @@ describe('deferred exposure through the registry', () => {
     expect(assembly.sections.find(section => section.name === 'tools:search')?.text).toContain(TOOL_SEARCH_NAME)
   })
 
-  it('ends a catalog line at a full-width sentence terminator', async () => {
+  it('lists a catalog entry as the bare tool name, never its description', async () => {
     const ctx = await mount(['de_*'])
     ctx.tools.register(tool('de_broadcast', '会话广播：会话之间传递消息。send：给其他会话发消息'))
     ctx.tools.register(tool('de_rules', 'Use v1.2 rules. Tail.'))
-    const { key } = await mintAgent(ctx, 'full-width')
+    const { key } = await mintAgent(ctx, 'names-only')
 
-    const search = ctx.tools.schemas(key).find(schema => schema.name === TOOL_SEARCH_NAME)!
-    expect(search.description).toContain('- de_broadcast: 会话广播：会话之间传递消息。')
-    expect(search.description).not.toContain('send：')
-    expect(search.description).toContain('- de_rules: Use v1.2 rules.')
-    expect(search.description).not.toContain('Tail.')
-  })
-
-  it('summarizes each catalog line to its first sentence, capped', async () => {
-    const cases: Array<[description: string, line: string]> = [
-      ['第一句！第二句', '第一句！'],
-      ['能用吗？后文', '能用吗？'],
-      ['读取 config.yaml 文件。后文 more.', '读取 config.yaml 文件。'],
-      ['Broadcast a message. More.', 'Broadcast a message.'],
-      ['Stop! Next', 'Stop!'],
-      ['Why? Because', 'Why?'],
-      ['No terminator here', 'No terminator here'],
-      ['会话广播。', '会话广播。'],
-      ['甲。 乙', '甲。'],
-      ['First line without end\nSecond line. More', 'First line without end'],
-      [`${'长'.repeat(130)}。后文`, `${'长'.repeat(119)}…`],
-      ['', ''],
-      ['。', '。'],
-    ]
-    const name = (index: number): string => `de_case${String(index).padStart(2, '0')}`
-    const ctx = await mount(['de_*'])
-    cases.forEach(([description], index) => { ctx.tools.register(tool(name(index), description)) })
-    const { key } = await mintAgent(ctx, 'summaries')
-
-    const lines = ctx.tools.schemas(key).find(schema => schema.name === TOOL_SEARCH_NAME)!.description.split('\n')
-    expect(cases.map((_, index) => lines.find(line => line.startsWith(`- ${name(index)}: `))))
-      .toEqual(cases.map(([, line], index) => `- ${name(index)}: ${line}`))
+    const lines = ctx.tools.schemas(key).find(schema => schema.name === TOOL_SEARCH_NAME)!.description
+      .split('\n').filter(line => line.startsWith('- '))
+    expect(lines).toEqual(['- de_broadcast', '- de_rules'])
+    expect(ctx.tools.schemas(key).find(schema => schema.name === TOOL_SEARCH_NAME)!.description)
+      .not.toContain('会话广播')
   })
 
   it('reveals searched tools durably and appends their schemas after the existing ones', async () => {
@@ -288,7 +263,7 @@ describe('deferred exposure through the registry', () => {
     const { key } = await mintAgent(ctx, 'override')
     expect(names(ctx, key)).toEqual(['de_direct', TOOL_SEARCH_NAME])
     const search = ctx.tools.schemas(key).find(schema => schema.name === TOOL_SEARCH_NAME)!
-    expect(search.description).toContain('- lazy: opts in')
+    expect(search.description).toContain('- lazy')
   })
 
   it('keeps restricted deferred tools out of the catalog, the search, and execution', async () => {

@@ -39,8 +39,6 @@ declare module '@deepseek-ai/dsh-session/types' {
 
 /** Maximum revealed tools returned by one search. */
 const MAX_HITS = 5
-/** Characters of a tool description kept for one catalog line. */
-const CATALOG_SUMMARY_CHARS = 120
 
 /** MCP tool names are `mcp__<server>__<tool>`; one server's tools reveal together. */
 const MCP_SERVER = /^(mcp__[^_]+(?:_[^_]+)*__)/u
@@ -85,29 +83,21 @@ export function compileDeferredPatterns(patterns: readonly string[]): (name: str
 }
 
 /**
- * First sentence of a description's first line, capped, for the catalog line.
- * A sentence ends at an ASCII `.!?` followed by whitespace or the line end, or
- * at a full-width `。！？`.
- */
-function summarize(description: string): string {
-  const firstLine = description.split('\n', 1)[0] ?? ''
-  const sentence = /^(.*?(?:[.!?](?=\s|$)|[。！？]))/u.exec(firstLine)?.[1] ?? firstLine
-  const chars = Array.from(sentence)
-  return chars.length > CATALOG_SUMMARY_CHARS
-    ? `${chars.slice(0, CATALOG_SUMMARY_CHARS - 1).join('')}…`
-    : sentence
-}
-
-/**
  * Render the `tool_search` description with the catalog of deferred tools
  * the model may reveal in this scope.
+ *
+ * Each catalog entry is the bare tool name. The one-line summaries this used
+ * to carry cost 4,800 characters in the catalog of a full profile — the
+ * largest single line in a request's tool declarations — while the query
+ * ranking already matches on name and full description, so a name is enough
+ * to search with and the revealed schema carries the description.
  * @param deferred - deferred definitions visible to the scope and not yet revealed.
  * @returns the complete model-facing description.
  */
 export function renderToolSearchDescription(deferred: readonly ToolDefinition[]): string {
   const lines = [...deferred]
     .sort((a, b) => a.name.localeCompare(b.name, 'en'))
-    .map(tool => `- ${tool.name}: ${summarize(tool.description)}`)
+    .map(tool => `- ${tool.name}`)
   return [
     'Reveal tools that are registered but not declared yet. The tools below exist but their full schemas are',
     'not loaded; when a task needs one of them, call tool_search with a short query (tool name, or words',

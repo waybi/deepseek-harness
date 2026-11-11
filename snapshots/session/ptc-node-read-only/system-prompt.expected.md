@@ -204,7 +204,7 @@ interface ToolArgsMap {
       status: "pending" | "in_progress" | "completed";
     })[];
   } & Record<string, JsonValue>;
-  /** Reveal tools that are registered but not declared yet. The tools below exist but their full schemas are not loaded; when a task needs one of them, call tool_search with a short query (tool name, or words from its purpose). Matching tools become callable from the next step and stay available for the rest of the session. Do not call tool_search for a tool that is already declared. Available deferred tools: - workflow: Run a JavaScript workflow script that orchestrates subagents at scale. */
+  /** Reveal tools that are registered but not declared yet. The tools below exist but their full schemas are not loaded; when a task needs one of them, call tool_search with a short query (tool name, or words from its purpose). Matching tools become callable from the next step and stay available for the rest of the session. Do not call tool_search for a tool that is already declared. Available deferred tools: - workflow */
   tool_search: {
     /** Tool name or a few words describing what you need (e.g. "broadcast message", "spawn session", "feishu doc"). */
     query: string;
