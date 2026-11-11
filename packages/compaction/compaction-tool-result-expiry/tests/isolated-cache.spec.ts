@@ -137,12 +137,7 @@ describe('isolated host: version bump and listing stay per-session', () => {
         return toolResultSurfaceProjection.apply(state, event)
       },
     })
-    await ctx.plugin(SessionProjectionCache, {
-      writeEveryEvents: 100,
-      writeIntervalMs: 60_000,
-      startupMaxAgeDays: 30,
-      maxResidentRecords: 300,
-    })
+    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
     const cache = ctx.sessionProjectionCache
 
     // Listing reads only wire projections: titles arrive, no fold runs, no row changes.
