@@ -27,7 +27,7 @@ import type {} from '@deepseek-ai/dsh-token-meter'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { hasSpillNotice } from '@deepseek-ai/dsh-spill-policy/notice'
 import { codePointLength, DEFAULTS, expiredStub, expiredStubWithSpill, resolveConfig } from './config.ts'
-import { digestToolResultText, toolResultSurfaceProjection } from './projection.ts'
+import { toolResultSurfaceProjection } from './projection.ts'
 import type { ToolResultSurfaceNode, ToolResultSurfaceState } from './projection.ts'
 import type {
   ExpiredEntry,
@@ -38,8 +38,7 @@ import type {
 
 export { codePointLength, DEFAULTS, expiredStub, expiredStubWithSpill, resolveConfig } from './config.ts'
 export { toolResultSurfaceProjection, UNNAMED_TOOL } from './projection.ts'
-export { digestToolResultText, SUMMARY_CODE_POINTS } from './projection.ts'
-export type { ToolResultSurfaceNode, ToolResultSurfaceState, ToolResultTextDigest } from './projection.ts'
+export type { ToolResultSurfaceNode, ToolResultSurfaceState } from './projection.ts'
 export type {
   ExpiredEntry,
   ExpiryResult,
@@ -255,21 +254,14 @@ export class ToolResultExpiry extends Service {
 
   /**
    * Stub every cold over-threshold tool result on one stable current-surface
-   * snapshot. The complete content comes from `session.deriveMessages()`,
-   * which the projection no longer stores; each replacement preserves the
-   * node's logged `tool/result` fields other than `content`, cites the
-   * shadowed node so replay can recover it, and is immediately preceded by a
-   * `compaction/prune` shadow-price event pricing the shadowed node through
-   * the injected token meter.
+   * snapshot. Each replacement preserves the complete event data except for
+   * `content`, cites the shadowed node so replay can recover it, and is
+   * immediately preceded by a `compaction/prune` shadow-price event pricing
+   * the shadowed node through the injected token meter.
    * A candidate is rewritten only while its seq is a current node of
    * `session.surface`, checked before the `compaction/prune` is
    * appended, so a projection node the Session no longer shows never leaves
    * a prune without its replacement; such a node is skipped with a warning.
-   * Two more checks skip a node before any prune is appended: its
-   * `messageId` is absent from the derived messages, or the derived text
-   * hashes differently from the projection's recorded digest. Those skips
-   * happen once per reason per pass, so one unusable node never suppresses
-   * the other candidates.
    * @param session - session whose current surface is rewritten.
    * @param currentTurn - turn whose request is being prepared.
    * @returns landed replacements and aggregate Unicode-code-point savings.
@@ -298,38 +290,10 @@ export class ToolResultExpiry extends Service {
     const projected = new Map<string, Message>()
     for (const message of session.deriveMessages()) projected.set(message.id, message)
 
-    const usable: { node: ToolResultSurfaceNode; original: ToolResultMessage }[] = []
-    const missing: number[] = []
-    const mismatched: number[] = []
-    for (const node of candidates) {
-      const message = projected.get(node.messageId)
-      if (message === undefined) {
-        missing.push(node.seq)
-        continue
-      }
-      const original = message as ToolResultMessage
-      // The digest covers text blocks only, so a message projection that
-      // rewrites images (offload) keeps the node eligible.
-      if (digestToolResultText(original.content).textHash !== node.textHash) {
-        mismatched.push(node.seq)
-        continue
-      }
-      usable.push({ node, original })
-    }
-    if (missing.length > 0) {
-      this.ctx.logger.warn(
-        `tool-result expiry: skipped seqs ${missing.join(', ')} whose message id is absent from derived messages`,
-      )
-    }
-    if (mismatched.length > 0) {
-      this.ctx.logger.warn(
-        `tool-result expiry: skipped seqs ${mismatched.join(', ')} whose derived text no longer matches the projected digest`,
-      )
-    }
-
     const expired: ExpiredEntry[] = []
     let charsRemoved = 0
-    for (const { node, original } of usable) {
+    for (const node of candidates) {
+      const original = (projected.get(node.data.message.id) ?? node.data.message) as ToolResultMessage
       const content = this.expireContent(original.content, node.toolName)
       if (content === null) continue
       const charsBefore = this.measureContent(original.content)
@@ -344,7 +308,7 @@ export class ToolResultExpiry extends Service {
         shadowedTokenCount: this.ctx.tokenMeter.estimateMessage(original),
       })
       const replacement = session.append('tool/result', {
-        ...node.fields,
+        ...node.data,
         message,
       }, {
         surfaceOp: { op: 'replace', startSeq: node.seq, endSeq: node.seq },

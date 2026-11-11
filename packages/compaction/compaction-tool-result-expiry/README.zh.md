@@ -84,7 +84,7 @@ kind: "package-reference"
 
 ### 过期机制
 
-`expireSession` 读取仅宿主可见的 `toolResultSurface` 投影，它按表层顺序记录全部当前表层节点，并从 assistant 的 `tool-call` 块收集工具名；替换移除的是从起点到终点之间表层位置上的节点，不是 seq 数值落在两者之间的节点。节点保存结果消息 id、`tool/result` 数据里除 `message` 以外的字段，以及文本块摘要——前 256 个码点、码点数与 SHA-256 前 16 位十六进制——不再保存消息正文。摘要只覆盖文本块，因此只改写图片的投影不会让节点失效；改动摘要长度或哈希输入属于持久化状态变更，必须抬 `stateVersion`。版本 3 的行会替换版本 2 的行，旧行直接丢弃并从日志重新折叠。已不在 Session 表层上的冷 `tool/result` 节点会在追加任何 `compaction/prune` 之前被跳过并记一条警告，因此每条 prune 后面都紧跟它的替换。每个文本超过阈值的冷结果按消息 id 从 `session.deriveMessages()` 取回正文，折叠为一行占位加其非文本块，并作为仅改内容的 `tool/result` 替换追加，前面紧跟 `compaction/prune`；消息 id 在派生消息中缺失，或取回正文与记录指纹不符的节点，按原因每轮记一条警告后跳过，绝不追加 prune。pre-step 监听器以前置方式注册，因此先于 `dsh-compaction-basic` 运行；其中的失败会被记录，步骤继续。精确签名见 [`src/index.ts`](src/index.ts)。
+`expireSession` 读取仅宿主可见的 `toolResultSurface` 投影，它按表层顺序记录全部当前表层节点，并从 assistant 的 `tool-call` 块收集工具名；替换移除的是从起点到终点之间表层位置上的节点，不是 seq 数值落在两者之间的节点。已不在 Session 表层上的冷 `tool/result` 节点会在追加任何 `compaction/prune` 之前被跳过并记一条警告，因此每条 prune 后面都紧跟它的替换。每个文本超过阈值的冷结果经会话已记录的消息投影派生，折叠为一行占位加其非文本块，并作为仅改内容的 `tool/result` 替换追加，前面紧跟 `compaction/prune`。pre-step 监听器以前置方式注册，因此先于 `dsh-compaction-basic` 运行；其中的失败会被记录，步骤继续。精确签名见 [`src/index.ts`](src/index.ts)。
 
 ### 源码地图
 
@@ -92,7 +92,6 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`ToolResultExpiry` 服务、`expireSession` / `expireContent` / `isCold` / `measureContent`、`agent/pre-step` 监听器 |
 | [`src/config.ts`](src/config.ts) | `expiredStub`、默认值、码点计数、策略验证 |
-| [`src/projection.ts`](src/projection.ts) | 仅宿主可见的 `toolResultSurface` 投影：节点字段、文本摘要、折叠、`stateVersion` |
 | [`src/types.ts`](src/types.ts) | `ToolResultExpiryConfig`、`ResolvedConfig`、`ExpiredEntry`、`ExpiryResult` |
 
 </details>

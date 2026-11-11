@@ -3,69 +3,14 @@
  * everything expiry needs about each candidate, maintained incrementally from
  * committed surface events so the service never reads event history.
  *
- * A node keeps the result message id, the `tool/result` data fields other
- * than `message`, and a digest of the message text, not the message content.
- * The complete content is not required state: the Session derives it from
- * its log through `deriveMessages()`, and expiry reads it there.
- *
  * @module @deepseek-ai/dsh-compaction-tool-result-expiry/projection
  */
 
-import { createHash } from 'node:crypto'
 import { z } from 'zod'
-import { MessageId, ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { isSurfaceEvent, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
-import { codePointLength } from './config.ts'
-
-/**
- * Code points of result text kept in each node's `summary`. The value is
- * part of the persisted state fields, so changing it requires a
- * `stateVersion` bump; it is a format constant, not a deployment setting.
- * 256 code points identify a result in a cache dump while keeping a node
- * under about 1 KiB of JSON regardless of the result size.
- */
-export const SUMMARY_CODE_POINTS = 256
-
-/** Text digest of one tool-result message. */
-export interface ToolResultTextDigest {
-  /** First `SUMMARY_CODE_POINTS` code points of the concatenated text blocks. */
-  readonly summary: string
-  /** Code points across all text blocks, without separators; equals `ToolResultExpiry.measureContent`. */
-  readonly textChars: number
-  /** First 16 hex digits of the SHA-256 of the UTF-8 JSON array of text-block strings. */
-  readonly textHash: string
-}
-
-/**
- * Digest the text blocks of tool-result content, in content order. Non-text
- * blocks are excluded, so an image-offload projection that only marks images
- * keeps the digest. The hash input is the JSON array of block texts, so
- * different block splits of the same characters produce different hashes.
- * @param blocks - tool-result message content.
- * @returns the summary, code-point count, and hash; empty text yields `''`, 0, and the hash of `[]`.
- */
-export function digestToolResultText(blocks: readonly ContentBlock[]): ToolResultTextDigest {
-  const texts: string[] = []
-  let textChars = 0
-  let summary = ''
-  let summaryChars = 0
-  for (const block of blocks) {
-    if (block.type !== 'text') continue
-    texts.push(block.text)
-    textChars += codePointLength(block.text)
-    if (summaryChars === SUMMARY_CODE_POINTS) continue
-    for (const char of block.text) {
-      summary += char
-      summaryChars += 1
-      if (summaryChars === SUMMARY_CODE_POINTS) break
-    }
-  }
-  const textHash = createHash('sha256').update(JSON.stringify(texts), 'utf8').digest('hex').slice(0, 16)
-  return { summary, textChars, textHash }
-}
 
 /** One current tool-result surface node as expiry sees it. */
 export interface ToolResultSurfaceNode {
@@ -77,16 +22,8 @@ export interface ToolResultSurfaceNode {
   readonly callId: ToolCallId
   /** Tool named by the assistant `tool-call` block that issued the call, or `tool` when none is on the surface. */
   readonly toolName: string
-  /** Id of the result message; expiry finds the current content among the Session's derived messages by it. */
-  readonly messageId: MessageId
-  /** The node's `tool/result` data except `message`, re-appended verbatim by a replacement. */
-  readonly fields: Omit<SessionEvent<'tool/result'>['data'], 'message'>
-  /** First `SUMMARY_CODE_POINTS` code points of the message text. */
-  readonly summary: string
-  /** Code points across the message text blocks. */
-  readonly textChars: number
-  /** Text hash from `digestToolResultText`; expiry skips the node when the derived message text hashes differently. */
-  readonly textHash: string
+  /** Complete `tool/result` event data at this node, including the message content. */
+  readonly data: SessionEvent<'tool/result'>['data']
 }
 
 /**
@@ -115,10 +52,10 @@ const sessionSeq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).t
 const turnNumber = z.number().int().positive()
 
 /**
- * Plain-JSON checkpoint of the retained tool-result surface. `fields` is the
- * logged `tool/result` payload without `message`; the stub replacement
- * re-appends it unchanged, so it is kept opaque here and trusted from the
- * durable log it was copied from.
+ * Plain-JSON checkpoint of the retained tool-result surface. `data` is the
+ * logged `tool/result` payload verbatim; the stub replacement re-appends it
+ * with only `message.content` changed, so it is kept opaque here and trusted
+ * from the durable log it was copied from.
  */
 const stateSchema = z.object({
   surface: z.array(sessionSeq),
@@ -127,14 +64,10 @@ const stateSchema = z.object({
     turn: turnNumber,
     callId: z.string().transform(ToolCallId),
     toolName: z.string(),
-    messageId: z.string().transform(MessageId),
-    fields: z.custom<Omit<SessionEvent<'tool/result'>['data'], 'message'>>(
-      value => typeof value === 'object' && value !== null && !Array.isArray(value) && !('message' in value),
-      'tool/result fields must be an object without message',
+    data: z.custom<SessionEvent<'tool/result'>['data']>(
+      value => typeof value === 'object' && value !== null && !Array.isArray(value),
+      'tool/result event data must be an object',
     ),
-    summary: z.string(),
-    textChars: z.number().int().nonnegative(),
-    textHash: z.string().regex(/^[0-9a-f]{16}$/u),
   }).strict()),
   toolNames: z.record(z.string(), z.string()),
 }).strict()
@@ -164,16 +97,13 @@ function fold(state: ToolResultSurfaceState, event: SessionEvent): ToolResultSur
   let nodes = state.nodes
   let replacement: ToolResultSurfaceNode | undefined
   if (event.type === 'tool/result') {
-    const { message, ...fields } = event.data
-    const callId = message.source.callId
+    const callId = event.data.message.source.callId
     replacement = {
       seq: event.seq,
       turn: event.data.turn,
       callId,
       toolName: toolNames[callId] ?? UNNAMED_TOOL,
-      messageId: message.id,
-      fields,
-      ...digestToolResultText(message.content),
+      data: event.data,
     }
   }
   if (op === 'append') {
@@ -204,15 +134,10 @@ function fold(state: ToolResultSurfaceState, event: SessionEvent): ToolResultSur
   return { surface, nodes, toolNames }
 }
 
-/**
- * Host-only projection definition registered by `ToolResultExpiry`. A
- * checkpoint row of another `stateVersion` is discarded and the state is
- * refolded from the log; version 3 replaced the complete `data` with
- * `messageId`, `fields`, and the text digest.
- */
+/** Host-only projection definition registered by `ToolResultExpiry`. */
 export const toolResultSurfaceProjection = {
   key: 'toolResultSurface',
-  stateVersion: 3,
+  stateVersion: 2,
   stateSchema,
   init: (): ToolResultSurfaceState => ({ surface: [], nodes: [], toolNames: {} }),
   apply: fold,

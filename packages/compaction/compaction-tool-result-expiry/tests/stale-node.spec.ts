@@ -196,37 +196,20 @@ describe('tool-result surface projection positions', () => {
 })
 
 describe('tool-result surface projection cache version', () => {
-  it('discards a ver=2 row carrying complete data and refolds from the log', () => {
-    expect(toolResultSurfaceProjection.stateVersion).toBe(3)
+  it('discards a checkpoint row from the previous state version and refolds from the log', () => {
+    expect(toolResultSurfaceProjection.stateVersion).toBe(2)
     const { registry } = harness()
     const session = Session.create(SessionId('stale-cache'))
-    const seq = appendToolTurn(session, 1, 'c1', [{ type: 'text', text: 'x'.repeat(BIG) }])
+    const seq = appendToolTurn(session, 1, 'c1', [{ type: 'text', text: 'x' }])
     const events = session.snapshotEvents()
-    const source = events[seq]!
-    if (source.type !== 'tool/result') throw new Error('scenario seq is not a tool/result')
-    // The version-2 row kept `data` verbatim; a matching version number is the
-    // only thing that would make the registry seed from it.
-    const stale = {
-      toolResultSurface: {
-        ver: 2,
-        seq: events.at(-1)!.seq,
-        val: {
-          surface: [...session.surface.nodes],
-          nodes: [{ seq, turn: 1, callId: ToolCallId('c1'), toolName: 'bash', data: source.data }],
-          toolNames: { c1: 'bash' },
-        },
-      },
-    }
+    const stale = { toolResultSurface: { ver: 1, seq: events.at(-1)!.seq, val: { nodes: [], toolNames: {} } } }
     expect(registry.restoreFloor(stale)).toBe(0)
 
     const restored = registry.restore(stale, events, SessionLogOffset(0), session.header, SessionLogOffset(0))
-    const zero = registry.restore({}, events, SessionLogOffset(0), session.header, SessionLogOffset(0))
     const row = restored.checkpoint['toolResultSurface']!
-    expect(row.ver).toBe(3)
-    expect(row.val).toEqual(zero.checkpoint['toolResultSurface']!.val)
+    expect(row.ver).toBe(2)
     const state = row.val as ToolResultSurfaceState
     expect(state.nodes.map(node => node.seq)).toEqual([seq])
-    expect(state.nodes[0]).not.toHaveProperty('data')
     expect(state.surface).toEqual([...session.surface.nodes])
   })
 })
