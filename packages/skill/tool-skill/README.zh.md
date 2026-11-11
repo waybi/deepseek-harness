@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-agent 可以在会话期间发现并加载 skill。当 `skill` 工具可见时，只要存在模型可调用的 skill 或发现不完整，就会在首次请求前生成持久目录。工具加载完整指令；用户可以用 `/name` 调用用户可调用的 skill。条目、可见性和完整性变化会追加替换目录。发现不完整时会发布已确认的 skill 并附带警告，即使没有确认任何 skill。可配置 `catalogDescriptionMaxLength` 来限制描述长度。
+agent 可以在会话期间发现并加载 skill。当 `skill` 工具可见时，只要存在模型可调用的 skill 或发现不完整，就会在首次请求前生成持久目录。工具加载完整指令；用户可以用 `/name` 调用用户可调用的 skill。条目、可见性和完整性变化会追加替换目录。会话里还看得到上一份目录时，替换目录只列变化的条目（增量）；只有增量超过 `catalogDeltaMaxChars`、发现不完整，或压缩把上一份目录藏起来时，才重贴完整列表。发现不完整时会发布已确认的 skill 并附带警告，即使没有确认任何 skill。可配置 `catalogDescriptionMaxLength` 来限制描述长度。
 
 ## 目录
 
@@ -46,6 +46,7 @@ agent 可以在会话期间发现并加载 skill。当 `skill` 工具可见时�
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `catalogDescriptionMaxLength` | `500` | 会话目录中渲染的规范化描述最大长度；最小为 3 |
+| `catalogDeltaMaxChars` | `1200` | 增量提示的最大字符数；超过就重贴完整目录；最小为 0，`0` 表示总是重贴 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-skill)是每个受支持字段的穷尽式真源。
 
@@ -149,7 +150,7 @@ A user may also invoke a skill directly; its <skill_content> block then appears 
 
 #### Token 影响
 
-重复输入成本随 skill 数量和 `catalogDescriptionMaxLength` 增长；当发现完整且列表为空，或工具被隐藏或遮蔽时，不会发送初始目录 token。每次条目或完整性变化都会添加一条保留的替换消息；发现不完整时会附带警告。
+重复输入成本随 skill 数量和 `catalogDescriptionMaxLength` 增长；当发现完整且列表为空，或工具被隐藏或遮蔽时，不会发送初始目录 token。每次条目或完整性变化都会添加一条保留的替换消息；增量只列变化的条目，开销随变化量而不是目录大小增长；发现不完整时会附带警告。
 
 #### KV Cache 影响
 

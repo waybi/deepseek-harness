@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Agents can discover and load skills during a session. When the `skill` tool is visible, model-invocable skills or incomplete discovery produce a durable catalog before the first request. The tool loads full instructions; users can invoke user-invocable skills with `/name`. Entry, visibility, and completeness changes append a replacement catalog. Incomplete discovery publishes confirmed skills with a warning, including when none are confirmed. Configure `catalogDescriptionMaxLength` to cap descriptions.
+Agents can discover and load skills during a session. When the `skill` tool is visible, model-invocable skills or incomplete discovery produce a durable catalog before the first request. The tool loads full instructions; users can invoke user-invocable skills with `/name`. Entry, visibility, and completeness changes append a replacement: while an earlier catalog is visible it lists only the changed entries, and the whole list returns when the delta would exceed `catalogDeltaMaxChars`, when discovery is incomplete, or after compaction. Incomplete discovery publishes confirmed skills with a warning, including when none are confirmed. Configure `catalogDescriptionMaxLength` to cap descriptions.
 
 ## Table of Contents
 
@@ -46,6 +46,7 @@ Load the plugin together with the skill registry and at least one provider. The 
 | Field | Default | Meaning |
 |---|---|---|
 | `catalogDescriptionMaxLength` | `500` | Maximum normalized description length rendered in the session catalog; minimum 3 |
+| `catalogDeltaMaxChars` | `1200` | Maximum characters in a delta notice; a larger change republishes the whole catalog; minimum 0, `0` always republishes |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-skill) is the exhaustive source for every accepted field.
 
@@ -149,7 +150,7 @@ A user may also invoke a skill directly; its <skill_content> block then appears 
 
 #### Token effect
 
-Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no initial catalog tokens are sent when discovery is complete and empty or the tool is hidden or shadowed. Each entry or completeness change adds one retained replacement message; incomplete discovery adds a warning.
+Repeated input cost scales with skill count and `catalogDescriptionMaxLength`; no initial catalog tokens are sent when discovery is complete and empty or the tool is hidden or shadowed. Each entry or completeness change adds one retained replacement message; a delta lists only the changed entries, so its cost scales with the change rather than the catalog, and incomplete discovery adds a warning.
 
 #### KV Cache effect
 

@@ -432,10 +432,15 @@ describe('dsh-tool-skill', () => {
     unregisterFailure()
     ctx.skills.register(definition)
     await fireStep(ctx, agent, 1, 3)
-    expect(catalogMessages(session)[2]?.data.source).toEqual({
-      kind: 'skill-catalog', form: 'catalog', update: true,
+    const recovery = catalogMessages(session)[2]
+    expect(recovery?.data.source).toEqual({
+      kind: 'skill-catalog', form: 'catalog', update: true, delta: true,
       entries: [{ name: 'recovering-skill', description: 'Recovering skill' }],
     })
+    // The empty replacement left no entries to lean on, so the recovery is a
+    // pure addition and says so instead of repeating the confirmation policy.
+    expect(JSON.stringify(recovery?.data.content)).toContain('- `recovering-skill`: Recovering skill')
+    expect(JSON.stringify(recovery?.data.content)).not.toContain('No skills could be confirmed')
   })
 
   it('records an empty baseline across repeated step observations', async () => {
@@ -537,7 +542,7 @@ describe('dsh-tool-skill', () => {
     expect(decision).toEqual({ kind: 'enter', messages: [proposed] })
   })
 
-  it('injects complete replacement catalogs for additions and an empty tombstone for removals', async () => {
+  it('publishes an addition as a delta and an emptied catalog as a complete tombstone', async () => {
     const home = await tempDir('tool-dynamic-catalog')
     const ctx = await setup(home)
     const disposeFirst = ctx.skills.register({
@@ -562,23 +567,242 @@ describe('dsh-tool-skill', () => {
     })
     await fireStep(ctx, agent, 1, 2)
 
+    // An addition names only itself: the earlier catalog stays the reference for
+    // the entries this notice does not repeat.
     const addition = catalogMessages(session)[1]
     if (addition?.type !== 'user/message') throw new Error('expected catalog addition')
-    expect(JSON.stringify(addition.data.content)).toContain('first-skill')
+    expect(addition.data.source).toMatchObject({ update: true, delta: true })
     expect(JSON.stringify(addition.data.content)).toContain('second-skill')
+    expect(JSON.stringify(addition.data.content)).not.toContain('first-skill')
 
     disposeSecond()
     disposeFirst()
     await fireStep(ctx, agent, 1, 3)
 
+    // Nothing is left to lean on: a delta could not say what remains, so an
+    // emptied catalog still publishes a complete list.
     const removal = catalogMessages(session)[2]
     if (removal?.type !== 'user/message') throw new Error('expected catalog removal')
+    expect(removal.data.source).not.toHaveProperty('delta')
     expect(JSON.stringify(removal.data.content)).toContain('No skills are currently available')
     expect(JSON.stringify(removal.data.content)).not.toContain('first-skill')
     expect(JSON.stringify(removal.data.content)).not.toContain('second-skill')
 
     await fireStep(ctx, agent, 1, 4)
     expect(catalogMessages(session)).toHaveLength(3)
+  })
+
+  it('lists a rewritten description and a dropped name as a delta', async () => {
+    const home = await tempDir('tool-catalog-delta-rewrite')
+    const ctx = await setup(home)
+    const disposeKept = ctx.skills.register({
+      name: 'kept-skill',
+      description: 'Kept skill',
+      source: 'runtime',
+      content: 'Kept body.',
+    })
+    const disposeRewritten = ctx.skills.register({
+      name: 'rewritten-skill',
+      description: 'Old description',
+      source: 'runtime',
+      content: 'Rewritten body.',
+    })
+    const session = Session.create(SessionId('catalog-delta-rewrite'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await fireStep(ctx, agent, 1, 1)
+    expect(catalogMessages(session)).toHaveLength(1)
+
+    disposeRewritten()
+    ctx.skills.register({
+      name: 'rewritten-skill',
+      description: 'New description',
+      source: 'runtime',
+      content: 'Rewritten body.',
+    })
+    disposeKept()
+    await fireStep(ctx, agent, 1, 2)
+
+    const delta = catalogMessages(session)[1]
+    if (delta?.type !== 'user/message') throw new Error('expected catalog delta')
+    const text = JSON.stringify(delta.data.content)
+    expect(delta.data.source).toMatchObject({ update: true, delta: true })
+    expect(text).toContain('- `rewritten-skill`: New description')
+    expect(text).not.toContain('Old description')
+    expect(text).not.toContain('- `kept-skill`')
+    expect(text).toContain('Removed (no longer available; do not call `skill` with these names): `kept-skill`.')
+    expect(delta.data.source).toMatchObject({
+      entries: [{ name: 'rewritten-skill', description: 'New description' }],
+    })
+  })
+
+  it('lists a removal alone when the remaining entries did not change', async () => {
+    const home = await tempDir('tool-catalog-delta-removal')
+    const ctx = await setup(home)
+    ctx.skills.register({
+      name: 'stays-skill',
+      description: 'Stays skill',
+      source: 'runtime',
+      content: 'Stays body.',
+    })
+    const disposeGone = ctx.skills.register({
+      name: 'gone-skill',
+      description: 'Gone skill',
+      source: 'runtime',
+      content: 'Gone body.',
+    })
+    const session = Session.create(SessionId('catalog-delta-removal'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await fireStep(ctx, agent, 1, 1)
+
+    disposeGone()
+    await fireStep(ctx, agent, 1, 2)
+
+    const delta = catalogMessages(session)[1]
+    if (delta?.type !== 'user/message') throw new Error('expected catalog delta')
+    const text = JSON.stringify(delta.data.content)
+    expect(delta.data.source).toMatchObject({ update: true, delta: true })
+    expect(text).toContain('Only the removals are listed')
+    expect(text).toContain('`gone-skill`')
+    expect(text).not.toContain('- `stays-skill`')
+    expect(text).not.toContain('changed only in completeness')
+  })
+
+  it('clears an incomplete notice with an entry-preserving delta', async () => {
+    const home = await tempDir('tool-catalog-incomplete-unchanged')
+    const ctx = await setup(home)
+    const definition = {
+      name: 'stable-skill',
+      description: 'Stable skill',
+      source: 'runtime' as const,
+      content: 'Stable body.',
+    }
+    const unregister = ctx.skills.register(definition)
+    let failing = true
+    let invalidate = (): void => {}
+    ctx.skills.registerProvider((control) => {
+      invalidate = control.invalidate
+      return {
+        name: 'flaky',
+        async list() {
+          if (failing) throw new Error('temporarily unavailable')
+          return []
+        },
+        async get() { return undefined },
+      }
+    })
+    const session = Session.create(SessionId('catalog-incomplete-unchanged'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await fireStep(ctx, agent, 1, 1)
+    expect(catalogMessages(session)[0]?.data.source).toMatchObject({ incomplete: true })
+
+    failing = false
+    invalidate()
+    await fireStep(ctx, agent, 1, 2)
+
+    const cleared = catalogMessages(session)[1]
+    if (cleared?.type !== 'user/message') throw new Error('expected catalog delta')
+    expect(cleared.data.source).toMatchObject({
+      update: true, delta: true, entries: [{ name: 'stable-skill', description: 'Stable skill' }],
+    })
+    expect(JSON.stringify(cleared.data.content)).toContain('changed only in completeness')
+    expect(JSON.stringify(cleared.data.content)).toContain('unchanged and still available')
+    expect(JSON.stringify(cleared.data.content)).not.toContain('- `stable-skill`')
+    unregister()
+  })
+
+  it('republishes the whole catalog when a delta would exceed its budget', async () => {
+    const home = await tempDir('tool-catalog-delta-budget')
+    const ctx = await setup(home, { catalogDeltaMaxChars: 200 })
+    ctx.skills.register({
+      name: 'first-skill',
+      description: 'First skill',
+      source: 'runtime',
+      content: 'First body.',
+    })
+    const session = Session.create(SessionId('catalog-delta-budget'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await fireStep(ctx, agent, 1, 1)
+    ctx.skills.register({
+      name: 'second-skill',
+      description: 'Second skill',
+      source: 'runtime',
+      content: 'Second body.',
+    })
+    await fireStep(ctx, agent, 1, 2)
+
+    const replacement = catalogMessages(session)[1]
+    if (replacement?.type !== 'user/message') throw new Error('expected a complete replacement')
+    expect(replacement.data.source).not.toHaveProperty('delta')
+    expect(JSON.stringify(replacement.data.content)).toContain('This complete catalog replaces')
+    expect(JSON.stringify(replacement.data.content)).toContain('- `first-skill`: First skill')
+    expect(JSON.stringify(replacement.data.content)).toContain('- `second-skill`: Second skill')
+  })
+
+  it('republishes the whole catalog when deltas are disabled', async () => {
+    const home = await tempDir('tool-catalog-delta-off')
+    const ctx = await setup(home, { catalogDeltaMaxChars: 0 })
+    ctx.skills.register({
+      name: 'first-skill',
+      description: 'First skill',
+      source: 'runtime',
+      content: 'First body.',
+    })
+    const session = Session.create(SessionId('catalog-delta-off'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await fireStep(ctx, agent, 1, 1)
+    ctx.skills.register({
+      name: 'second-skill',
+      description: 'Second skill',
+      source: 'runtime',
+      content: 'Second body.',
+    })
+    await fireStep(ctx, agent, 1, 2)
+
+    const replacement = catalogMessages(session)[1]
+    if (replacement?.type !== 'user/message') throw new Error('expected a complete replacement')
+    expect(replacement.data.source).not.toHaveProperty('delta')
+    expect(JSON.stringify(replacement.data.content)).toContain('- `first-skill`: First skill')
+    expect(JSON.stringify(replacement.data.content)).toContain('- `second-skill`: Second skill')
+  })
+
+  it('republishes the whole catalog when discovery is incomplete', async () => {
+    const home = await tempDir('tool-catalog-delta-incomplete')
+    const ctx = await setup(home)
+    const unregister = ctx.skills.register({
+      name: 'first-skill',
+      description: 'First skill',
+      source: 'runtime',
+      content: 'First body.',
+    })
+    ctx.skills.registerProvider(() => ({
+      name: 'unavailable',
+      async list() { throw new Error('temporarily unavailable') },
+      async get() { return undefined },
+    }))
+    const session = Session.create(SessionId('catalog-delta-incomplete'))
+    const agent = sessionAgent(session)
+    openMessageTurn(session)
+    await fireStep(ctx, agent, 1, 1)
+    ctx.skills.register({
+      name: 'second-skill',
+      description: 'Second skill',
+      source: 'runtime',
+      content: 'Second body.',
+    })
+    await fireStep(ctx, agent, 1, 2)
+
+    // An incomplete observation cannot confirm a removal, so it never narrows
+    // the session's list to a partial delta.
+    const replacement = catalogMessages(session)[1]
+    if (replacement?.type !== 'user/message') throw new Error('expected a complete replacement')
+    expect(replacement.data.source).toMatchObject({ incomplete: true })
+    expect(replacement.data.source).not.toHaveProperty('delta')
+    unregister()
   })
 
   it('resumes from the durable entries of the latest visible catalog', async () => {

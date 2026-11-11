@@ -27,6 +27,13 @@ export const inject = ['agents', 'tools', 'skills', 'workingDirectory']
 
 const DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH = 500
 /**
+ * Character budget for a catalog delta notice. A change that would exceed it
+ * republishes the whole catalog instead: past that point the notice is no longer
+ * smaller than the list it replaces, and a long chain of deltas is easier for a
+ * reader to mis-handle than one complete list. `0` disables deltas.
+ */
+const DEFAULT_CATALOG_DELTA_MAX_CHARS = 1200
+/**
  * Durable provider and item records for one published session skill catalog. The catalog is a
  * `catalog`-form context, so it records the entries it published beside the
  * model-facing prose: a consumer presenting the list must not re-parse the
@@ -37,6 +44,11 @@ export interface SkillCatalogSource {
   readonly form: 'catalog'
   /** Marks a replacement catalog rather than this session's first publication. */
   readonly update?: true
+  /**
+   * This replacement lists only the entries that changed against the previous
+   * visible catalog; `entries` still carries the complete result.
+   */
+  readonly delta?: true
   /** Some discovery failed; entries contain only skills found in this observation. Absence means complete. */
   readonly incomplete?: true
   /** Exactly the entries this message published, in catalog order. */
@@ -64,11 +76,17 @@ function catalogSourceEntries(
 export interface Config {
   /** Maximum normalized description length rendered in the session catalog; minimum 3. */
   catalogDescriptionMaxLength?: number
+  /**
+   * Maximum characters in a catalog delta notice; minimum 0. A change that would
+   * exceed it republishes the whole catalog. `0` always republishes.
+   */
+  catalogDeltaMaxChars?: number
 }
 
 /** Validate and default the model-facing skill catalog configuration. */
 export const Config: z<Config> = z.object({
   catalogDescriptionMaxLength: z.number().default(DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH),
+  catalogDeltaMaxChars: z.number().default(DEFAULT_CATALOG_DELTA_MAX_CHARS),
 })
 
 /**
@@ -80,6 +98,8 @@ export const Config: z<Config> = z.object({
 export function apply(ctx: Context, config: Config = {}): void {
   const catalogDescriptionMaxLength = config.catalogDescriptionMaxLength ?? DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH
   assertPositiveInteger('catalogDescriptionMaxLength', catalogDescriptionMaxLength, 3)
+  const catalogDeltaMaxChars = config.catalogDeltaMaxChars ?? DEFAULT_CATALOG_DELTA_MAX_CHARS
+  assertPositiveInteger('catalogDeltaMaxChars', catalogDeltaMaxChars, 0)
 
   const skillTool = defineTool({
     name: 'skill',
@@ -243,9 +263,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         ? decision
         : { ...decision, messages: decision.messages.filter(message => message.id !== existing.message.id) }
     }
-    const catalog = history.published
-      ? renderCatalogUpdate(entries, incomplete)
-      : renderCatalogMessage(entries, incomplete)
+    const catalog = selectCatalog(entries, incomplete, existing, history, catalogDeltaMaxChars)
     return {
       ...decision,
       messages: existing === undefined
@@ -378,7 +396,17 @@ function readCatalogEntries(source: unknown): SkillCatalogSource['entries'] | un
   return readable
 }
 
-function catalogHistory(agent: Agent): { visibleDigest?: string; published: boolean } {
+/** The newest catalog the session still shows, and whether any catalog was published. */
+interface CatalogHistory {
+  /** Digest of the newest catalog on the current surface; absent when none is visible. */
+  readonly visibleDigest?: string
+  /** Entries of that same catalog, for a delta against it. */
+  readonly visibleEntries?: SkillCatalogSource['entries']
+  /** Some catalog was published in this session, visible now or not. */
+  readonly published: boolean
+}
+
+function catalogHistory(agent: Agent): CatalogHistory {
   const visible = new Set(agent.session.surface.nodes)
   let published = false
   for (let index = agent.session.seq - 1; index >= 0; index -= 1) {
@@ -392,20 +420,120 @@ function catalogHistory(agent: Agent): { visibleDigest?: string; published: bool
     if (entries === undefined) continue
     const digest = digestCatalogEntries(entries, event.data.source.incomplete === true)
     published = true
-    if (visible.has(event.seq)) return { visibleDigest: digest, published }
+    if (visible.has(event.seq)) return { visibleDigest: digest, visibleEntries: entries, published }
   }
   return { published }
 }
 
-function catalogMessage(
-  messages: readonly UserMessage[],
-): { message: UserMessage; entries: SkillCatalogSource['entries']; incomplete: boolean } | undefined {
+/** A catalog message this step already carries, with the entries it published. */
+interface CatalogMessage {
+  readonly message: UserMessage
+  readonly entries: SkillCatalogSource['entries']
+  readonly incomplete: boolean
+}
+
+function catalogMessage(messages: readonly UserMessage[]): CatalogMessage | undefined {
   for (const message of messages) {
     if (message.source.kind !== 'skill-catalog') continue
     const entries = readCatalogEntries(message.source)
     if (entries !== undefined) return { message, entries, incomplete: message.source.incomplete === true }
   }
   return undefined
+}
+
+/** Which published entries a later observation adds, rewrites, or no longer confirms. */
+interface CatalogDelta {
+  readonly added: ReadonlySet<string>
+  readonly changed: ReadonlySet<string>
+  readonly removed: readonly string[]
+}
+
+function catalogDelta(
+  previous: SkillCatalogSource['entries'],
+  next: SkillCatalogSource['entries'],
+): CatalogDelta {
+  const before = new Map(previous.map(entry => [entry.name, entry.description]))
+  const after = new Set(next.map(entry => entry.name))
+  const added = new Set<string>()
+  const changed = new Set<string>()
+  for (const entry of next) {
+    const description = before.get(entry.name)
+    if (description === undefined) added.add(entry.name)
+    else if (description !== entry.description) changed.add(entry.name)
+  }
+  const removed = previous.filter(entry => !after.has(entry.name)).map(entry => entry.name)
+  return { added, changed, removed }
+}
+
+/**
+ * Model-facing prose for a delta: only the entries this observation added or
+ * rewrote, plus the names it dropped. Everything else stays as published.
+ * @param entries - the complete catalog after this observation.
+ * @param delta - the change against the previous visible catalog.
+ * @returns the notice text.
+ */
+function renderCatalogDeltaText(entries: SkillCatalogSource['entries'], delta: CatalogDelta): string {
+  const listed = entries.filter(entry => delta.added.has(entry.name) || delta.changed.has(entry.name))
+  const lines: string[] = ['<system-reminder>']
+  if (listed.length > 0) {
+    lines.push(
+      'The available skill catalog changed. Only the entries below changed; every other skill from the catalog published earlier in this session is unchanged:',
+      '',
+      '<available_skills_update>',
+      ...renderCatalogEntries(listed),
+      '</available_skills_update>',
+    )
+  } else if (delta.removed.length > 0) {
+    lines.push('The available skill catalog changed. Only the removals are listed; every other skill from the catalog published earlier in this session is unchanged:')
+  } else {
+    lines.push('The available skill catalog changed only in completeness. Every skill from the catalog published earlier in this session is unchanged and still available.')
+  }
+  if (delta.removed.length > 0) {
+    const names = delta.removed.map(name => `\`${name}\``).join(', ')
+    lines.push('', `Removed (no longer available; do not call \`skill\` with these names): ${names}.`)
+  }
+  lines.push(
+    '',
+    'For any skill not listed above, use its name exactly as it appears in the earlier catalog.',
+    '</system-reminder>',
+  )
+  return lines.join('\n')
+}
+
+/**
+ * Choose the message that publishes this observation. A delta is used only when
+ * it is unambiguous and small: a visible earlier catalog exists, discovery is
+ * complete (so a missing entry is a real removal), nothing was proposed for this
+ * step yet, and the notice fits the budget. Each of those is a reason a complete
+ * list is safer, and a complete list is always correct.
+ * @param entries - the complete catalog for this observation.
+ * @param incomplete - some discovery failed.
+ * @param existing - a catalog this step already carries.
+ * @param history - the session's published and visible catalog.
+ * @param deltaMaxChars - delta budget; `0` disables deltas.
+ * @returns the catalog message.
+ */
+function selectCatalog(
+  entries: SkillCatalogSource['entries'],
+  incomplete: boolean,
+  existing: CatalogMessage | undefined,
+  history: CatalogHistory,
+  deltaMaxChars: number,
+): UserMessage {
+  const previous = history.visibleEntries
+  if (existing === undefined && !incomplete && deltaMaxChars > 0 && entries.length > 0 && previous !== undefined) {
+    const delta = catalogDelta(previous, entries)
+    const text = renderCatalogDeltaText(entries, delta)
+    if (text.length <= deltaMaxChars) {
+      return createUserMessage({
+        content: [{ type: 'text', text }],
+        source: { kind: 'skill-catalog', form: 'catalog', update: true, delta: true, entries },
+      })
+    }
+  }
+  return history.published
+    ? renderCatalogUpdate(entries, incomplete)
+    : renderCatalogMessage(entries, incomplete)
 }
 
 function catalogDescription(value: string, maxLength: number): string {
