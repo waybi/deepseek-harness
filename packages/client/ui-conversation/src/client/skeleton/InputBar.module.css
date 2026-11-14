@@ -392,22 +392,20 @@
   cursor: default;
 }
 
-/* Primary send (figma IconButton 34:10465): 34px circle, #3964FE light /
-   #679EFE dark — the info-fill pair (500→400), NOT button-primary (ink);
-   white glyph; empty text = 0.4 opacity. */
+/* Primary send: 26px circle on the ink fill, which is near-black in the light
+   theme and near-white in the dark, so the glyph inverts with it; empty text =
+   0.4 opacity. */
 .primary {
   display: grid;
   place-items: center;
   flex: none;
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   border: none;
   border-radius: 999px;
   corner-shape: round;
-  background: var(--dsw-alias-button-info-fill);
-  /* Static white, not the foreground token: the arrow stays white on the blue
-     fill in both themes (design 34:10465). */
-  color: #fff;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary-foreground);
   cursor: pointer;
   transition: background-color 100ms ease;
   /* Opts out of the row's 2px downward shift (.row top pad): the send circle
@@ -416,9 +414,16 @@
   transform: translateY(-2px);
 }
 
+/* The glyph carries its own 16px attributes for the larger attach controls;
+   the 26px circle scales it down here. */
+.primary svg {
+  width: 14px;
+  height: 14px;
+}
+
 @media (hover: hover) {
   .primary:hover:not(:disabled) {
-    background: var(--dsw-alias-button-info-hover);
+    background: color-mix(in srgb, var(--dsw-alias-label-primary) 82%, var(--dsw-alias-label-primary-foreground));
   }
 }
 

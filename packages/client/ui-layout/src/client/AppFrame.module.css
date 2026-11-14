@@ -121,44 +121,23 @@
 }
 
 :global([data-platform='darwin']) .frame:not([data-sidebar-drawer]) .sidebarCol {
-  /* A blue wash over the top of the translucent tint, gone by a third of the
-     column; a faint blue-grey-violet rises through the bottom third; and a
-     faint blue cast is mixed into the tint itself. Every layer stays
-     transparent so vibrancy shows. */
-  background:
-    linear-gradient(
-      to bottom,
-      rgb(122 155 240 / 0.1),
-      rgb(122 155 240 / 0) 35%,
-      rgb(143 137 184 / 0) 68%,
-      rgb(143 137 184 / 0.09)
-    ),
-    color-mix(in srgb, color-mix(in srgb, var(--dsw-specific-sidebar-fill) 97%, rgb(122 155 240)) 40%, transparent);
-  border-right: none;
+  /* Opaque fill: a translucent tint mixed with the wallpaper read near-black on
+     dark wallpapers even in the light theme. */
+  background: var(--dsw-specific-sidebar-fill);
+  border-right: 0.5px solid var(--dsw-alias-border-l3);
 }
 
-/* Dark drops the blue cast (the light-mode wash reads purple over dark fills)
-   and thins the fill so more wallpaper shows; the washes stay. */
+/* Dark takes the same token, whose dark value is already near-black. */
 :global([data-platform='darwin']) :global([data-ds-dark-theme]) .frame:not([data-sidebar-drawer]) .sidebarCol {
-  background:
-    linear-gradient(
-      to bottom,
-      rgb(122 155 240 / 0.08),
-      rgb(122 155 240 / 0) 35%,
-      rgb(143 137 184 / 0) 68%,
-      rgb(143 137 184 / 0.07)
-    ),
-    color-mix(in srgb, var(--dsw-specific-sidebar-fill) 50%, transparent);
+  background: var(--dsw-specific-sidebar-fill);
 }
 
 /* macOS Reduce Transparency: the OS flattens the window's vibrancy layer to a
-   solid grey, so the thin tint and washes read washed-out over it. Replace
-   them with a 90%-opaque fill of the same token in both themes (the dark
-   selector repeats so this outranks its thinner fill). */
+   solid grey, so the fill stays fully opaque in both themes. */
 @media (prefers-reduced-transparency: reduce) {
   :global([data-platform='darwin']) .frame:not([data-sidebar-drawer]) .sidebarCol,
   :global([data-platform='darwin']) :global([data-ds-dark-theme]) .frame:not([data-sidebar-drawer]) .sidebarCol {
-    background: color-mix(in srgb, var(--dsw-specific-sidebar-fill) 90%, transparent);
+    background: var(--dsw-specific-sidebar-fill);
   }
 }
 
