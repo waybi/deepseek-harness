@@ -27,7 +27,7 @@ export const FONT_SIZE_MIN = 10
 export const FONT_SIZE_MAX = 22
 
 /** Content font size when the user-settings document has no override (px). */
-export const DEFAULT_FONT_SIZE = 14
+export const DEFAULT_FONT_SIZE = 16
 
 /** Independently configurable font roles. */
 export const FONT_ROLES = ['text', 'code', 'terminal'] as const

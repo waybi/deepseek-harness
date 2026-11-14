@@ -510,6 +510,7 @@
     { "path": "./packages/compaction/compaction-tool-result-pruner" },
     { "path": "./packages/compaction/compaction-tool-result-expiry" },
     { "path": "./packages/compaction/compaction-image-offload" },
+    { "path": "./packages/compaction/compaction-image-rehydrate" },
     { "path": "./packages/web/web" },
     { "path": "./packages/web/web-search-exa" },
     { "path": "./packages/web/web-search-perplexity" },

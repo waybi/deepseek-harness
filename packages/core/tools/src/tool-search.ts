@@ -7,9 +7,9 @@
  * out of the declared list; the model sees it only as one catalog line inside
  * the reserved `tool_search` tool's description. Searching reveals matching
  * tools for the rest of the session: the reveal is a log-only session event,
- * so it survives compaction and process restarts, and the revealed schema is
- * appended at the tail of the declaration list, so the already-cached prefix
- * keeps matching.
+ * so it survives compaction and process restarts. Declarations are ordered by
+ * name, so a reveal inserts its schema in name position and invalidates the
+ * provider's cached prefix once.
  *
  * @module @deepseek-ai/dsh-tools/tool-search
  */
@@ -83,6 +83,21 @@ export function compileDeferredPatterns(patterns: readonly string[]): (name: str
 }
 
 /**
+ * Order tool declarations and the deferred catalog by name.
+ *
+ * Tool declarations travel as the head of every request, and the DeepSeek
+ * KV cache matches a request prefix byte for byte, so one tool set must
+ * serialize identically however its plugins registered. The explicit `en`
+ * collation keeps the rule independent of the host locale.
+ * @param a - first definition.
+ * @param b - second definition.
+ * @returns negative, zero, or positive, per name order.
+ */
+export function compareToolNames(a: Pick<ToolDefinition, 'name'>, b: Pick<ToolDefinition, 'name'>): number {
+  return a.name.localeCompare(b.name, 'en')
+}
+
+/**
  * Render the `tool_search` description with the catalog of deferred tools
  * the model may reveal in this scope.
  *
@@ -96,7 +111,7 @@ export function compileDeferredPatterns(patterns: readonly string[]): (name: str
  */
 export function renderToolSearchDescription(deferred: readonly ToolDefinition[]): string {
   const lines = [...deferred]
-    .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+    .sort(compareToolNames)
     .map(tool => `- ${tool.name}`)
   return [
     'Reveal tools that are registered but not declared yet. The tools below exist but their full schemas are',

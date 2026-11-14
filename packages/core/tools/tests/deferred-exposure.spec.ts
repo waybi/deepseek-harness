@@ -193,7 +193,7 @@ describe('deferred exposure through the registry', () => {
       .toEqual([{ names: ['de_broadcast'] }])
 
     // The revealed schema lands after the still-declared ones; de_session stays hidden.
-    expect(names(ctx, key)).toEqual(['read', 'de_broadcast', TOOL_SEARCH_NAME])
+    expect(names(ctx, key)).toEqual(['de_broadcast', 'read', TOOL_SEARCH_NAME])
     expect(await run(ctx, 'de_broadcast', key)).toBe('ran:de_broadcast')
     expect(await run(ctx, 'de_session', key)).toBe('Error: unknown tool "de_session"')
     const search = ctx.tools.schemas(key).find(schema => schema.name === TOOL_SEARCH_NAME)!
@@ -206,7 +206,7 @@ describe('deferred exposure through the registry', () => {
 
     // Once every deferred tool is revealed, tool_search disappears.
     await run(ctx, TOOL_SEARCH_NAME, key, { query: 'session' })
-    expect(names(ctx, key)).toEqual(['read', 'de_broadcast', 'de_session'])
+    expect(names(ctx, key)).toEqual(['de_broadcast', 'de_session', 'read'])
     expect(await run(ctx, TOOL_SEARCH_NAME, key, { query: 'x' })).toBe(`Error: unknown tool "${TOOL_SEARCH_NAME}"`)
   })
 
@@ -307,14 +307,14 @@ describe('deferred exposure through the registry', () => {
     const { key } = await mintAgent(ctx, 'groups')
 
     // The excluded name stays declared directly.
-    expect(names(ctx, key)).toEqual(['read', 'de_session', TOOL_SEARCH_NAME])
+    expect(names(ctx, key)).toEqual(['de_session', 'read', TOOL_SEARCH_NAME])
 
     // One hit on de_ws_status reveals its sibling, but not the broader de_* group.
     const text = await run(ctx, TOOL_SEARCH_NAME, key, { query: 'de_ws_status' })
     expect(text).toContain('Revealed 2 tool(s): de_ws_status, de_ws_declare')
     expect(key.session.snapshotEvents().filter(event => event.type === 'tools/reveal').map(event => event.data))
       .toEqual([{ names: ['de_ws_status', 'de_ws_declare'] }])
-    expect(names(ctx, key)).toEqual(['read', 'de_session', 'de_ws_status', 'de_ws_declare', TOOL_SEARCH_NAME])
+    expect(names(ctx, key)).toEqual(['de_session', 'de_ws_declare', 'de_ws_status', 'read', TOOL_SEARCH_NAME])
 
     // MCP tools reveal per server.
     await run(ctx, TOOL_SEARCH_NAME, key, { query: 'click' })

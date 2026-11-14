@@ -19,12 +19,20 @@ import type {
 /** Default request-pressure fraction for every routed model. */
 const DEFAULT_THRESHOLD_RATIO = 0.8
 
+/** Default warning level as a fraction of the resolved pressure threshold. */
+const DEFAULT_PREPASS_RATIO = 0.8
+
+/** Default age after which a cache-hitting settlement's provider cache counts as gone. */
+const DEFAULT_STALE_CACHE_MS = 3_600_000
+
 /** Default verbatim-tail fraction for every routed model. */
 const DEFAULT_RETAIN_RATIO = 0.16
 
 /** Fields shared by top-level defaults and exact-target overrides. */
 const POLICY_CONFIG_KEYS = [
   'thresholdRatio',
+  'prepassRatio',
+  'staleCacheMs',
   'headroomTokens',
   'retainRatio',
   'retainTokens',
@@ -80,6 +88,7 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
   const maxTokens = config.maxTokens ?? headroomTokens
   assertPositiveInteger('BasicCompactionConfig.maxTokens (explicit or from headroomTokens)', maxTokens)
   const thresholdRatio = config.thresholdRatio ?? DEFAULT_THRESHOLD_RATIO
+  const prepassRatio = config.prepassRatio ?? DEFAULT_PREPASS_RATIO
   const retention = resolveRetention(config, { retainRatio: DEFAULT_RETAIN_RATIO })
   validateRatioRetention(thresholdRatio, retention, 'BasicCompactionConfig')
   const modelPolicies = resolveModelPolicies(config.modelPolicies)
@@ -101,6 +110,8 @@ export function resolveConfig(config: BasicCompactionConfig = {}): ResolvedConfi
 
   return deepFreeze({
     thresholdRatio,
+    prepassRatio,
+    staleCacheMs: config.staleCacheMs ?? DEFAULT_STALE_CACHE_MS,
     headroomTokens,
     ...retention,
     summarizationProvider: config.summarizationProvider ?? '',
@@ -136,6 +147,8 @@ export function resolveTargetPolicy(
   return deepFreeze({
     target: { provider: target.provider, model: target.model },
     thresholdRatio: override?.thresholdRatio ?? config.thresholdRatio,
+    prepassRatio: override?.prepassRatio ?? config.prepassRatio,
+    staleCacheMs: override?.staleCacheMs ?? config.staleCacheMs,
     headroomTokens: override?.headroomTokens ?? config.headroomTokens,
     ...resolveRetention(override ?? {}, inheritedRetention),
     summarizationProvider: override?.summarizationProvider ?? config.summarizationProvider,
@@ -150,8 +163,9 @@ export function resolveTargetPolicy(
  * Scale one routed policy into concrete token budgets for its model capacity.
  *
  * Pressure is capped by both the window fraction and the capacity remaining
- * after the routed output reservation plus compaction headroom. Retention scales
- * the message budget before headroom is deducted.
+ * after the routed output reservation plus compaction headroom. The warning
+ * level is a fraction of that resolved threshold. Retention scales the message
+ * budget before headroom is deducted.
  *
  * @param policy - merged policy for the exact routed target.
  * @param contextWindow - positive adapter-owned capacity for that target.
@@ -200,6 +214,9 @@ export function resolveCompactSpec(
     contextWindow * policy.thresholdRatio,
     pressureBudgetTokens,
   ))
+  // The warning level scales the resolved threshold rather than the window, so
+  // it stays below the emergency level even when headroom caps the threshold.
+  const prepassTokens = Math.floor(thresholdTokens * policy.prepassRatio)
   const retainTokens = policy.retainTokens === undefined
     ? Math.floor(messageBudgetTokens * policy.retainRatio)
     : policy.retainTokens
@@ -226,6 +243,7 @@ export function resolveCompactSpec(
     contextWindow,
     thresholdRatio: policy.thresholdRatio,
     thresholdTokens,
+    prepassTokens,
     retainTokens,
     ceilingTokens,
     summarizationProvider: policy.summarizationProvider,
@@ -299,6 +317,8 @@ function validatePolicy(
   name: string,
 ): void {
   const thresholdRatio = config.thresholdRatio
+  const prepassRatio = config.prepassRatio
+  const staleCacheMs = config.staleCacheMs
   const headroomTokens = config.headroomTokens
   const retainRatio = config.retainRatio
   const retainTokens = config.retainTokens
@@ -306,6 +326,8 @@ function validatePolicy(
   const compactionRetries = config.compactionRetries
   const maxOverflowRetries = config.maxOverflowRetries
   if (thresholdRatio !== undefined) assertRatio(`${name}.thresholdRatio`, thresholdRatio)
+  if (prepassRatio !== undefined) assertRatio(`${name}.prepassRatio`, prepassRatio)
+  if (staleCacheMs !== undefined) assertNonNegativeInteger(`${name}.staleCacheMs`, staleCacheMs)
   if (headroomTokens !== undefined) assertNonNegativeInteger(`${name}.headroomTokens`, headroomTokens)
   if (retainRatio !== undefined) assertRatio(`${name}.retainRatio`, retainRatio)
   if (retainTokens !== undefined) assertNonNegativeInteger(`${name}.retainTokens`, retainTokens)

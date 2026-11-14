@@ -27,6 +27,11 @@ const CJK_CHARACTERS = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{
 /** Pure-ASCII fast path: such text holds no CJK character, so one density applies. */
 const ASCII_ONLY = /^[\u0000-\u007f]*$/
 
+/** Count the code points this module prices at the CJK density. */
+function countCjkCharacters(text: string): number {
+  return text.match(CJK_CHARACTERS)?.length ?? 0
+}
+
 /** Per-block structural overhead for JSON framing and type tags. */
 const BLOCK_OVERHEAD = 4
 
@@ -103,11 +108,19 @@ export function estimateContent(blocks: readonly ContentBlock[]): number {
  */
 export function estimateSystemMessage(message: Message): number {
   if (message.content.length === 0) return 0
-  let tokens = 0
+  // Accumulate both densities across the whole prompt and round once at the end,
+  // so a prompt split over several blocks prices the same as when its text
+  // arrives as one string. Rounding per block would add a token to every block
+  // whose fraction is non-zero, inflating pure-ASCII prompts too.
+  let cjk = 0
+  let other = 0
   for (const block of message.content) {
-    tokens += estimateTextTokens(block.type === 'text' ? block.text : JSON.stringify(block))
+    const text = block.type === 'text' ? block.text : JSON.stringify(block)
+    const cjkInBlock = countCjkCharacters(text)
+    cjk += cjkInBlock
+    other += text.length - cjkInBlock
   }
-  return tokens + ROLE_OVERHEAD
+  return Math.ceil(cjk / CJK_CHARS_PER_TOKEN) + Math.ceil(other / CHARS_PER_TOKEN) + ROLE_OVERHEAD
 }
 
 /**

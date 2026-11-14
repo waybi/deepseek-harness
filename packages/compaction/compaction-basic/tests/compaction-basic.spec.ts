@@ -120,9 +120,16 @@ function promptInput(text: string): SummarizationInput {
 /**
  * Closed two-message turns followed by one open turn for durable compaction events.
  * A `system` text puts a `system/message` at surface node 0 before turn 1's user message.
+ * `create` builds the Session, defaulting to a detached one; a case that needs
+ * `session/event` delivery passes `ctx.sessions.create` instead.
  */
-function conversation(turns = 4, text = 'fixture '.repeat(40).trim(), system?: string): Session {
-  const session = Session.create(SessionId(`conversation-${turns}`))
+function conversation(
+  turns = 4,
+  text = 'fixture '.repeat(40).trim(),
+  system?: string,
+  create: (id: SessionId) => Session = id => Session.create(id),
+): Session {
+  const session = create(SessionId(`conversation-${turns}`))
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', { turn })
     if (turn === 1 && system !== undefined) {
@@ -303,6 +310,24 @@ function service(
   return new TestCompactionEngine(ctx, { headroomTokens: 0, maxTokens: 8192, ...GATES_OFF, ...config })
 }
 
+/** Drive one agent pre-step waterfall turn, as the automatic listener sees it. */
+function preStepFor(ctx: Context, owner: Agent): (turn: number) => Promise<void> {
+  return async (turn: number): Promise<void> => {
+    await agentEvents(ctx, owner).waterfall(
+      'agent/pre-step',
+      { modelSelection: { provider: 'mock', model: 'mock' }, messages: [], turn, step: 1, signal: SIGNAL },
+      () => Promise.resolve({ kind: 'enter' as const, messages: [] }),
+    )
+  }
+}
+
+/** Capture `logger.info` lines for one context, for gate and level assertions. */
+function infoLog(ctx: Context): string[] {
+  const lines: string[] = []
+  ctx.logger.info = ((message: string) => void lines.push(message)) as typeof ctx.logger.info
+  return lines
+}
+
 async function compactIfNeeded(
   compact: BasicCompactionEngine,
   session: Session,
@@ -318,6 +343,8 @@ describe('compact configuration and defaults', () => {
 
     expect(resolved).toEqual({
       thresholdRatio: 0.8,
+      prepassRatio: 0.8,
+      staleCacheMs: 3_600_000,
       headroomTokens: 65_536,
       retainRatio: 0.16,
       summarizationProvider: '',
@@ -403,6 +430,7 @@ describe('compact configuration and defaults', () => {
 
     expect(resolveCompactSpec(small, 1_000, 0)).toMatchObject({
       thresholdTokens: 400,
+      prepassTokens: 320,
       retainTokens: 120,
     })
     expect(resolveCompactSpec(otherProvider, 2_000, 0)).toMatchObject({
@@ -418,6 +446,8 @@ describe('compact configuration and defaults', () => {
         provider: 'ratio-provider',
         model: 'ratio-model',
         thresholdRatio: 0.6,
+        prepassRatio: 0.5,
+        staleCacheMs: 120_000,
         retainRatio: 0.2,
         summarizationProvider: 'summary-provider',
         summarizationModel: 'summary-model',
@@ -428,6 +458,7 @@ describe('compact configuration and defaults', () => {
     }), { provider: 'ratio-provider', model: 'ratio-model' })
     expect(resolveCompactSpec(ratioOverride, 2_000, 0)).toMatchObject({
       thresholdTokens: 1_200,
+      prepassTokens: 600,
       retainTokens: 400,
       summarizationProvider: 'summary-provider',
       summarizationModel: 'summary-model',
@@ -435,6 +466,9 @@ describe('compact configuration and defaults', () => {
       compactionRetries: 2,
       maxOverflowRetries: 3,
     })
+    expect(ratioOverride).toMatchObject({ prepassRatio: 0.5, staleCacheMs: 120_000 })
+    expect(resolveTargetPolicy(config, { provider: 'other-provider', model: 'ratio-model' }))
+      .toMatchObject({ prepassRatio: 0.8, staleCacheMs: 3_600_000 })
   })
 
   it.each([
@@ -552,6 +586,12 @@ describe('compact configuration and defaults', () => {
       [{ summarizationModel: '' }, /must be set together/],
       [{ thresholdRatio: 0 }, /number in \(0, 1\]/],
       [{ thresholdRatio: 1.1 }, /number in \(0, 1\]/],
+      [{ prepassRatio: 0 }, /prepassRatio \(0\).*number in \(0, 1\]/],
+      [{ prepassRatio: 1.5 }, /prepassRatio \(1.5\).*number in \(0, 1\]/],
+      [{ modelPolicies: [{ provider: MODEL, model: MODEL, prepassRatio: 0 }] }, /prepassRatio \(0\)/],
+      [{ staleCacheMs: -1 }, /staleCacheMs \(-1\).*non-negative integer/],
+      [{ staleCacheMs: 1.5 }, /staleCacheMs \(1.5\).*non-negative integer/],
+      [{ modelPolicies: [{ provider: MODEL, model: MODEL, staleCacheMs: -1 }] }, /staleCacheMs \(-1\)/],
       [{ retainRatio: 0.9 }, /retainRatio \(0.9\) must be less than the resolved thresholdRatio \(0.8\)/],
       [{ thresholdRatio: 0.1 }, /retainRatio \(0.16\) must be less than the resolved thresholdRatio \(0.1\)/],
       [{ retainTokens: -1 }, /non-negative integer/],
@@ -2555,12 +2595,6 @@ describe('pressure gates', () => {
     return service({ auto: false, thresholdRatio: 0.5, retainTokens: 180, ...overrides }, ctx)
   }
 
-  function infoLog(ctx: Context): string[] {
-    const lines: string[] = []
-    ctx.logger.info = ((message: string) => void lines.push(message)) as typeof ctx.logger.info
-    return lines
-  }
-
   async function preStep(ctx: Context, owner: Agent, turn: number): Promise<void> {
     await agentEvents(ctx, owner).waterfall(
       'agent/pre-step', { modelSelection: { provider: 'mock', model: 'mock' }, messages: [], turn, step: 1, signal: SIGNAL },
@@ -2806,6 +2840,237 @@ describe('pressure gates', () => {
     expect(() => schema({ auto: false, maxDeferredSteps: -1 })).toThrow()
     expect(schema({ auto: false, maxDeferredSteps: 0 })).toMatchObject({ maxDeferredSteps: 0 })
     expect(schema({ auto: false, minGrowthTokens: 0 })).toMatchObject({ minGrowthTokens: 0 })
+  })
+})
+
+describe('warning-level pressure', () => {
+  /** Window 4,000 at ratio 0.5: threshold 2,000 and warning level 1,600. */
+  const WINDOW = 4_000
+
+  function compacting(ctx: Context, overrides: Partial<BasicCompactionConfig> = {}): TestCompactionEngine {
+    return service({ auto: false, thresholdRatio: 0.5, retainTokens: 180, ...overrides }, ctx)
+  }
+
+  it('lands only the model-free passes between the warning level and the threshold', async () => {
+    const ctx = createContext(WINDOW)
+    void new ToolResultPruner(ctx, { thresholdChars: 100, headChars: 20, tailChars: 10 })
+    const compact = compacting(ctx)
+    // 1,726 tokens: above the 1,600 warning level, below the 2,000 threshold.
+    const session = oversizedToolResult(4_000, true)
+    const before = ctx.tokenMeter.measure(session).totalTokens
+    expect(before).toBeGreaterThanOrEqual(1_600)
+    expect(before).toBeLessThan(2_000)
+
+    await expect(compactIfNeeded(compact, session)).resolves.toBeNull()
+    expect(compact.calls).toHaveLength(0)
+    expect(session.surface.replaceGeneration).toBe(1)
+    // The passes cleared the pressure on their own, so the step stops there.
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeLessThan(1_600)
+    expect(session.snapshotEvents().some(event => event.type === 'compaction/start')).toBe(false)
+  })
+
+  it('prices the three gates at the warning level instead of rewriting early', async () => {
+    const ctx = createContext(WINDOW)
+    const lines = infoLog(ctx)
+    const prune = new ToolResultPruner(ctx, { thresholdChars: 100, headChars: 20, tailChars: 10 })
+    const pruneSession = vi.spyOn(prune, 'pruneSession')
+    const compact = compacting(ctx, { auto: true, minIntervalTurns: 8 })
+    const session = conversation(12)
+    const preStep = preStepFor(ctx, agent(session, MODEL))
+
+    await preStep(5)
+    expect(compact.calls).toHaveLength(1)
+    // The emergency step at turn 5 priced its own free passes; only the warning
+    // step below must add none.
+    pruneSession.mockClear()
+    const rewrites = session.surface.replaceGeneration
+
+    // Regrow into the warning band only: the interval gate still defers the
+    // free passes, so the extra level adds no rewrite of its own.
+    while (ctx.tokenMeter.measure(session).totalTokens < 1_600) {
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'fixture '.repeat(40).trim() }],
+        source: { kind: 'user' },
+      }), { surfaceOp: 'append' })
+    }
+    const warningTokens = ctx.tokenMeter.measure(session).totalTokens
+    expect(warningTokens).toBeLessThan(2_000)
+    await preStep(6)
+    expect(compact.calls).toHaveLength(1)
+    expect(pruneSession).not.toHaveBeenCalled()
+    expect(session.surface.replaceGeneration).toBe(rewrites)
+    expect(lines).toContainEqual(expect.stringMatching(/deferred: minIntervalTurns 8 not reached/))
+  })
+
+  it('still summarizes at the emergency threshold', async () => {
+    const ctx = createContext(WINDOW)
+    const compact = compacting(ctx)
+    // conversation(12) measures 2,172 tokens: the threshold itself.
+    const session = conversation(12)
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeGreaterThanOrEqual(2_000)
+
+    await expect(compactIfNeeded(compact, session)).resolves.not.toBeNull()
+    expect(compact.calls).toHaveLength(1)
+  })
+})
+
+describe('stale provider cache', () => {
+  /** Window 4,000 at ratio 0.5: threshold 2,000, warning level 1,600, ceiling 4,000. */
+  const WINDOW = 4_000
+
+  /** Store-owned context: only delivered `session/event`s stamp a settlement time. */
+  function hostedContext(contextWindow = WINDOW): Context {
+    const ctx = createContext(contextWindow)
+    void new SessionStore(ctx)
+    return ctx
+  }
+
+  /** Append one closed step whose assistant message reports provider usage. */
+  function settle(session: Session, turn: number, usage: TokenUsage): void {
+    session.append('step/start', { turn, step: 1 })
+    session.append('assistant/message', {
+      stream: [],
+      turn,
+      step: 1,
+      message: createMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'short answer' }],
+        source: { kind: 'model', provider: MODEL, model: MODEL },
+      }),
+      usage,
+    }, { surfaceOp: 'append' })
+    session.append('step/end', { turn, step: 1 })
+  }
+
+  function gated(
+    ctx: Context,
+    overrides: Partial<BasicCompactionConfig> = {},
+  ): TestCompactionEngine {
+    return service({
+      auto: true,
+      thresholdRatio: 0.5,
+      retainTokens: 180,
+      minIntervalTurns: 8,
+      ...overrides,
+    }, ctx)
+  }
+
+  it('lifts the interval gate once the cache-hitting settlement is stale', async () => {
+    const ctx = hostedContext()
+    const lines: string[] = []
+    ctx.logger.info = ((message: string) => void lines.push(message)) as typeof ctx.logger.info
+    const compact = gated(ctx)
+    const session = conversation(12, undefined, undefined, id => ctx.sessions.create(id))
+    const owner = agent(session, MODEL)
+    const preStep = preStepFor(ctx, owner)
+
+    await preStep(5)
+    const firstCalls = compact.calls.length
+    expect(firstCalls).toBeGreaterThanOrEqual(1)
+
+    // A settlement that read the cache, above half the threshold.
+    settle(session, 13, { inputTokens: 1_800, cacheReadTokens: 1_200, outputTokens: 40 })
+    const measurement = ctx.tokenMeter.measure(session)
+    expect(measurement.baseline.kind).toBe('usage')
+    expect(measurement.totalTokens).toBeGreaterThanOrEqual(2_000)
+    expect(measurement.totalTokens).toBeLessThan(4_000)
+    // The engine ages the cache from the settlement's durable append time, not
+    // from the moment the assertion runs, so the clock anchors on that event.
+    const settlement = session.snapshotEvents().filter(event => event.type === 'assistant/message').at(-1)
+    const settledAt = settlement?.time ?? Date.now()
+    const clock = vi.spyOn(Date, 'now')
+    onTestFinished(() => { clock.mockRestore() })
+
+    // One millisecond short of the hour: the interval gate still defers.
+    clock.mockReturnValue(settledAt + 3_599_999)
+    await preStep(6)
+    expect(compact.calls).toHaveLength(firstCalls)
+    expect(lines).toContainEqual(expect.stringMatching(
+      /deferred: minIntervalTurns 8 not reached \(turnsSinceLast=1,/,
+    ))
+
+    // At the hour the provider cache counts as gone, so the wait protects nothing.
+    clock.mockReturnValue(settledAt + 3_600_000)
+    await preStep(6)
+    expect(compact.calls.length).toBeGreaterThan(firstCalls)
+    expect(lines).toContainEqual(expect.stringMatching(
+      /minIntervalTurns 8 lifted by an expired prompt cache/,
+    ))
+  })
+
+  it('keeps the interval gate for a settlement that never read the cache', async () => {
+    const ctx = hostedContext()
+    const lines: string[] = []
+    ctx.logger.info = ((message: string) => void lines.push(message)) as typeof ctx.logger.info
+    const compact = gated(ctx)
+    const session = conversation(12, undefined, undefined, id => ctx.sessions.create(id))
+    const preStep = preStepFor(ctx, agent(session, MODEL))
+
+    await preStep(5)
+    const firstCalls = compact.calls.length
+    // No `cacheReadTokens` at all: the adapter never reported a cache read.
+    settle(session, 13, { inputTokens: 3_000, outputTokens: 40 })
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeGreaterThanOrEqual(2_000)
+    const clock = vi.spyOn(Date, 'now')
+    onTestFinished(() => { clock.mockRestore() })
+    clock.mockReturnValue(Date.now() + 86_400_000)
+
+    await preStep(6)
+    expect(compact.calls).toHaveLength(firstCalls)
+    expect(lines).toContainEqual(expect.stringMatching(/deferred: minIntervalTurns 8 not reached/))
+  })
+
+  it('keeps the interval gate when no settlement time was observed', async () => {
+    // A detached Session never publishes `session/event`, so its settlement
+    // carries no observed age: the conservative choice keeps the gate.
+    const ctx = createContext(WINDOW)
+    const lines: string[] = []
+    ctx.logger.info = ((message: string) => void lines.push(message)) as typeof ctx.logger.info
+    const compact = gated(ctx)
+    const session = conversation(12)
+    const preStep = preStepFor(ctx, agent(session, MODEL))
+
+    await preStep(5)
+    const firstCalls = compact.calls.length
+    settle(session, 13, { inputTokens: 1_800, cacheReadTokens: 1_200, outputTokens: 40 })
+    expect(ctx.tokenMeter.measure(session).totalTokens).toBeGreaterThanOrEqual(2_000)
+    const clock = vi.spyOn(Date, 'now')
+    onTestFinished(() => { clock.mockRestore() })
+    clock.mockReturnValue(Date.now() + 86_400_000)
+
+    await preStep(6)
+    expect(compact.calls).toHaveLength(firstCalls)
+    expect(lines).toContainEqual(expect.stringMatching(/deferred: minIntervalTurns 8 not reached/))
+  })
+
+  it('never lifts the gate below half the threshold', async () => {
+    // Window 8,000: threshold 4,000, half 2,000, and a warning level at 1,000.
+    const ctx = hostedContext(8_000)
+    const lines: string[] = []
+    ctx.logger.info = ((message: string) => void lines.push(message)) as typeof ctx.logger.info
+    const compact = gated(ctx, { thresholdRatio: 0.5, prepassRatio: 0.25 })
+    const session = conversation(30, undefined, undefined, id => ctx.sessions.create(id))
+    const preStep = preStepFor(ctx, agent(session, MODEL))
+
+    await preStep(5)
+    const firstCalls = compact.calls.length
+    settle(session, 31, { inputTokens: 1_500, cacheReadTokens: 100, outputTokens: 20 })
+    while (ctx.tokenMeter.measure(session).totalTokens < 1_000) {
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'fixture '.repeat(40).trim() }],
+        source: { kind: 'user' },
+      }), { surfaceOp: 'append' })
+    }
+    const measurement = ctx.tokenMeter.measure(session)
+    expect(measurement.totalTokens).toBeGreaterThanOrEqual(1_000)
+    expect(measurement.totalTokens).toBeLessThan(2_000)
+    const clock = vi.spyOn(Date, 'now')
+    onTestFinished(() => { clock.mockRestore() })
+    clock.mockReturnValue(Date.now() + 86_400_000)
+
+    await preStep(6)
+    expect(compact.calls).toHaveLength(firstCalls)
+    expect(lines).toContainEqual(expect.stringMatching(/deferred: minIntervalTurns 8 not reached/))
   })
 })
 

@@ -2166,7 +2166,7 @@ describe('ToolRuntime', () => {
     ctx.tools.register(echoTool)
 
     const dispose = ctx.tools.register({ ...echoTool, name: 'disposable' })
-    expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo', 'disposable'])
+    expect(ctx.tools.schemas().map(t => t.name)).toEqual(['disposable', 'echo'])
 
     dispose()
     expect(ctx.tools.schemas().map(t => t.name)).toEqual(['echo'])

@@ -1,4 +1,13 @@
-/** Tool definitions and scoped dispatch to plugin-owned executors. @module */
+/**
+ * Tool definitions and scoped dispatch to plugin-owned executors.
+ *
+ * Declared definitions are ordered by name, never by registration order: the
+ * declarations are the head of every request, and a provider that caches a
+ * request prefix byte for byte (the DeepSeek KV cache) must see the same tool
+ * set serialize identically however its plugins registered.
+ *
+ * @module @deepseek-ai/dsh-tools
+ */
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { AnonymousEntries, NamedEntries, ScopedLayers, scopeOf, scopeChainOf } from '@deepseek-ai/dsh-scope'
@@ -11,6 +20,7 @@ import { projectToolSchema } from './schema.ts'
 import { assertSupportedJsonSchema } from './json-schema.ts'
 import { RUN_CODE_NAME, ToolActivationError } from './contracts.ts'
 import {
+  compareToolNames,
   compileDeferredGroups,
   createToolSearchTool,
   renderToolSearchDescription,
@@ -211,11 +221,11 @@ export class ToolsService extends Service {
    * Split one scope's visible definitions into declared and still-hidden
    * deferred ones. A reveal is read from the scope's session log; a scope
    * without a session (the global view) never reveals. When any tool stays
-   * hidden, the declared list ends with a `tool_search` definition whose
+   * hidden, the declared list carries one `tool_search` definition whose
    * description catalogs exactly the hidden ones.
    * @param scope - the viewing scope (the agent), or undefined for the global view.
    * @param toolSet - step admission; omit only to inspect registered definitions.
-   * @returns the declared definitions in view order and the hidden deferred ones.
+   * @returns the declared definitions in name order and the hidden deferred ones.
    */
   private partition(scope?: ScopeKey, toolSet?: ResolvedToolSet): { declared: ToolDefinition[]; hidden: ToolDefinition[] } {
     const visible = toolSet === undefined ? this.view(scope).visible : toolSet.view(scope)
@@ -229,6 +239,10 @@ export class ToolsService extends Service {
     if (hidden.length > 0) {
       declared.push({ ...this.requireSearchTransport(), description: renderToolSearchDescription(hidden) })
     }
+    // Declarations are a request prefix the provider's KV cache matches byte
+    // for byte, so the same tool set must serialize identically however its
+    // plugins registered.
+    declared.sort(compareToolNames)
     return { declared, hidden }
   }
 
@@ -566,6 +580,6 @@ export * from './executor.ts'
 export * from './schema.ts'
 export * from './json-schema.ts'
 export * from './presentation.ts'
-export { compileDeferredGroups, compileDeferredPatterns, searchDeferredTools, TOOL_SEARCH_NAME, toolsRevealedProjection } from './tool-search.ts'
+export { compareToolNames, compileDeferredGroups, compileDeferredPatterns, searchDeferredTools, TOOL_SEARCH_NAME, toolsRevealedProjection } from './tool-search.ts'
 export type { ToolExposure, ToolsRevealedState } from './tool-search.ts'
 export { ToolsService as ToolRuntime }

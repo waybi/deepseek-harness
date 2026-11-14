@@ -16,6 +16,42 @@ import type { LlmCallConfig } from '@deepseek-ai/dsh-llm'
 export interface CompactionPolicyConfig {
   /** Window fraction for pressure; capped at context window minus reserved output and `headroomTokens`. Defaults to `0.8`. */
   thresholdRatio?: number
+  /**
+   * Warning-level fraction of `thresholdTokens`. Reaching it lands the
+   * model-free passes (`toolResultExpiry` and `toolResultPruner`) without
+   * calling a model, and a pass that frees enough pressure ends the step
+   * without a summary; only reaching `thresholdTokens` itself is the emergency
+   * level that summarizes. A warning-level step prices the same three pressure
+   * gates as an emergency step, so the extra level adds no rewrites of its own.
+   *
+   * Defaults to `0.8`, i.e. 80% of `thresholdTokens`. The warning band must sit
+   * within reach of what the free passes actually reclaim: across 1,200 sampled
+   * sessions on the development machine, 799 held prunable tool results worth a
+   * median of 4,445 tokens (p90 19,167), while a 128K window at the default
+   * `thresholdRatio` gives a 102,400-token threshold and therefore a
+   * 20,480-token band at this ratio. A lower ratio would widen the band past
+   * that reclaim, so most warning steps would find nothing left to free and
+   * only the summary could clear the pressure.
+   */
+  prepassRatio?: number
+  /**
+   * Milliseconds since this session's latest cache-hitting model settlement
+   * after which the provider prompt cache counts as already gone, lifting
+   * `minIntervalTurns` from one pressure compaction. Rewriting history discards
+   * the provider prefix cache, which is what the interval gate protects; once
+   * the last settlement that read that cache is older than this, waiting again
+   * protects nothing. The growth and reclaim gates still apply, and no
+   * settlement time on record leaves the gate in force.
+   *
+   * Defaults to `3600000` (one hour). DeepSeek documents that a cache no longer
+   * in use is cleared automatically within a few hours to a few days, so one
+   * hour is a conservative floor rather than a provider guarantee. The same
+   * machine's sampling shows how often the case arises: of 17,881 cache-hitting
+   * settlements that a later user message followed, 1,404 (7.9%) resumed at
+   * least an hour later, 734 (4.1%) three hours or more, and 414 (2.3%) twelve
+   * hours or more. `0` treats every cache-hitting settlement as expired.
+   */
+  staleCacheMs?: number
   /** Additional pressure headroom beyond the routed output reservation. Non-negative integer; defaults to `65536`. */
   headroomTokens?: number
   /** Recent context retained as a fraction of context window minus reserved output tokens. Defaults to `0.16`. */
@@ -92,6 +128,8 @@ export type ResolvedRetention =
 /** Validated policy fields shared before and after exact-target matching. */
 interface ResolvedPolicyFields {
   readonly thresholdRatio: number
+  readonly prepassRatio: number
+  readonly staleCacheMs: number
   readonly headroomTokens: number
   readonly summarizationProvider: string
   readonly summarizationModel: string
@@ -116,10 +154,19 @@ export type ResolvedTargetPolicy = ResolvedPolicyFields & ResolvedRetention & {
 }
 
 /** One routed model's concrete pressure and retention budget. */
-export type ResolvedCompactSpec = Omit<ResolvedTargetPolicy, 'retainRatio' | 'retainTokens' | 'headroomTokens'> & {
+export type ResolvedCompactSpec = Omit<
+  ResolvedTargetPolicy,
+  'retainRatio' | 'retainTokens' | 'headroomTokens' | 'prepassRatio' | 'staleCacheMs'
+> & {
   /** Adapter-declared full window; token budgets below exclude reserved output tokens. */
   readonly contextWindow: number
   readonly thresholdTokens: number
+  /**
+   * Warning-level pressure derived from `thresholdTokens` and `prepassRatio`.
+   * At or above it, and below `thresholdTokens`, a pressure step lands only the
+   * model-free passes. Always at or below `thresholdTokens`.
+   */
+  readonly prepassTokens: number
   readonly retainTokens: number
   /**
    * Hard pressure ceiling. At or above it automatic pressure compaction

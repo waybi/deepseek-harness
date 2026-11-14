@@ -1,0 +1,67 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/compaction/compaction-image-rehydrate/README.md
+/:
+  en: 15d80442ea63696e
+  zh: 70afd7cc797a6485
+/deepseek-ai-dsh-compaction-image-rehydrate:
+  en: 15ca62744aea4767
+  zh: ef53d9042a4ddd89
+/deepseek-ai-dsh-compaction-image-rehydrate/summary:
+  en: c72829363abf2298
+  zh: a0c030c11f558209
+/deepseek-ai-dsh-compaction-image-rehydrate/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 09388d293f9be9cb
+/deepseek-ai-dsh-compaction-image-rehydrate/use-this-package:
+  en: ec2e5dd4df902401
+  zh: 6fae73993f2da0ce
+/deepseek-ai-dsh-compaction-image-rehydrate/use-this-package/smallest-working-composition:
+  en: 435280c8d250c8ef
+  zh: f2a367aa650fb276
+/deepseek-ai-dsh-compaction-image-rehydrate/use-this-package/what-gets-replaced:
+  en: 6a06404934207404
+  zh: 8ac79844941fd710
+/deepseek-ai-dsh-compaction-image-rehydrate/use-this-package/setting-the-policy:
+  en: 17c5807ab5f4875f
+  zh: edf14df13b001048
+/deepseek-ai-dsh-compaction-image-rehydrate/use-this-package/when-hydration-runs:
+  en: 13da4c56237ce712
+  zh: a9bb388c615f8f1f
+/deepseek-ai-dsh-compaction-image-rehydrate/understand-the-implementation:
+  en: f9d7762b262bb275
+  zh: f8df9452f21232e1
+/deepseek-ai-dsh-compaction-image-rehydrate/understand-the-implementation/design-philosophy:
+  en: fb7476f74aa4ebb2
+  zh: c6a2290b37c31de0
+/deepseek-ai-dsh-compaction-image-rehydrate/understand-the-implementation/hydration-mechanics:
+  en: aa7c24071c68cb1b
+  zh: 623b0d29f46fa755
+/deepseek-ai-dsh-compaction-image-rehydrate/understand-the-implementation/source-map:
+  en: 987b9777a0c5f006
+  zh: 276aa3a0d55b82c2
+/deepseek-ai-dsh-compaction-image-rehydrate/further-exploration:
+  en: d822beb22af8237e
+  zh: 7f6c1ea59638187b
+/deepseek-ai-dsh-compaction-image-rehydrate/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-compaction-image-rehydrate/model-experience/rehydrated-conversation-images:
+  en: cba314fd920de352
+  zh: 376b45444fe84203
+/deepseek-ai-dsh-compaction-image-rehydrate/model-experience/rehydrated-conversation-images/what-the-model-sees:
+  en: 3fd68495ad739139
+  zh: aad41450e636326f
+/deepseek-ai-dsh-compaction-image-rehydrate/model-experience/rehydrated-conversation-images/token-effect:
+  en: c195f5a97052fd65
+  zh: bd4d7b96fc7cd855
+/deepseek-ai-dsh-compaction-image-rehydrate/model-experience/rehydrated-conversation-images/kv-cache-effect:
+  en: 81d8c0dc0aab4c32
+  zh: 437eccbcd6e9a61a
+/deepseek-ai-dsh-compaction-image-rehydrate/known-limitations-and-deferred-work:
+  en: 92a645b5404df4d9
+  zh: 394035b88ef7f29c
+/deepseek-ai-dsh-compaction-image-rehydrate/known-limitations-and-deferred-work/dev-note:
+  en: 02a8a124088ef2b2
+  zh: 0bd4dbd2ff465149

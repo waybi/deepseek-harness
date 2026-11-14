@@ -80,6 +80,8 @@ function conversationTarget(
 }
 
 const thresholdRatioSchema = z.number()
+const prepassRatioSchema = z.number()
+const staleCacheMsSchema = z.number().step(1).min(0)
 const headroomTokensSchema = z.number().step(1).min(0)
 const retainRatioSchema = z.number()
 const retainTokensSchema = z.number().step(1).min(0)
@@ -94,6 +96,8 @@ const modelPolicy: z<ModelCompactPolicyConfig> = z.object({
   provider: z.string().required(),
   model: z.string().required(),
   thresholdRatio: thresholdRatioSchema,
+  prepassRatio: prepassRatioSchema,
+  staleCacheMs: staleCacheMsSchema,
   headroomTokens: headroomTokensSchema,
   retainRatio: retainRatioSchema,
   retainTokens: retainTokensSchema,
@@ -117,6 +121,8 @@ export class BasicCompactionEngine extends CompactionEngine {
 
   static Config: z<BasicCompactionConfig> = z.object({
     thresholdRatio: thresholdRatioSchema,
+    prepassRatio: prepassRatioSchema,
+    staleCacheMs: staleCacheMsSchema,
     headroomTokens: headroomTokensSchema,
     retainRatio: retainRatioSchema,
     retainTokens: retainTokensSchema,
@@ -145,6 +151,15 @@ export class BasicCompactionEngine extends CompactionEngine {
   private readonly currentTurn = new WeakMap<Session, number>
   /** Pressure steps of one turn the time-based gates deferred, per session. */
   private readonly deferredSteps = new WeakMap<Session, { turn: number | undefined; count: number }>()
+  /**
+   * Append time of the latest model settlement that reported usage, per
+   * session. The provider's cache-retention clock runs from that settlement,
+   * and the durable event timestamp is its only record: the token-meter usage
+   * projection reports the sample's counts without a time. A session whose
+   * settlement this process never saw (a resumed log) records nothing here,
+   * which keeps the stale-cache exemption conservative.
+   */
+  private readonly lastSettlementTime = new WeakMap<Session, number>()
 
   constructor(ctx: Context, config: BasicCompactionConfig = {}) {
     super(ctx)
@@ -217,9 +232,12 @@ export class BasicCompactionEngine extends CompactionEngine {
     }, { prepend: true })
 
     // A successful response starts a fresh overflow-recovery sequence even
-    // when tool calls continue the same turn into another request.
+    // when tool calls continue the same turn into another request. The same
+    // delivery stamps the settlement that the stale-cache check ages, because
+    // `event.time` is the durable append time of that settlement.
     ctx.on('session/event', (session, event) => {
       if (event.type !== 'assistant/message') return
+      if (event.data.usage !== undefined) this.lastSettlementTime.set(session, event.time)
       const agent = this.overflowAgents.get(session)
       if (agent !== undefined) this.overflowRetries.delete(agent)
     })
@@ -371,7 +389,13 @@ export class BasicCompactionEngine extends CompactionEngine {
       info.context.contextWindow,
       reservedCompletionTokens(header, info.defaultMaxTokens),
     )
-    if (measurement.totalTokens < spec.thresholdTokens) {
+    // Two levels share this one trigger. The warning level frees pressure
+    // through the model-free passes only; the emergency level, the threshold
+    // itself, may summarize. A model-switch check keeps the threshold as its
+    // single level, because it answers whether this history fits the new model
+    // rather than whether anything could be freed.
+    const warningTokens = requireBelowThreshold ? spec.thresholdTokens : spec.prepassTokens
+    if (measurement.totalTokens < warningTokens) {
       this.deferredSteps.delete(agent.session)
       return null
     }
@@ -380,8 +404,14 @@ export class BasicCompactionEngine extends CompactionEngine {
     // prompt-cache prefix, so pressure alone is not enough: the three gates
     // below refuse a compaction that would land too soon, after too little
     // growth, or for too little reclaimed room. Overflow recovery, model-switch
-    // checks, and manual `compactNow` bypass them.
-    const gate = this.pressureGate(agent.session, measurement, spec.retainTokens)
+    // checks, and manual `compactNow` bypass them; an already expired provider
+    // cache lifts the interval gate alone, because no prefix is left to keep.
+    const gate = this.pressureGate(
+      agent.session,
+      measurement,
+      spec.retainTokens,
+      this.cachePrefixExpired(agent.session, measurement, spec.thresholdTokens, policy.staleCacheMs),
+    )
     if (gate.blocked !== undefined && !requireBelowThreshold) {
       // Hard-ceiling fallback: the gates trade a little context for cache
       // stability, never the request itself. Once the session reaches the
@@ -417,6 +447,9 @@ export class BasicCompactionEngine extends CompactionEngine {
         `compaction (step pressure) free passes rewrote history: ${tokensBefore} -> ${measurement.totalTokens} tokens`,
       )
     }
+    // The warning level ends here: below the threshold no summary runs, either
+    // because the passes cleared the pressure or because nothing was left to
+    // free.
     if (measurement.totalTokens < spec.thresholdTokens) return null
 
     let result: CompactionResult | null = null
@@ -446,6 +479,38 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
+   * Whether the provider prompt cache this session last read is old enough to
+   * count as gone, so the next history rewrite would not discard a cache the
+   * provider still holds.
+   *
+   * The token-meter measurement supplies the evidence: only a `usage` baseline
+   * carries provider-reported counts, and a positive `cacheReadTokens` on it
+   * proves the last settlement read the cache. The settlement's age comes from
+   * the append time this process observed for it; a session whose settlement
+   * was never observed here reports no age and keeps the gate. Pressure must
+   * also reach half the threshold, so an expired cache alone never pulls a
+   * compaction far below the pressure the gate throttles.
+   * @param session - session whose consumed model settlements are aged.
+   * @param measurement - current pressure and its provider usage anchor.
+   * @param thresholdTokens - resolved emergency threshold of the routed target.
+   * @param staleCacheMs - configured age after which the provider cache counts as gone.
+   * @returns whether the interval gate may yield for this pressure step.
+   */
+  private cachePrefixExpired(
+    session: Session,
+    measurement: TokenMeasurement,
+    thresholdTokens: number,
+    staleCacheMs: number,
+  ): boolean {
+    if (measurement.totalTokens < thresholdTokens / 2) return false
+    const { baseline } = measurement
+    if (baseline.kind !== 'usage' || (baseline.usage.cacheReadTokens ?? 0) <= 0) return false
+    const settledAt = this.lastSettlementTime.get(session)
+    if (settledAt === undefined) return false
+    return Date.now() - settledAt >= staleCacheMs
+  }
+
+  /**
    * Price the three pressure gates against the last automatic pressure
    * compaction of this session. Interval and growth gates stay open until a
    * first compaction has landed in this process, and once `maxDeferredSteps`
@@ -454,6 +519,7 @@ export class BasicCompactionEngine extends CompactionEngine {
    * @param session - session under pressure.
    * @param measurement - current measurement the threshold check used.
    * @param retainTokens - retained recent tail the summary range must respect.
+   * @param cacheExpired - whether an expired provider cache lifts the interval gate.
    * @returns the gate readings, plus the first failed gate's diagnostic and
    * whether it was a time-based gate (interval or growth) when blocked.
    */
@@ -461,6 +527,7 @@ export class BasicCompactionEngine extends CompactionEngine {
     session: Session,
     measurement: TokenMeasurement,
     retainTokens: number,
+    cacheExpired: boolean,
   ): { reading: PressureGateReading; blocked?: string; timeBased?: boolean } {
     const { minIntervalTurns, minGrowthTokens, minReclaimTokens, maxDeferredSteps } = this.config
     const last = this.lastPressureCompaction.get(session)
@@ -478,8 +545,20 @@ export class BasicCompactionEngine extends CompactionEngine {
     const fmt = `(turnsSinceLast=${String(turnsSinceLast)}, growthTokens=${String(growthTokens)}, reclaimTokens=${reclaimTokens})`
     let timeBlocked: string | undefined
     if (turnsSinceLast !== null && turnsSinceLast < minIntervalTurns) {
-      timeBlocked = `minIntervalTurns ${minIntervalTurns} not reached ${fmt}`
-    } else if (growthTokens !== null && growthTokens < minGrowthTokens) {
+      // An expired provider cache is not worth waiting for: the interval gate
+      // exists so a rewrite does not discard a live prefix, and this session's
+      // last cache read is older than the provider's own retention. The growth
+      // and reclaim gates were never about the cache and still apply.
+      if (cacheExpired) {
+        this.ctx.logger.info(
+          `compaction (step pressure) minIntervalTurns ${minIntervalTurns} lifted by an expired `
+          + `prompt cache ${fmt}`,
+        )
+      } else {
+        timeBlocked = `minIntervalTurns ${minIntervalTurns} not reached ${fmt}`
+      }
+    }
+    if (timeBlocked === undefined && growthTokens !== null && growthTokens < minGrowthTokens) {
       timeBlocked = `minGrowthTokens ${minGrowthTokens} not reached ${fmt}`
     }
     if (timeBlocked !== undefined) {

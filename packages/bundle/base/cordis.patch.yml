@@ -447,6 +447,13 @@
     - id: image-offload
       name: '@deepseek-ai/dsh-compaction-image-offload'
 
+    # Images from before the two most recent rounds become a text placeholder
+    # naming their read-only stored copy, so only recent images are resent.
+    - id: image-rehydrate
+      name: '@deepseek-ai/dsh-compaction-image-rehydrate'
+      config:
+        retainRounds: 2
+
     - id: tool-todo
       name: '@deepseek-ai/dsh-tool-todo'
       config:
