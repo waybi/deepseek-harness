@@ -122,9 +122,10 @@
 
 :global([data-platform='darwin']) .frame:not([data-sidebar-drawer]) .sidebarCol {
   /* Opaque fill: a translucent tint mixed with the wallpaper read near-black on
-     dark wallpapers even in the light theme. */
+     dark wallpapers even in the light theme. No divider: the fill/centre colour
+     step is the only separation in the reference design. */
   background: var(--dsw-specific-sidebar-fill);
-  border-right: 0.5px solid var(--dsw-alias-border-l3);
+  border-right: none;
 }
 
 /* Dark takes the same token, whose dark value is already near-black. */
