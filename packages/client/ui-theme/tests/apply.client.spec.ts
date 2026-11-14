@@ -138,15 +138,15 @@ describe('ui-theme apply', () => {
   it('steps all font sizes in one settings mutation and one snapshot', async () => {
     const { theme, keyboard, events, host } = await keyboardTheme()
     keyboard.press()
-    expect(theme.getTheme().fontSizes).toEqual({ text: 15, code: 12, terminal: 14 })
+    expect(theme.getTheme().fontSizes).toEqual({ text: 17, code: 12, terminal: 14 })
     expect(host.mutate).toHaveBeenCalledExactlyOnceWith([
-      { op: 'set', path: ['fontSize'], value: 15 },
+      { op: 'set', path: ['fontSize'], value: 17 },
       { op: 'set', path: ['codeFontSize'], value: 12 },
       { op: 'set', path: ['terminalFontSize'], value: 14 },
     ])
     expect(host.set).not.toHaveBeenCalled()
     expect(events).toHaveLength(1)
-    expect(events[0]?.fontSizes).toEqual({ text: 15, code: 12, terminal: 14 })
+    expect(events[0]?.fontSizes).toEqual({ text: 17, code: 12, terminal: 14 })
   })
 
   it('continues stepping other font roles when one has reached its own limit', async () => {

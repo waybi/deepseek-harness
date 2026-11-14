@@ -83,7 +83,7 @@ describe('theme bootstrap row', () => {
     expect(document.body.style.getPropertyValue('--dsh-code-font-size')).toBe('15px')
     expect(document.body.style.getPropertyValue('--dsh-terminal-font-size')).toBe('18px')
     executeBootstrap('light')
-    expect(document.body.style.getPropertyValue('--dsh-content-font-size')).toBe('14px')
+    expect(document.body.style.getPropertyValue('--dsh-content-font-size')).toBe('16px')
     expect(document.body.style.getPropertyValue('--dsh-code-font-size')).toBe('11px')
     expect(document.body.style.getPropertyValue('--dsh-terminal-font-size')).toBe('13px')
   })

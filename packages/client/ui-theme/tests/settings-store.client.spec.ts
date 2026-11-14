@@ -30,7 +30,7 @@ describe('createAppearanceRowStore', () => {
 describe('createFontRowStore', () => {
   it('init shape: default size with revision at -1', () => {
     const store = createFontRowStore().create()
-    expect(store.getSnapshot()).toEqual({ fontSizes: { text: 14, code: 11, terminal: 13 }, fontFamilies: { text: '', code: '', terminal: '' }, revision: -1 })
+    expect(store.getSnapshot()).toEqual({ fontSizes: { text: 16, code: 11, terminal: 13 }, fontFamilies: { text: '', code: '', terminal: '' }, revision: -1 })
   })
 
   it('sync mirrors the size; the revision guard drops stale and duplicate writes', () => {

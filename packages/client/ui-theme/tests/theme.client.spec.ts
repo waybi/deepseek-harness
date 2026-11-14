@@ -26,7 +26,7 @@ describe('ThemeRuntime', () => {
     const { theme } = make()
     const snapshot = theme.getTheme()
     expect(snapshot.preference).toBe('system')
-    expect(snapshot.fontSizes.text).toBe(14)
+    expect(snapshot.fontSizes.text).toBe(16)
     // jsdom matchMedia is absent; system resolves to light.
     expect(snapshot.active.id).toBe('light')
     expect(snapshot.active.colorScheme).toBe('light')
@@ -35,12 +35,12 @@ describe('ThemeRuntime', () => {
 
   it('seeds the initial font size from the boot-script body variable, ignoring junk', () => {
     // The Host boot script writes the durable size on body before any plugin
-    // runs; the first snapshot must match it so activation never flashes 14.
+    // runs; the first snapshot must match it so activation never flashes 16.
     document.body.style.setProperty('--dsh-content-font-size', '22px')
     try {
       expect(make().theme.getTheme().fontSizes.text).toBe(22)
       document.body.style.setProperty('--dsh-content-font-size', '23px')
-      expect(make().theme.getTheme().fontSizes.text).toBe(14)
+      expect(make().theme.getTheme().fontSizes.text).toBe(16)
     } finally {
       document.body.style.removeProperty('--dsh-content-font-size')
     }
@@ -70,7 +70,7 @@ describe('ThemeRuntime', () => {
     const { theme, host } = make()
     theme.setFontSize('code', 16)
     theme.setFontSize('terminal', 20)
-    expect(theme.getTheme().fontSizes).toEqual({ text: 14, code: 16, terminal: 20 })
+    expect(theme.getTheme().fontSizes).toEqual({ text: 16, code: 16, terminal: 20 })
     expect(host.set).toHaveBeenCalledWith('codeFontSize', 16)
     expect(host.set).toHaveBeenCalledWith('terminalFontSize', 20)
     expect(() => { theme.setFontSize('code', 17) }).toThrow('code font size 17 is outside 10..16')
@@ -81,7 +81,7 @@ describe('ThemeRuntime', () => {
     document.body.style.setProperty('--dsh-code-font-size', '14px')
     document.body.style.setProperty('--dsh-terminal-font-size', '99px')
     try {
-      expect(make().theme.getTheme().fontSizes).toEqual({ text: 14, code: 14, terminal: 13 })
+      expect(make().theme.getTheme().fontSizes).toEqual({ text: 16, code: 14, terminal: 13 })
     } finally {
       document.body.style.removeProperty('--dsh-code-font-size')
       document.body.style.removeProperty('--dsh-terminal-font-size')
