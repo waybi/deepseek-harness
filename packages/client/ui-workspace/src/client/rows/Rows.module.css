@@ -22,7 +22,13 @@
 }
 
 .sessionRow.selected {
-  background-color: var(--dsw-alias-interactive-bg-hover);
+  background-color: var(--dsw-static-neutral-bluish-100);
+}
+
+/* The open Session reads one step heavier than its neighbours, so the
+   selection survives a row whose fill is close to the sidebar's. */
+.sessionRow.selected .title {
+  font-weight: 600;
 }
 
 .dragPreview {
@@ -206,6 +212,11 @@
    scroll-behavior applies here. */
 .sessionRow .title {
   flex: 1;
+  /* A resting title that overruns its cell fades out instead of ending in an
+     ellipsis: the cut lands mid-character and the tail dissolves, so a clipped
+     title never reads as a shorter sentence. */
+  text-overflow: clip;
+  mask-image: linear-gradient(to right, #000 calc(100% - 12px), transparent);
 }
 
 /* While the marquee travels, both clipping edges fade in over 12px instead of
@@ -241,6 +252,59 @@
   line-height: 16px;
   color: var(--dsw-alias-label-tertiary);
   margin-inline-end: -1px;
+}
+
+/* A section or group header reads quieter than the rows under it: a tertiary
+   label with its count inline in parentheses, so the count never sits at the
+   far edge as if it were a timestamp. */
+.projectRow .title {
+  color: var(--dsw-alias-label-tertiary);
+  font-weight: 600;
+}
+
+.projectRow .time {
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+}
+
+.projectRow .time::before {
+  content: '(';
+}
+
+.projectRow .time::after {
+  content: ')';
+}
+
+/* Pending interaction on the trailing edge: an inverted chip standing where
+   the update time would sit, painted from the same label/foreground pair as
+   the composer's send control so it flips with the theme. */
+.pendingPill {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 5px 0 8px;
+  border-radius: 999px;
+  corner-shape: round;
+  background: var(--dsw-alias-label-primary);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-size: 11px;
+  line-height: 20px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* The pill's trailing dot is the waiting marker; it never carries a color of
+   its own so the chip stays one visual unit. */
+.pillDot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  corner-shape: round;
+  background: var(--dsw-alias-label-primary-foreground);
 }
 
 .pinIndicator {

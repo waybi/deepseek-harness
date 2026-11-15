@@ -446,6 +446,61 @@ function SessionStatusDots({ statuses }: { statuses: readonly [SessionStatus, ..
   )
 }
 
+/** Screen-reader text for a row's statuses; the visible marker stays presentational. */
+function SessionStatusLabels({ statuses }: { statuses: readonly [SessionStatus, ...SessionStatus[]] }) {
+  return (
+    <>
+      {statuses.map(status => (
+        <span className={css.visuallyHidden} key={status.label}>{status.label}</span>
+      ))}
+    </>
+  )
+}
+
+/**
+ * A pending interaction's compact label as a dark pill on the row's trailing
+ * edge, where the update time would sit; the row's status text rides the
+ * leading cell, so the pill itself is presentational.
+ * @param props.label - the primary status's compact label.
+ * @returns the pill.
+ */
+function SessionPendingPill({ label }: { label: string }) {
+  return (
+    <span className={css.pendingPill} aria-hidden>
+      {label}
+      <span className={css.pillDot} />
+    </span>
+  )
+}
+
+/**
+ * A row's single trailing marker: a pending interaction owns the pill, live or
+ * unviewed activity its dot, and only a settled row falls back to the update
+ * time. Archived rows carry no live marker, so they keep the time.
+ * @param props.archived - whether the row is archived.
+ * @param props.statuses - every status of the row, primary first.
+ * @param props.showStatus - whether the primary status deserves a marker.
+ * @param props.updatedAt - the Session's last update, for the time fallback.
+ * @param props.now - epoch ms for relative-time formatting.
+ * @param props.t - the browser root's locale seat.
+ * @returns the marker element.
+ */
+function SessionTrailingMarker({ archived, statuses, showStatus, updatedAt, now, t }: {
+  archived: boolean
+  statuses: readonly [SessionStatus, ...SessionStatus[]]
+  showStatus: boolean
+  updatedAt: number
+  now: number
+  t: RowTranslate
+}) {
+  const primary = statuses[0]
+  if (!archived && primary.trailingLabel !== undefined) {
+    return <SessionPendingPill label={primary.trailingLabel} />
+  }
+  if (!archived && showStatus) return <StateDot state={primary.state} />
+  return <span className={clsx(css.time, css.timestamp)}>{timeLabel(updatedAt, now, t)}</span>
+}
+
 /** Non-interactive pinned-row marker; the enclosing row remains the only action. */
 function PinnedIndicator({ t }: { t: RowTranslate }) {
   const label = t('row.pinned')
@@ -752,15 +807,16 @@ export const SessionNodeItem = memo(function SessionNodeItem({
           drag.drop(rowHalf(e))
         }}
     >
-      {/* Pending interaction and own or descendant activity outrank the
-          finished-but-unviewed reminder, which returns after activity stops
-          and is cleared by opening the session. Archived rows keep the slot
-          blank — the grayed row carries the archived look — and their live
-          status stays on the hover card only. */}
+      {/* The leading 16px cell holds only the leading seat: a row's own state
+          rides its trailing edge (pill, dot, or update time) so the title
+          never shifts when a Session starts or stops working. Archived rows
+          render no seat, and their live status stays on the hover card only. */}
       <span className={css.slot}>
-        {!row.archived && !row.blank && (showStatus
-          ? <SessionStatusDots statuses={statuses} />
-          : renderSlot('sidebar.session.row.leading', { sessionId: node.id }))}
+        {!row.archived && !row.blank && renderSlot('sidebar.session.row.leading', { sessionId: node.id })}
+        {/* The trailing marker is presentational, so its status text reads from
+            the row's leading cell in the order it always has; a settled row
+            carries no status text at all. */}
+        {!row.archived && !row.blank && showStatus && <SessionStatusLabels statuses={statuses} />}
       </span>
       <span
         ref={titleRef}
@@ -786,12 +842,14 @@ export const SessionNodeItem = memo(function SessionNodeItem({
           actions for existing content are available. */}
       {!row.blank && (
         <span className={css.rowResting}>
-          <span
-            className={clsx(css.time, primaryStatus.trailingLabel === undefined && css.timestamp)}
-            aria-hidden={primaryStatus.trailingLabel === undefined ? undefined : true}
-          >
-            {primaryStatus.trailingLabel ?? timeLabel(row.updatedAt, now, t)}
-          </span>
+          <SessionTrailingMarker
+            archived={row.archived}
+            statuses={statuses}
+            showStatus={showStatus}
+            updatedAt={row.updatedAt}
+            now={now}
+            t={t}
+          />
           {renderSlot('sidebar.session.row.trailing', { sessionId: node.id })}
           {row.pinned && !row.archived && <PinnedIndicator t={t} />}
         </span>

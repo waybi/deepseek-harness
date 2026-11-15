@@ -312,8 +312,10 @@ describe('workspace browser rows', () => {
 
     view.rerender(<SessionNodeItem node={{ ...idle, running: true }} currentId={undefined} now={0}
       onOpen={vi.fn()} t={t} />)
-    // A row that gains a state dot keeps that dot in the same cell.
-    expect(screen.getByText('Flat Session').previousElementSibling?.querySelector('[data-state="ongoing"]')).toBeTruthy()
+    // A row's state rides the trailing edge, so the title never shifts when it
+    // starts or stops working.
+    expect(screen.getByText('Flat Session').previousElementSibling?.querySelector('[data-state]')).toBeNull()
+    expect(screen.getByText('Flat Session').nextElementSibling?.querySelector('[data-state="ongoing"]')).toBeTruthy()
   })
 
   it('renders a selected content-search row and opens only its session', () => {
@@ -676,8 +678,10 @@ describe('workspace browser rows', () => {
     }
     render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()} t={t} />)
     const row = screen.getByRole('treeitem')
-    expect(row.querySelector('[data-state="warning"]')).not.toBeNull()
-    expect(row.querySelector('[data-state="ongoing"]')).toBeNull()
+    // Attention reads as the pending pill, not a warning dot: a row carries one
+    // trailing marker and the pill outranks every dot.
+    expect(row.querySelector('[data-state]')).toBeNull()
+    expect(screen.getByText('待回答')).toBeTruthy()
     expect(screen.getByText('等待回答')).toBeTruthy()
     expect(screen.getByText('1 个子智能体运行中')).toBeTruthy()
   })
@@ -1146,7 +1150,7 @@ describe('workspace browser rows', () => {
     ['approval', '等待审批', '待审批'],
     ['plan-review', '计划待审', '计划待审'],
     ['question', '等待回答', '待回答'],
-  ] as const)('shows %s as warning and replaces the row time', (pendingInteraction, label, compactLabel) => {
+  ] as const)('shows %s as a pending pill that replaces the row time', (pendingInteraction, label, compactLabel) => {
     vi.useFakeTimers()
     try {
       const node: SessionNode = {
@@ -1156,24 +1160,27 @@ describe('workspace browser rows', () => {
       const view = render(<SessionNodeItem node={node} currentId={undefined} now={0} onOpen={vi.fn()} t={t} />)
       const row = screen.getByRole('treeitem')
       const title = screen.getByText('Needs input')
-      expect(row.querySelector('[data-state="warning"]')).toBeTruthy()
-      expect(row.querySelector('[data-state="ongoing"]')).toBeNull()
+      // The pill replaces both the dot and the update time: one deterministic
+      // trailing cell whatever the row is doing.
+      expect(row.querySelector('[data-state]')).toBeNull()
       expect(row.textContent).toContain(label)
       expect(title.nextElementSibling?.textContent).toBe(compactLabel)
-      expect(rowCss.timestamp).toBeTypeOf('string')
-      expect(title.nextElementSibling?.firstElementChild?.classList.contains(rowCss.timestamp!)).toBe(false)
-      expect(row.querySelector('[class*="time"]')?.getAttribute('aria-hidden')).toBe('true')
+      expect(rowCss.pendingPill).toBeTypeOf('string')
+      // plan-review's compact label equals its full label, so match the pill
+      // among every element carrying the text.
+      expect(screen.getAllByText(compactLabel).some(el => el.classList.contains(rowCss.pendingPill!))).toBe(true)
+      expect(row.querySelector('[class*="time"]')).toBeNull()
       expect(row.textContent).not.toContain('刚刚')
 
       view.rerender(<SessionNodeItem node={{ ...node, running: false }} currentId={undefined} now={0}
         onOpen={vi.fn()} t={t} />)
-      expect(screen.getByRole('treeitem').querySelector('[data-state="warning"]')).toBeTruthy()
+      expect(screen.getAllByText(compactLabel).length).toBeGreaterThan(0)
 
       fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
       act(() => { vi.advanceTimersByTime(800) })
       expect(screen.getAllByText(label).length).toBeGreaterThanOrEqual(2)
       expect(screen.getByText('刚刚')).toBeTruthy()
-      expect(document.querySelectorAll('[data-state="warning"]')).toHaveLength(2)
+      expect(document.querySelectorAll('[data-state="warning"]')).toHaveLength(1)
     } finally {
       vi.useRealTimers()
     }
@@ -1499,17 +1506,16 @@ describe('session row decoration seats', () => {
   it.each<[string, SessionNode, string]>([
     ['an unviewed completion (new message)', { ...idle, completed: true }, 'done'],
     ['live activity', { ...idle, running: true }, 'ongoing'],
-    ['a pending approval', { ...idle, pendingInteraction: 'approval' as const }, 'warning'],
     ['a running subagent', { ...idle, runningSubagentCount: 2 }, 'ongoing'],
-  ])('replaces the leading seat with the %s dot', (_label, node, state) => {
+  ])('keeps the leading seat and puts the %s dot on the trailing edge', (_label, node, state) => {
     const renderSlot = seatSpy()
     renderRow(node, renderSlot)
     const row = screen.getByRole('treeitem')
-    // The dot occupies the same leading cell the idle row gave the seat.
-    const dotCell = row.firstElementChild
-    expect(dotCell?.querySelector(`[data-state="${state}"]`)).toBeTruthy()
-    expect(row.querySelector('[data-seat="sidebar.session.row.leading"]')).toBeNull()
-    expect(renderSlot).not.toHaveBeenCalledWith('sidebar.session.row.leading', expect.anything())
+    // State moved to the trailing edge, so the seat keeps its place: a working
+    // row and an idle one align on the same title column.
+    expect(row.firstElementChild?.querySelector('[data-state]')).toBeNull()
+    expect(row.querySelector(`[data-state="${state}"]`)).toBeTruthy()
+    expect(renderSlot).toHaveBeenCalledWith('sidebar.session.row.leading', { sessionId: node.id })
   })
 
   it.each<[string, SessionNode]>([
