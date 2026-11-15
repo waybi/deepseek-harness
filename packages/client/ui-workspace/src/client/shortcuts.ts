@@ -123,7 +123,7 @@ export function installWorkspaceShortcuts(
   })
   // Pin toggles on the open Session: the menu keeps its two directions, while
   // one binding both leads and releases the row instead of reserving a second.
-  register('session.pin', () => t('menu.pinSession'), ['pin session', 'unpin session'], 'KeyP', ['primary'], ['primary', 'shift'], () => {
+  register('session.pin', () => t('menu.pinSession'), ['pin session', 'unpin session'], 'KeyP', ['primary', 'alt'], ['primary', 'alt'], () => {
     const target = current()
     if (target === undefined) return { status: 'blocked', reason: t('shortcut.noSession') }
     const pinned = pinnedSessionIds().has(target.id)

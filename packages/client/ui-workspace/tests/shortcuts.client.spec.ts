@@ -92,7 +92,7 @@ describe('workspace shortcut ownership', () => {
     ['session.pin', 'KeyP'],
   ])('allows %s from the drawer and blocks it behind another dialog', async (id, code) => {
     const b = await bench('web')
-    const gesture = key(code, { alt: !['KeyF', 'KeyP'].includes(code), shift: ['KeyF', 'KeyP'].includes(code) })
+    const gesture = key(code, { alt: code !== 'KeyF', shift: code === 'KeyF' })
     expect(b.registry.dispatch(gesture, { ...context, modal: 'settings' }, vi.fn()).status).toBe('blocked')
     expect(b.registry.dispatch(gesture, { ...context, modal: 'sidebar' }, vi.fn()).status).toBe('handled')
     expect(b.commands.get(id)!.modals).toContain('sidebar')
@@ -106,7 +106,7 @@ describe('workspace shortcut ownership', () => {
     expect(b.registry.catalog.getSnapshot().every(row => row.keys.length > 0)).toBe(true)
     const web = await bench('web')
     expect(web.registry.catalog.getSnapshot().map(row => row.aria)).toEqual([
-      'Alt+Meta+N', 'Alt+Meta+K', 'Alt+Meta+O', 'Alt+Meta+G', 'Shift+Meta+F', 'Alt+Meta+A', 'Shift+Meta+P',
+      'Alt+Meta+N', 'Alt+Meta+K', 'Alt+Meta+O', 'Alt+Meta+G', 'Shift+Meta+F', 'Alt+Meta+A', 'Alt+Meta+P',
     ])
     await b.fiber.dispose()
     expect(b.registry.catalog.getSnapshot()).toEqual([])
@@ -170,7 +170,7 @@ describe('workspace shortcut ownership', () => {
 
   it('toggles pin on the open Session and blocks the key without one', async () => {
     const b = await bench()
-    const invoke = () => b.registry.dispatch(key('KeyP'), context, vi.fn())
+    const invoke = () => b.registry.dispatch(key('KeyP', { alt: true }), context, vi.fn())
     expect(invoke().status).toBe('handled')
     expect(b.pinSession).toHaveBeenCalledExactlyOnceWith('a')
     expect(b.pinnedIds.has(sid('a'))).toBe(true)
