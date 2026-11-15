@@ -26,7 +26,7 @@ kind: "package-reference"
 <a id="what-it-registers"></a>
 ## 注册了什么
 
-命令 `workspace.files` 在焦点分栏内显示画在停靠 tab 内容旁的导航栏，并把键盘焦点移到目录树，保留该 tab；从聊天区触发时使用当前会话的活动停靠分栏。其他情况下（文件页本身、不带导航栏的 tab、没有工作目录的会话、浮动 tab）打开或聚焦文件页，文件页的目录树始终显示。文件页替换开始页，同一分栏内重复打开仍保留一个文件页。桌面默认键为 Mod+P。开始页入口显示有效快捷键；Windows 和 macOS Web 使用[快捷键服务的平台默认值](../shortcuts/README.zh.md)；Linux Web 默认不绑定此命令。`openTab('files', { params: { reveal } })` 展开工作区根目录下绝对目录 `reveal` 的每个未展开上级，并把该行滚动到可见位置；根目录之外的路径不改变文件树。`openTab('files', { params: { reveal } })` 展开工作区根目录下绝对目录 `reveal` 的每个未展开上级，并把该行滚动到可见位置；根目录之外的路径不改变文件树。
+命令 `workspace.files` 在焦点分栏内显示画在停靠 tab 内容旁的导航栏，并把键盘焦点移到目录树，保留该 tab；从聊天区触发时使用当前会话的活动停靠分栏。其他情况下（文件页本身、不带导航栏的 tab、没有工作目录的会话、浮动 tab）打开或聚焦文件页，文件页的目录树始终显示。文件页替换开始页，同一分栏内重复打开仍保留一个文件页。桌面默认键为 Mod+Shift+P。开始页入口显示有效快捷键；Windows 和 macOS Web 使用[快捷键服务的平台默认值](../shortcuts/README.zh.md)；Linux Web 默认不绑定此命令。`openTab('files', { params: { reveal } })` 展开工作区根目录下绝对目录 `reveal` 的每个未展开上级，并把该行滚动到可见位置；根目录之外的路径不改变文件树。`openTab('files', { params: { reveal } })` 展开工作区根目录下绝对目录 `reveal` 的每个未展开上级，并把该行滚动到可见位置；根目录之外的路径不改变文件树。
 
 - **类型**：`ctx.sidebarRightTabs.register(...)`，kind 为 `files`，id 为 `@deepseek-ai/dsh-client-ui-sidebar-files`，档位 `builtin`，没有 patterns，另有一个打开该类型的引导页入口（order 10，标题与描述取自 `sidebarFiles` 命名空间，图标为黄色文件夹）。
 - **文件页正文**：以该 id 为键的 `sidebar.right.pane.tab` slot。其标题行横跨页面，通过共享的 [`PathLabel`](../ui-primitives/README.zh.md#component-catalog) 显示根路径，目录使用弱化颜色，最后一段使用主色；路径过长时保留尾部字符并在左侧渐隐，悬停显示完整路径。末端依次是目录树的重新读取控件、由文件页注册声明的 Session 作用域 `sidebar.right.tab.files.actions` 列表（通过 `absolutePath` 传入当前显示的根目录），顺序与预览标题行末端的重新读取与文件操作一致；[`ui-open-in-app`](../ui-open-in-app/README.zh.md) 在此提供工作区目录打开按钮。标题行下方由该分栏的导航栏铺满整页，停靠与浮动时都一样，这里没有开关。

@@ -115,10 +115,10 @@ describe.each(['MacIntel', 'Win32', 'Linux x86_64'])('web context menus on %s', 
     await page.getByText('CONTEXT_MENU_READY', { exact: true }).waitFor()
     const trigger = foreground.getByRole('button', { name: /actions/i })
     expect(await trigger.locator('svg').getAttribute('width')).toBe('20')
-    const chord = platform === 'MacIntel' ? 'Alt+Meta+P' : 'Alt+Control+P'
-    // Browser reservations leave the same combinations unbindable on Web/Linux
-    // that already silence Rename there; the desktop shell binds all three.
-    const aria = platform === 'MacIntel' ? 'Alt+Meta+P' : platform === 'Win32' ? 'Control+Alt+P' : null
+    const chord = platform === 'MacIntel' ? 'Shift+Meta+P' : 'Shift+Control+P'
+    // Web keeps Cmd+P for printing, so this command and Workspace files swap
+    // combinations on Web; Linux Web leaves it unbound, as it does Rename.
+    const aria = platform === 'MacIntel' ? 'Shift+Meta+P' : platform === 'Win32' ? 'Control+Shift+P' : null
     await foreground.click({ button: 'right' })
     const pin = menu.getByRole('menuitem', { name: 'Pin session', exact: true })
     await pin.waitFor()
