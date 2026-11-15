@@ -34,6 +34,13 @@ const declarations = (selector: string): Map<string, string> | undefined => decl
 const rowDeclarations = (selector: string): Map<string, string> | undefined => declarationsFrom(rowsCss, selector)
 
 describe('WorkspaceBrowser.module.css list', () => {
+  it('keeps the trailing marker visible under the pointer', () => {
+    // Only the update time yields to the action strip: hiding the whole
+    // trailing cell would take a pending pill or a live dot with it.
+    expect(rowsCss).toContain('.sessionRow:hover .rowResting .timestamp')
+    expect(rowsCss).not.toContain('.sessionRow:hover .rowResting,')
+  })
+
   it('hides touch timestamps without hiding pending-interaction labels', () => {
     const touch = /@media \(hover: none\) \{([\s\S]*?)\n\}/.exec(rowsCss)?.[1]
     expect(touch).toContain('.sessionRow .timestamp')

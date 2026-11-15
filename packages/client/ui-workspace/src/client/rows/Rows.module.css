@@ -389,9 +389,12 @@
     display: inline-flex;
   }
 
-  .sessionRow:hover .rowResting,
-  .sessionRow.menuOpen .rowResting,
-  :global(html[data-input-modality='keyboard']) .sessionRow:focus-within .rowResting {
+  /* Only the update time yields to the action strip: a row that is waiting on
+     the user keeps its pill (and its live dot) visible while the pointer is on
+     it, so hovering never hides the reason the row needs attention. */
+  .sessionRow:hover .rowResting .timestamp,
+  .sessionRow.menuOpen .rowResting .timestamp,
+  :global(html[data-input-modality='keyboard']) .sessionRow:focus-within .rowResting .timestamp {
     display: none;
   }
 
