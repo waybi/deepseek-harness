@@ -41,6 +41,9 @@ export function registerSessionMenus(ctx: Context, actions: Actions): void {
     if (archived(target) || !allowed(target, pinned ? 'workspace/unpinSession' : 'workspace/pinSession')) return []
     return [{
       id: 'pin', label: t(pinned ? 'menu.unpinSession' : 'menu.pinSession'), icon: { key: pinned ? 'workspace.unpin' : 'workspace.pin' },
+      // The binding toggles the open Session; the releasing direction carries
+      // no keycap so the hint never advertises a command that would pin again.
+      ...pinned ? {} : { commandId: 'session.pin' as ShortcutCommandId },
       run: () => { (pinned ? actions.unpinSession : actions.pinSession)(target.sessionId) },
     }]
   })

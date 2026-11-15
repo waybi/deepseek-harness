@@ -107,6 +107,33 @@ describe.each(['MacIntel', 'Win32', 'Linux x86_64'])('web context menus on %s', 
     await background.getByRole('button', { name: /actions/i }).click()
     expect(await menu.count()).toBe(0)
     expect(await background.getAttribute('aria-selected')).toBe('false')
+    // The trigger glyph is optically matched to its stroke neighbours, and Pin
+    // rides one toggle binding that the menu advertises only on the leading
+    // direction; the chord itself moves the open Session's row.
+    const foreground = page.locator('[data-row-key="session:context-menu-first"]')
+    await foreground.click()
+    await page.getByText('CONTEXT_MENU_READY', { exact: true }).waitFor()
+    const trigger = foreground.getByRole('button', { name: /actions/i })
+    expect(await trigger.locator('svg').getAttribute('width')).toBe('20')
+    const chord = platform === 'MacIntel' ? 'Alt+Meta+P' : 'Alt+Control+P'
+    // Browser reservations leave the same combinations unbindable on Web/Linux
+    // that already silence Rename there; the desktop shell binds all three.
+    const aria = platform === 'MacIntel' ? 'Alt+Meta+P' : platform === 'Win32' ? 'Control+Alt+P' : null
+    await foreground.click({ button: 'right' })
+    const pin = menu.getByRole('menuitem', { name: 'Pin session', exact: true })
+    await pin.waitFor()
+    expect(await pin.getAttribute('aria-keyshortcuts')).toBe(aria)
+    await page.keyboard.press('Escape')
+    if (aria === null) return
+    await page.keyboard.press(chord)
+    await expect.poll(async () => foreground.getByRole('img', { name: 'Pinned', exact: true }).count()).toBe(1)
+    await foreground.click({ button: 'right' })
+    const unpin = menu.getByRole('menuitem', { name: 'Unpin session', exact: true })
+    await unpin.waitFor()
+    expect(await unpin.getAttribute('aria-keyshortcuts')).toBeNull()
+    await page.keyboard.press('Escape')
+    await page.keyboard.press(chord)
+    await expect.poll(async () => foreground.getByRole('img', { name: 'Pinned', exact: true }).count()).toBe(0)
   })
 
   it('updates an open Session menu from another window’s shortcut preferences and still renames the captured row', async () => {

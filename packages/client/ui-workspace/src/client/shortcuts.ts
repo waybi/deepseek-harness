@@ -54,6 +54,9 @@ export function createWorkspaceShortcutControls(): WorkspaceShortcutControls {
  * @param controls - browser-owned opening requests.
  * @param archiveSession - shared archive action, including running-work confirmation and notices.
  * @param reportForkFailure - publish a classified failure through the frame-wide notice channel.
+ * @param pinSession - shared pin action, including its failure notice.
+ * @param unpinSession - shared unpin action, including its failure notice.
+ * @param pinnedSessionIds - registry-global pinned ids, read at press time so one binding toggles.
  */
 export function installWorkspaceShortcuts(
   ctx: Context,
@@ -61,6 +64,9 @@ export function installWorkspaceShortcuts(
   controls: ReturnType<typeof createWorkspaceShortcutControls>,
   archiveSession: (sessionId: SessionId) => void,
   reportForkFailure: (reason: 'unavailable' | 'failed') => void,
+  pinSession: (sessionId: SessionId) => void,
+  unpinSession: (sessionId: SessionId) => void,
+  pinnedSessionIds: () => ReadonlySet<SessionId>,
 ): void {
   const t = ctx.locale.bind('workspace')
   const current = () => Object.values(ctx.sessions.list.getSnapshot().byId)
@@ -114,5 +120,15 @@ export function installWorkspaceShortcuts(
       : { status: 'handled', run: () => {
         archiveSession(target.id)
       } }
+  })
+  // Pin toggles on the open Session: the menu keeps its two directions, while
+  // one binding both leads and releases the row instead of reserving a second.
+  register('session.pin', () => t('menu.pinSession'), ['pin session', 'unpin session'], 'KeyP', ['primary', 'alt'], ['primary', 'alt'], () => {
+    const target = current()
+    if (target === undefined) return { status: 'blocked', reason: t('shortcut.noSession') }
+    const pinned = pinnedSessionIds().has(target.id)
+    return { status: 'handled', run: () => {
+      (pinned ? unpinSession : pinSession)(target.id)
+    } }
   })
 }

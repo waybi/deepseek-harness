@@ -327,7 +327,7 @@ function ProjectRow({
               event.stopPropagation()
               const rect = event.currentTarget.getBoundingClientRect()
               openWorkspaceMenu(workspaceMenuTarget.workspaceId, workspaceMenuTarget.path, label, { x: rect.left, y: rect.bottom }, 'toggle')
-            }}><IconEllipsisOutlineRegular /></button>
+            }}><IconEllipsisOutlineRegular size={20} /></button>
         )}
         {access.create && (
           <Tooltip label={t('actions.newSession')} shortcutKeys={newShortcut?.keys} side="bottom" align="end" delayMs={500} portal>
@@ -867,7 +867,7 @@ export const SessionNodeItem = memo(function SessionNodeItem({
               event.currentTarget.focus({ preventScroll: true })
               const rect = event.currentTarget.getBoundingClientRect()
               openSessionMenu(node.id, row.title, { x: rect.left, y: rect.bottom }, 'toggle')
-            }}><IconEllipsisOutlineRegular /></button>
+            }}><IconEllipsisOutlineRegular size={20} /></button>
           <span className={css.rowQuickActions}>
             {renderSlot('sidebar.workspaces.session.row.action', { sessionId: node.id, displayTitle: row.title })}
           </span>

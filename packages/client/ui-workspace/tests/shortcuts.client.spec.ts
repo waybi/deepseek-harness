@@ -53,17 +53,24 @@ async function bench(runtime: 'web' | 'desktop' = 'desktop', platform: ShortcutP
   const navigation = {
     startSession: vi.fn(), forkSession: vi.fn(async () => 'fork-child' as SessionId), archiveSession: vi.fn(async (_sessionId: SessionId) => {}),
   }
+  // The Host round trip is what moves the pinned set, so the stand-ins write it.
+  const pinnedIds = new Set<SessionId>()
+  const pinSession = vi.fn((id: SessionId) => { pinnedIds.add(id) })
+  const unpinSession = vi.fn((id: SessionId) => { pinnedIds.delete(id) })
   const controls = createWorkspaceShortcutControls()
   const reportForkFailure = vi.fn()
   const fiber = ctx.plugin((scoped) => {
     installWorkspaceShortcuts(scoped, navigation, controls,
-      (id) => { void navigation.archiveSession(id) }, reportForkFailure)
+      (id) => { void navigation.archiveSession(id) }, reportForkFailure, pinSession, unpinSession, () => pinnedIds)
   })
   await fiber.await()
   const select = (id: string) => { list.set({ ...list.getSnapshot(), byId: {
     [sid('a')]: row('a', id === 'a'), [sid('b')]: row('b', id === 'b'),
   } }) }
-  return { ctx, fiber, registry, commands, navigation, controls, reportForkFailure, list, directory, select, history, loadOlder, panelInfo }
+  return {
+    ctx, fiber, registry, commands, navigation, controls, reportForkFailure, list, directory, select,
+    history, loadOlder, panelInfo, pinnedIds, pinSession, unpinSession,
+  }
 }
 
 afterEach(() => { vi.restoreAllMocks() })
@@ -82,6 +89,7 @@ describe('workspace shortcut ownership', () => {
   it.each([
     ['session.new', 'KeyN'], ['session.search', 'KeyK'], ['workspace.add', 'KeyO'],
     ['session.rename', 'KeyG'], ['session.fork', 'KeyF'], ['session.archive', 'KeyA'],
+    ['session.pin', 'KeyP'],
   ])('allows %s from the drawer and blocks it behind another dialog', async (id, code) => {
     const b = await bench('web')
     const gesture = key(code, { alt: code !== 'KeyF', shift: code === 'KeyF' })
@@ -90,15 +98,15 @@ describe('workspace shortcut ownership', () => {
     expect(b.commands.get(id)!.modals).toContain('sidebar')
   })
 
-  it('registers six commands with Desktop and Web defaults and removes registrations with the plugin', async () => {
+  it('registers seven commands with Desktop and Web defaults and removes registrations with the plugin', async () => {
     const b = await bench()
     expect(b.registry.catalog.getSnapshot().map(row => row.id)).toEqual([
-      'session.new', 'session.search', 'workspace.add', 'session.rename', 'session.fork', 'session.archive',
+      'session.new', 'session.search', 'workspace.add', 'session.rename', 'session.fork', 'session.archive', 'session.pin',
     ])
     expect(b.registry.catalog.getSnapshot().every(row => row.keys.length > 0)).toBe(true)
     const web = await bench('web')
     expect(web.registry.catalog.getSnapshot().map(row => row.aria)).toEqual([
-      'Alt+Meta+N', 'Alt+Meta+K', 'Alt+Meta+O', 'Alt+Meta+G', 'Shift+Meta+F', 'Alt+Meta+A',
+      'Alt+Meta+N', 'Alt+Meta+K', 'Alt+Meta+O', 'Alt+Meta+G', 'Shift+Meta+F', 'Alt+Meta+A', 'Alt+Meta+P',
     ])
     await b.fiber.dispose()
     expect(b.registry.catalog.getSnapshot()).toEqual([])
@@ -158,6 +166,19 @@ describe('workspace shortcut ownership', () => {
     b.controls.directoryBusy(false)
     b.directory.set(false)
     expect(b.registry.dispatch(key('KeyO'), context, consume).status).toBe('blocked')
+  })
+
+  it('toggles pin on the open Session and blocks the key without one', async () => {
+    const b = await bench()
+    const invoke = () => b.registry.dispatch(key('KeyP', { alt: true }), context, vi.fn())
+    expect(invoke().status).toBe('handled')
+    expect(b.pinSession).toHaveBeenCalledExactlyOnceWith('a')
+    expect(b.pinnedIds.has(sid('a'))).toBe(true)
+    expect(invoke().status).toBe('handled')
+    expect(b.unpinSession).toHaveBeenCalledExactlyOnceWith('a')
+    expect(b.pinnedIds.has(sid('a'))).toBe(false)
+    b.select('none')
+    expect(invoke()).toMatchObject({ status: 'blocked', reason: en['shortcut.noSession'] })
   })
 
   it('captures rename and archive targets while the main Session changes', async () => {
