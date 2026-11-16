@@ -101,9 +101,9 @@ body {
   --dsw-font-markdown-base-font-size: var(--dsh-content-font-size, 14px);
   --dsw-font-markdown-base-font-style: normal;
 
-  --dsw-font-markdown-base-strong: 500 var(--dsh-content-font-size, 14px) / calc(24px + 2 * var(--dsh-content-font-delta)) var(--dsw-font-family);
+  --dsw-font-markdown-base-strong: 600 var(--dsh-content-font-size, 14px) / calc(24px + 2 * var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-base-strong-font-family: var(--dsw-font-family);
-  --dsw-font-markdown-base-strong-font-weight: 500;
+  --dsw-font-markdown-base-strong-font-weight: 600;
   --dsw-font-markdown-base-strong-line-height: calc(24px + 2 * var(--dsh-content-font-delta));
   --dsw-font-markdown-base-strong-font-size: var(--dsh-content-font-size, 14px);
   --dsw-font-markdown-base-strong-font-style: normal;
@@ -115,9 +115,9 @@ body {
   --dsw-font-markdown-base-italic-font-size: var(--dsh-content-font-size, 14px);
   --dsw-font-markdown-base-italic-font-style: italic;
 
-  --dsw-font-markdown-base-strong-italic: italic 500 var(--dsh-content-font-size, 14px) / calc(24px + 2 * var(--dsh-content-font-delta)) var(--dsw-font-family);
+  --dsw-font-markdown-base-strong-italic: italic 600 var(--dsh-content-font-size, 14px) / calc(24px + 2 * var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-base-strong-italic-font-family: var(--dsw-font-family);
-  --dsw-font-markdown-base-strong-italic-font-weight: 500;
+  --dsw-font-markdown-base-strong-italic-font-weight: 600;
   --dsw-font-markdown-base-strong-italic-line-height: calc(24px + 2 * var(--dsh-content-font-delta));
   --dsw-font-markdown-base-strong-italic-font-size: var(--dsh-content-font-size, 14px);
   --dsw-font-markdown-base-strong-italic-font-style: italic;

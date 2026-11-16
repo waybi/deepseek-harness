@@ -2,10 +2,10 @@
    Modules. Cite pills and header anchors are absent (no matching DOM).
    Token names match that sheet. */
 
-/* Body ink sits one step under label-primary: CJK strokes at full black read
-   as bold even at weight 400, so long-form prose mixes 92% ink with the page
-   background. Emphasis then recovers hierarchy through ink (primary), not
-   stroke weight. */
+/* Body ink sits one step under label-primary in dark mode, where dimmed white
+   reads heavier than dimmed black does. In light mode the prose runs at
+   full-strength ink: at 400 weight an ink just under label-primary loses the
+   crisp edge CJK needs against the pure-white surfaces around it. */
 .markdown {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -13,8 +13,12 @@
   color: color-mix(in srgb, var(--dsw-alias-label-primary) 92%, var(--dsw-alias-bg-base));
 }
 
+body:not([data-ds-dark-theme]) .markdown {
+  color: #000000;
+}
+
 .markdown strong {
-  font-weight: 500;
+  font-weight: 600;
   color: var(--dsw-alias-label-primary);
 }
 
