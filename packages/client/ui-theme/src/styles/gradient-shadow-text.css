@@ -52,7 +52,11 @@ body[data-ds-dark-theme] {
    default 14px). Headings and body variants share its pixel delta. Secondary
    text uses size − 1 through 14px, then size − 2: 10→9, 14→13, 15→13, 22→20.
    max(13px, ...) selects the delta, not a font-size floor. Small typography keeps a
-   fixed size; code typography follows the separate code size setting. */
+   fixed size; code typography follows the separate code size setting.
+   Body leading is 24px + 2 × delta — a 1.75 ratio that holds as the size setting
+   grows (14→24, 16→28, 22→40); the older 24px + delta tightened 16px prose to
+   1.63 and read as dense. Emphasis tops out at 500 and headings at 600, because
+   CJK strokes carry more colour than Latin at the same weight. */
 body {
   --dsh-content-font-delta: calc(var(--dsh-content-font-size, 14px) - 14px);
   --dsh-content-font-size-secondary: min(calc(var(--dsh-content-font-size, 14px) - 1px), max(13px, calc(var(--dsh-content-font-size, 14px) - 2px)));
@@ -62,59 +66,59 @@ body {
      the same increment. */
   --dsh-code-font-delta: calc(var(--dsh-code-font-size, 11px) - 11px);
 
-  --dsw-font-markdown-h1: 700 calc(21px + var(--dsh-content-font-delta)) / calc(30px + var(--dsh-content-font-delta)) var(--dsw-font-family);
+  --dsw-font-markdown-h1: 600 calc(21px + var(--dsh-content-font-delta)) / calc(30px + var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-h1-font-family: var(--dsw-font-family);
-  --dsw-font-markdown-h1-font-weight: 700;
+  --dsw-font-markdown-h1-font-weight: 600;
   --dsw-font-markdown-h1-line-height: calc(30px + var(--dsh-content-font-delta));
   --dsw-font-markdown-h1-font-size: calc(21px + var(--dsh-content-font-delta));
   --dsw-font-markdown-h1-font-style: normal;
 
-  --dsw-font-markdown-h2: 700 calc(19px + var(--dsh-content-font-delta)) / calc(28px + var(--dsh-content-font-delta)) var(--dsw-font-family);
+  --dsw-font-markdown-h2: 600 calc(19px + var(--dsh-content-font-delta)) / calc(28px + var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-h2-font-family: var(--dsw-font-family);
-  --dsw-font-markdown-h2-font-weight: 700;
+  --dsw-font-markdown-h2-font-weight: 600;
   --dsw-font-markdown-h2-line-height: calc(28px + var(--dsh-content-font-delta));
   --dsw-font-markdown-h2-font-size: calc(19px + var(--dsh-content-font-delta));
   --dsw-font-markdown-h2-font-style: normal;
 
-  --dsw-font-markdown-h3: 700 calc(18px + var(--dsh-content-font-delta)) / calc(26px + var(--dsh-content-font-delta)) var(--dsw-font-family);
+  --dsw-font-markdown-h3: 600 calc(18px + var(--dsh-content-font-delta)) / calc(26px + var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-h3-font-family: var(--dsw-font-family);
-  --dsw-font-markdown-h3-font-weight: 700;
+  --dsw-font-markdown-h3-font-weight: 600;
   --dsw-font-markdown-h3-line-height: calc(26px + var(--dsh-content-font-delta));
   --dsw-font-markdown-h3-font-size: calc(18px + var(--dsh-content-font-delta));
   --dsw-font-markdown-h3-font-style: normal;
 
-  --dsw-font-markdown-h4: 600 var(--dsh-content-font-size, 14px) / calc(24px + var(--dsh-content-font-delta)) var(--dsw-font-family);
+  --dsw-font-markdown-h4: 500 var(--dsh-content-font-size, 14px) / calc(24px + 2 * var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-h4-font-family: var(--dsw-font-family);
-  --dsw-font-markdown-h4-font-weight: 600;
-  --dsw-font-markdown-h4-line-height: calc(24px + var(--dsh-content-font-delta));
+  --dsw-font-markdown-h4-font-weight: 500;
+  --dsw-font-markdown-h4-line-height: calc(24px + 2 * var(--dsh-content-font-delta));
   --dsw-font-markdown-h4-font-size: var(--dsh-content-font-size, 14px);
   --dsw-font-markdown-h4-font-style: normal;
 
-  --dsw-font-markdown-base: var(--dsh-content-font-size, 14px) / calc(24px + var(--dsh-content-font-delta)) var(--dsw-font-family);
+  --dsw-font-markdown-base: var(--dsh-content-font-size, 14px) / calc(24px + 2 * var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-base-font-family: var(--dsw-font-family);
   --dsw-font-markdown-base-font-weight: 400;
-  --dsw-font-markdown-base-line-height: calc(24px + var(--dsh-content-font-delta));
+  --dsw-font-markdown-base-line-height: calc(24px + 2 * var(--dsh-content-font-delta));
   --dsw-font-markdown-base-font-size: var(--dsh-content-font-size, 14px);
   --dsw-font-markdown-base-font-style: normal;
 
-  --dsw-font-markdown-base-strong: 600 var(--dsh-content-font-size, 14px) / calc(24px + var(--dsh-content-font-delta)) var(--dsw-font-family);
+  --dsw-font-markdown-base-strong: 500 var(--dsh-content-font-size, 14px) / calc(24px + 2 * var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-base-strong-font-family: var(--dsw-font-family);
-  --dsw-font-markdown-base-strong-font-weight: 600;
-  --dsw-font-markdown-base-strong-line-height: calc(24px + var(--dsh-content-font-delta));
+  --dsw-font-markdown-base-strong-font-weight: 500;
+  --dsw-font-markdown-base-strong-line-height: calc(24px + 2 * var(--dsh-content-font-delta));
   --dsw-font-markdown-base-strong-font-size: var(--dsh-content-font-size, 14px);
   --dsw-font-markdown-base-strong-font-style: normal;
 
-  --dsw-font-markdown-base-italic: italic var(--dsh-content-font-size, 14px) / calc(24px + var(--dsh-content-font-delta)) var(--dsw-font-family);
+  --dsw-font-markdown-base-italic: italic var(--dsh-content-font-size, 14px) / calc(24px + 2 * var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-base-italic-font-family: var(--dsw-font-family);
   --dsw-font-markdown-base-italic-font-weight: 400;
-  --dsw-font-markdown-base-italic-line-height: calc(24px + var(--dsh-content-font-delta));
+  --dsw-font-markdown-base-italic-line-height: calc(24px + 2 * var(--dsh-content-font-delta));
   --dsw-font-markdown-base-italic-font-size: var(--dsh-content-font-size, 14px);
   --dsw-font-markdown-base-italic-font-style: italic;
 
-  --dsw-font-markdown-base-strong-italic: italic 600 var(--dsh-content-font-size, 14px) / calc(24px + var(--dsh-content-font-delta)) var(--dsw-font-family);
+  --dsw-font-markdown-base-strong-italic: italic 500 var(--dsh-content-font-size, 14px) / calc(24px + 2 * var(--dsh-content-font-delta)) var(--dsw-font-family);
   --dsw-font-markdown-base-strong-italic-font-family: var(--dsw-font-family);
-  --dsw-font-markdown-base-strong-italic-font-weight: 600;
-  --dsw-font-markdown-base-strong-italic-line-height: calc(24px + var(--dsh-content-font-delta));
+  --dsw-font-markdown-base-strong-italic-font-weight: 500;
+  --dsw-font-markdown-base-strong-italic-line-height: calc(24px + 2 * var(--dsh-content-font-delta));
   --dsw-font-markdown-base-strong-italic-font-size: var(--dsh-content-font-size, 14px);
   --dsw-font-markdown-base-strong-italic-font-style: italic;
 
@@ -139,9 +143,9 @@ body {
   --dsw-font-markdown-small-font-size: 12px;
   --dsw-font-markdown-small-font-style: normal;
 
-  --dsw-font-markdown-small-strong: 600 12px/20px var(--dsw-font-family);
+  --dsw-font-markdown-small-strong: 500 12px/20px var(--dsw-font-family);
   --dsw-font-markdown-small-strong-font-family: var(--dsw-font-family);
-  --dsw-font-markdown-small-strong-font-weight: 600;
+  --dsw-font-markdown-small-strong-font-weight: 500;
   --dsw-font-markdown-small-strong-line-height: 20px;
   --dsw-font-markdown-small-strong-font-size: 12px;
   --dsw-font-markdown-small-strong-font-style: normal;
@@ -153,9 +157,9 @@ body {
   --dsw-font-markdown-small-italic-font-size: 12px;
   --dsw-font-markdown-small-italic-font-style: italic;
 
-  --dsw-font-markdown-small-strong-italic: italic 600 12px/20px var(--dsw-font-family);
+  --dsw-font-markdown-small-strong-italic: italic 500 12px/20px var(--dsw-font-family);
   --dsw-font-markdown-small-strong-italic-font-family: var(--dsw-font-family);
-  --dsw-font-markdown-small-strong-italic-font-weight: 600;
+  --dsw-font-markdown-small-strong-italic-font-weight: 500;
   --dsw-font-markdown-small-strong-italic-line-height: 20px;
   --dsw-font-markdown-small-strong-italic-font-size: 12px;
   --dsw-font-markdown-small-strong-italic-font-style: italic;

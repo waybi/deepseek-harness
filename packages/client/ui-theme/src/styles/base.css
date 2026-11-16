@@ -31,6 +31,10 @@ body {
   --ds-font-family-code: var(--dsh-font-family-code, var(--dsh-font-family-code-default)), var(--dsh-font-family-code-default);
   --dsw-alias-settings-card-fill: var(--dsw-alias-bg-layer-2);
   --dsw-alias-settings-card-stroke: var(--dsw-alias-border-l4);
+  /* Grayscale antialiasing: macOS subpixel smoothing fattens CJK strokes enough
+     that weight 400 reads as medium in long prose. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 [data-dsh-automatic-focus]:focus,
