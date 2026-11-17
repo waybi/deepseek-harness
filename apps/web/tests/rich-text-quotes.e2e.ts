@@ -344,7 +344,9 @@ describe.skipIf(MODE === 'record')('web e2e: rich-text quotes', () => {
     if (failures.length > 1) throw new AggregateError(failures, 'rich-text-quotes e2e cleanup failed')
   })
 
-  it('renders and restores rich quotes with uniform styling after reference recognition', async () => {
+  // This fork removes the selection quote action, so the UI-driven quote draft in this case has
+  // no entry point; the composer draft path is still covered by the hover-gap case below.
+  it.skip('renders and restores rich quotes with uniform styling after reference recognition', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-rich-text-quotes'))
     const input = page.locator('[data-composer-input]').first()
     await expect.poll(() => input.textContent()).toBe('Imported plain draft')
