@@ -543,6 +543,32 @@ describe('UiSession status', () => {
     expect(service.sessionStatus.getSnapshot().get(id)?.completionUnread).toBe(true)
   })
 
+  it('markSessionsSeen clears completion dots without selecting the sessions', () => {
+    const ctx = new Context()
+    const bench = createSessionsBench(ctx)
+    const id = sessionId('ack')
+    const unknown = sessionId('not-in-catalog')
+    bench.binding(id)
+    const service = createUiSession(ctx, bench)
+
+    bench.list.update((draft) => { draft.byId[id]!.running = true })
+    bench.list.update((draft) => { draft.byId[id]!.running = false })
+    expect(service.sessionStatus.getSnapshot().get(id)?.completionUnread).toBe(true)
+    const before = bench.list.getSnapshot().byId[id]
+
+    const changed = vi.fn()
+    const off = service.sessionStatus.subscribe(changed)
+    service.markSessionsSeen([id, unknown])
+    expect(service.sessionStatus.getSnapshot().get(id)?.completionUnread).toBe(false)
+    expect(bench.list.getSnapshot().byId[id]).toBe(before)
+    expect(changed).toHaveBeenCalledTimes(1)
+
+    changed.mockClear()
+    service.markSessionsSeen([id])
+    expect(changed).not.toHaveBeenCalled()
+    off()
+  })
+
   it('records non-main completions and lets main-view activity acknowledge them', () => {
     const ctx = new Context()
     const bench = createSessionsBench(ctx)

@@ -505,6 +505,18 @@ export class UiSession extends Service {
     this.publishStatus()
   }
 
+  /**
+   * Acknowledge completion dots for the given sessions without selecting them.
+   * Used by the attention-inbox "全部已阅" action; ids with no unread flag are ignored.
+   */
+  markSessionsSeen(sessionIds: readonly SessionId[]): void {
+    let changed = false
+    for (const id of sessionIds) {
+      if (this.completionUnread.delete(id)) changed = true
+    }
+    if (changed) this.publishStatus()
+  }
+
   private observeRunning(sessionId: SessionId, running: boolean): void {
     const previous = this.running.get(sessionId)
     const beforeBaseline = this.sessions.list.getSnapshot().phase === 'pending'
