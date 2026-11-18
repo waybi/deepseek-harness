@@ -8,5 +8,5 @@ import clsx from 'clsx'
  * @returns unboxed keys by default, or tooltip keycaps with plus-separated combinations grouped together.
  */
 export function ShortcutKeys({ keys, variant = 'plain', className }: { keys: readonly string[]; variant?: 'plain' | 'tooltip'; className?: string | undefined }) {
-  return <span className={clsx(css.keys, variant === 'tooltip' && css.tooltip, variant === 'tooltip' && keys.includes('+') && css.joined, className)}>{keys.map((key, index) => <kbd key={index} className={key === '+' ? css.separator : css.key}>{key}</kbd>)}</span>
+  return <span className={clsx(css.keys, variant === 'tooltip' && css.tooltip, variant === 'tooltip' && keys.includes('+') && css.joined, className)}>{keys.map((key, index) => <kbd key={index} className={key === '+' ? css.separator : css.key} data-separator={key === '+' ? '' : undefined}>{key}</kbd>)}</span>
 }

@@ -321,3 +321,45 @@
   max-height: min(calc(100vh - 24px), var(--dsh-anchored-max-height, 100vh));
   max-height: min(calc(100dvh - 24px), var(--dsh-anchored-max-height, 100vh));
 }
+
+/* ---------- Context popup polish ----------------------------------------
+   Native macOS and current pro tools use a calmer row rhythm and keycaps for
+   bindings. Scope every rule to the cursor-positioned popup so ordinary
+   pickers keep their geometry. */
+
+/* A context popup is scanned, not read: keep the 13px/20px text and 14px icon
+   column, but drop the picker's extra row height. */
+.list[data-context-menu] .item {
+  min-height: 30px;
+  padding-block: 4px;
+}
+
+@media (hover: hover) {
+  .list[data-context-menu] .item {
+    transition: background-color 90ms ease;
+  }
+}
+
+/* ShortcutKeys already wraps each key in a <kbd>. Give the plain menu variant
+   the soft keycap chrome other surfaces reserve for tooltips; leave the '+'
+   joiner bare so combined bindings still read as one expression. */
+.list[data-context-menu] .shortcut .shortcutKeys {
+  gap: 4px;
+}
+
+.list[data-context-menu] .shortcut .shortcutKeys kbd:not([data-separator]) {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 0.5px solid var(--dsw-alias-border-l2);
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover-solid);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  line-height: 16px;
+  box-shadow: 0 1px 0 var(--dsw-alias-border-l1);
+}
