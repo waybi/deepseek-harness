@@ -10,7 +10,7 @@ import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import type { DomainChanged } from '@deepseek-ai/dsh-storage-domain'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionHeader } from '@deepseek-ai/dsh-session'
-import { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
+import { SessionAlreadyOwnedError, SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionPersistenceSnapshot } from '@deepseek-ai/dsh-session-persistence'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import WorkspaceRegistry, {
@@ -1549,6 +1549,21 @@ describe('first-use Workspace preparation', () => {
     expect(storedState(pool).defaultWorkspaceId).toBeUndefined()
     await expect(realpath(join(h.directoryRoot, 'nested', 'Workspace'))).resolves.toBe(join(h.directoryRoot, 'nested', 'Workspace'))
     expect(await h.registry.initializeDefault(h.resolveDirectory)).toBeDefined()
+  })
+})
+
+describe('permanent delete with a live write owner', () => {
+  it('releases an owned write handle and retries instead of leaking the raw ownership error', async () => {
+    const dir = await makeDir('delete-owned')
+    const target = SessionId('owned')
+    const result = await harness({ sessions: [header(target, dir, 100)] })
+    const deleteSpy = vi.fn()
+      .mockRejectedValueOnce(new SessionAlreadyOwnedError(target))
+      .mockResolvedValueOnce(undefined)
+    Object.assign(result.ctx.sessionPersistence, { delete: deleteSpy })
+
+    await expect(result.registry.deleteSession(target)).resolves.toBeUndefined()
+    expect(deleteSpy).toHaveBeenCalledTimes(2)
   })
 })
 

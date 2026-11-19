@@ -10,6 +10,7 @@ import { mkdir, stat } from 'node:fs/promises'
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-persistence'
+import { SessionAlreadyOwnedError } from '@deepseek-ai/dsh-session-persistence'
 import type { DomainGlobal, KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { WorkspaceEntity } from './entity.ts'
 import type { WorkspaceEntityHost } from './entity.ts'
@@ -473,7 +474,19 @@ export class WorkspaceRegistry extends Service {
         await this.stopSessionActivity(sessionId)
         await this.disposeSessionAgent(sessionId)
       }
-      await this.ctx.sessionPersistence.delete(sessionId)
+      try {
+        await this.ctx.sessionPersistence.delete(sessionId)
+      } catch (error) {
+        // A session can be quiet (no reported activity) yet still hold a live
+        // Agent write handle. That handle is an implementation detail, not
+        // work the caller must confirm: release it and retry once, exactly as
+        // the stop-and-delete path does. Without this the raw ownership error
+        // escapes the controller and the client silently ignores it.
+        if (!(error instanceof SessionAlreadyOwnedError) || options.stopActivity === true) throw error
+        await this.stopSessionActivity(sessionId)
+        await this.disposeSessionAgent(sessionId)
+        await this.ctx.sessionPersistence.delete(sessionId)
+      }
     })
   }
 
