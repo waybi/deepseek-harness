@@ -194,6 +194,12 @@ export function AppFrame({
   const cols = computeColumns(
     viewport, drawer ? 0 : sidebarPreference, layoutInfo.rightbarTrack ? rightbarPreference : 0, collapsedWidth, centeredSidebar,
   )
+  // Publish the settled centre-track width before the tracks start moving:
+  // content axes clamp to it for the transition so the transcript lays out
+  // once instead of on every animation frame (ConversationWidthControls).
+  useLayoutEffect(() => {
+    frameRef.current?.style.setProperty('--dsh-frame-center-width', `${cols.center}px`)
+  }, [cols.center])
   const colsRef = useRef(cols)
   colsRef.current = cols
   const rightbarWidth = useRef(normal.rightbar)
@@ -295,6 +301,7 @@ export function AppFrame({
         gridTemplateColumns:
           `${cols.sidebar}px minmax(${cols.rightbar === 0 ? 0 : CENTER_MIN}px, 1fr) minmax(0px, ${rightbarMax}px)`,
       }}
+      data-dsh-frame
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-sidebar-drawer={drawer || undefined}
       data-sidebar-instant={drawer && sidebarCollapsed && sidebarTransition.instant || undefined}
@@ -313,7 +320,7 @@ export function AppFrame({
         onClick={drawerOpen ? () => { actions.toggleSidebar() } : undefined} />}
       <div className={css.sidebarCol}
         style={drawer ? { width: sidebarWidth } : undefined}
-        {...{ inert: drawer && sidebarCollapsed ? '' : undefined }}>
+        {...{ inert: (drawer || darwin) && sidebarCollapsed && (drawer || !animateTracks) ? '' : undefined }}>
         {sidebar}
       </div>
       <>

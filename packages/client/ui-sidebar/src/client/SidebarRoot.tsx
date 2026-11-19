@@ -159,13 +159,20 @@ export function SidebarRoot({
   // .collapsed .wide), unmounts at settle, and remounts right away on expand.
   // A closed drawer retains its content with the rail phase already settled.
   const [settled, setSettled] = useState(collapsed)
+  const windowsTitlebar = document.documentElement.hasAttribute('data-windows-titlebar')
+  const darwinDesktop = isDarwinDesktop()
+  // macOS never shows a collapsed rail (the frame's leading seat owns the
+  // reopen control) and its sidebar column is zero-width when closed, so the
+  // wide subtree can stay mounted behind the clipped column. Expanding then
+  // costs no remount, and collapsing skips the mid-slide rail swap entirely.
+  const hidesRail = darwinDesktop && !drawer
   useEffect(() => {
+    if (hidesRail) { setSettled(false); return }
     if (drawer || !collapsed) { setSettled(collapsed); return }
     const timer = window.setTimeout(() => { setSettled(true) }, COLLAPSE_SETTLE_MS)
     return () => { window.clearTimeout(timer) }
-  }, [collapsed, drawer])
-  const windowsTitlebar = document.documentElement.hasAttribute('data-windows-titlebar')
-  const wide = drawer || (windowsTitlebar ? !collapsed : !collapsed || !settled)
+  }, [collapsed, drawer, hidesRail])
+  const wide = drawer || hidesRail || (windowsTitlebar ? !collapsed : !collapsed || !settled)
   // The Windows titlebar hosts the New Session controls while the sidebar is collapsed.
   const openNewSession = (): void => {
     trackEntryClick({ menu_name: 'new_session', position: windowsTitlebar && collapsed ? 'titlebar' : 'sidebar' })
@@ -197,7 +204,7 @@ export function SidebarRoot({
     const controlled = sidebarFocus.current?.getAttribute('aria-controls')?.split(/\s+/) ?? []
     const ownsMenuFocus = controlled.some(id => document.getElementById(id)?.contains(document.activeElement))
     if (sidebarFocus.current !== document.activeElement && !ownsMenuFocus) return
-    const opener = drawer
+    const opener = drawer || darwinDesktop
       ? column.current?.ownerDocument.querySelector<HTMLElement>('[data-sidebar-opener]')
       : column.current?.querySelector<HTMLElement>('[data-sidebar-toggle]')
     if (opener != null && !isBehindModal(opener)) focusWithoutRing(opener, { preventScroll: true })
@@ -252,7 +259,6 @@ export function SidebarRoot({
     })
   }
 
-  const darwinDesktop = isDarwinDesktop()
   // Rail resting state is the whale mark; hovering swaps in the panel icon
   // (the expand affordance, figma sidebar-hover flow). Expanded it is a plain
   // panel icon.
