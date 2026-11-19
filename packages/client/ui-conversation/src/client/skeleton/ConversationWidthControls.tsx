@@ -134,9 +134,8 @@ function WidthHandle(props: {
  * @returns two active-phase width handles, or no controls outside the active phase.
  */
 export function ConversationWidthControls({ container, phase }: ConversationWidthControlsProps) {
-  const publishWidths = useCallback((container: HTMLDivElement): void => {
+  const publishWidths = useCallback((container: HTMLDivElement, column = container.offsetWidth): void => {
     const target = container.parentElement ?? container
-    const column = container.offsetWidth
     target.style.setProperty('--dsh-conversation-column-width', `${column}px`)
     const preference = readWidthPreference()
     if (preference === null) target.style.removeProperty('--dsh-chat-user-width')
@@ -145,10 +144,40 @@ export function ConversationWidthControls({ container, phase }: ConversationWidt
 
   useLayoutEffect(() => {
     if (container === null) return
-    const observer = new ResizeObserver(() => { publishWidths(container) })
+    // The frame publishes the settled centre-track width while its tracks animate.
+    // Publish that width once at the start of the transition, then leave the
+    // transcript alone until the tracks stop moving: otherwise every animation
+    // frame rewrites the width axis and re-lays out the whole conversation.
+    const frame = container.closest<HTMLElement>('[data-dsh-frame]')
+    const settledColumn = (): number => {
+      const raw = frame?.style.getPropertyValue('--dsh-frame-center-width') ?? ''
+      const value = Number.parseFloat(raw)
+      return Number.isFinite(value) && value > 0 ? value : container.offsetWidth
+    }
+    let publishedForAnimation = false
+    const sync = (): void => {
+      if (frame?.hasAttribute('data-animating') === true) {
+        if (publishedForAnimation) return
+        publishedForAnimation = true
+        publishWidths(container, settledColumn())
+        return
+      }
+      if (publishedForAnimation) publishedForAnimation = false
+      publishWidths(container)
+    }
+    const observer = new ResizeObserver(sync)
     observer.observe(container)
-    publishWidths(container)
-    return () => { observer.disconnect() }
+    sync()
+    let settle: MutationObserver | null = null
+    if (frame !== null) {
+      settle = new MutationObserver(() => {
+        if (frame.hasAttribute('data-animating') || !publishedForAnimation) return
+        publishedForAnimation = false
+        publishWidths(container)
+      })
+      settle.observe(frame, { attributes: true, attributeFilter: ['data-animating'] })
+    }
+    return () => { observer.disconnect(); settle?.disconnect() }
   }, [container, publishWidths])
 
   const onStart = useCallback((): number => {
