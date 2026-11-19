@@ -341,6 +341,8 @@ export type SessionRowActionProps<Injected extends object = object> =
 export type RowToast =
   | { kind: 'archived'; sessionId: SessionId }
   | { kind: 'stoppedAndArchived'; sessionId: SessionId }
+  | { kind: 'deleted'; sessionId: SessionId }
+  | { kind: 'stoppedAndDeleted'; sessionId: SessionId }
   | { kind: 'sessionIdCopied' }
   | { kind: 'sessionIdCopyFailed' }
   | { kind: 'pinFailed' }
@@ -433,6 +435,39 @@ export interface SessionArchiveConfirmInjected {
   stopAndArchiveSession: (sessionId: SessionId) => Promise<void>
 }
 
+/**
+ * Delete action share (right-click menu). The callback runs the delete: a quiet
+ * session is deleted at once; a Host refusal for running work opens the
+ * stop-and-delete confirmation naming that work. Deletion is irreversible and
+ * applies to archived sessions too.
+ */
+export interface DeleteSessionInjected {
+  /** Permanently delete a Session, asking first when it still has running work. */
+  deleteSession: (sessionId: SessionId) => void
+}
+
+/** A stop-and-delete confirmation the delete action asked for after a running-work refusal. */
+export interface SessionDeleteConfirmRequest {
+  /** Session to stop and delete. */
+  sessionId: SessionId
+  /** The row's display title, named in the dialog. */
+  displayTitle: string
+  /** What the Host reported running, in family order. */
+  activity: readonly SessionActivity[]
+}
+
+/** Stop-and-delete dialog share: the pending confirmation, its settlement, and the delete hop. */
+export interface SessionDeleteConfirmInjected {
+  hooks: {
+    /** The confirmation asked for, until the dialog consumes or cancels it. */
+    deleteRequest: HostObservable<SessionDeleteConfirmRequest | null>
+  }
+  /** Consume or cancel the pending confirmation. */
+  settleSessionDelete: () => void
+  /** Delete a Session after the Host stops its running work and disposes its Agent; irreversible. */
+  stopAndDeleteSession: (sessionId: SessionId) => Promise<void>
+}
+
 /** Fork action share. */
 export interface ForkSessionInjected {
   /** Fork a Session at its last completed turn; the child arrives through the Host list. */
@@ -504,6 +539,13 @@ export type SessionArchiveConfirmProps =
   & PropsLocale<'workspace'>
   & Omit<SessionArchiveConfirmInjected, 'hooks'>
   & PropsHooks<SessionArchiveConfirmInjected['hooks']>
+
+/** Props of the stop-and-delete dialog entry in `shell.overlay`. */
+export type SessionDeleteConfirmProps =
+  PropsRuntime<'shell.overlay'>
+  & PropsLocale<'workspace'>
+  & Omit<SessionDeleteConfirmInjected, 'hooks'>
+  & PropsHooks<SessionDeleteConfirmInjected['hooks']>
 
 /** Props of the existing overlay's keyed notice dispatcher. */
 export type RowToastProps =

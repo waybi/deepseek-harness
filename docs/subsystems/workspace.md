@@ -366,6 +366,15 @@ Host service backing the generated `ctx.remote.workspace` namespace.
 @Remote('archiveSession') archiveSession(request: WorkspaceArchiveSessionRequest): Promise<WorkspaceArchiveValue>
 
 /**
+ * Permanently delete one Session's stored log. With `stopActivity` the Host
+ * stops the Session's running work and disposes its live Agent before the
+ * irreversible removal; otherwise a Session with running work is refused.
+ * @param request - Session identity and whether to stop its running work.
+ * @returns deletion confirmation.
+ */
+@Remote('deleteSession') deleteSession(request: WorkspaceDeleteSessionRequest): Promise<WorkspaceDeleteSessionValue>
+
+/**
  * Restore one archived Session to Workspace grouping surfaces.
  * @param request - Session identity to unarchive.
  * @returns the complete resulting archive set.
@@ -561,6 +570,22 @@ archiveSession(sessionId: SessionId, options: ArchiveSessionOptions = {}): Promi
 unarchiveSession(sessionId: SessionId): Promise<void>
 
 /**
+ * Permanently delete one session's stored log. The session must exist (live
+ * or in session persistence); its workspace accounting is irrelevant.
+ * Without `stopActivity` the session must also be inactive: the
+ * `workspace/session-activity` waterfall is asked once and any reported
+ * activity rejects with {@link WorkspaceActiveSessionError} before anything
+ * is removed. With `stopActivity` the running work is stopped, the session's
+ * live Agent is disposed to release its write handle, and the stored log is
+ * removed. Deletion is irreversible; the `session-persistence/deleted` event
+ * the backend emits drives this registry's own index/account/archive cleanup.
+ * @param sessionId - The session to delete.
+ * @param options - Whether running work is stopped and the Agent disposed.
+ * @returns resolution after the stored log is gone.
+ */
+deleteSession(sessionId: SessionId, options: DeleteSessionOptions = {}): Promise<void>
+
+/**
  * Pin one session durably, prepending it to the registry-global pin set.
  * The session must exist (live or in session persistence) and must not be
  * archived. An already pinned id resolves without writing or reordering.
@@ -615,6 +640,29 @@ Ask the composed providers what still runs for a session before it is archived. 
  * @mode waterfall
  */
 'workspace/session-activity'( request: SessionActivityRequest, next: () => Promise<readonly SessionActivity[]>, ): Promise<readonly SessionActivity[]>
+```
+
+Source: [`packages/workspace/workspace/src/index.ts`](../../packages/workspace/workspace/src/index.ts)
+
+<a id="workspacesession-dispose--parallel"></a>
+
+#### `workspace/session-dispose` — parallel
+
+Dispose the live Agent of a session that is about to be permanently deleted, releasing its in-process write handle so `sessionPersistence.delete` can claim write ownership. Dispatched only from `deleteSession` with `stopActivity`, after the stop event. A provider disposes the owned handle it captured at create/resume; a session with no live Agent needs no provider. Listener failures reject the delete rather than leaving a half-deleted session behind.
+
+```ts cordis-catalog
+/**
+ * Dispose the live Agent of a session that is about to be permanently
+ * deleted, releasing its in-process write handle so `sessionPersistence.delete`
+ * can claim write ownership. Dispatched only from `deleteSession` with
+ * `stopActivity`, after the stop event. A provider disposes the owned
+ * handle it captured at create/resume; a session with no live Agent needs
+ * no provider. Listener failures reject the delete rather than leaving a
+ * half-deleted session behind.
+ * @param request - the session being deleted.
+ * @mode parallel
+ */
+'workspace/session-dispose'(request: SessionActivityRequest): Promise<void> | void
 ```
 
 Source: [`packages/workspace/workspace/src/index.ts`](../../packages/workspace/workspace/src/index.ts)

@@ -155,6 +155,17 @@ export class TestWorkspaces implements IWorkspaces {
   }
 
   /**
+   * Delete a session (recorded; default no-op). Stub to simulate an active-work
+   * refusal or a delete failure.
+   * @param sessionId - session to delete.
+   * @param options - stop-activity request.
+   */
+  async deleteSession(sessionId: SessionId, options?: { readonly stopActivity?: boolean }): Promise<void> {
+    this.calls.push({ method: 'deleteSession', args: [sessionId, options] })
+    await (this.stubs.get('deleteSession')?.(sessionId, options) as Promise<void> | undefined)
+  }
+
+  /**
    * Unarchive a session (recorded). The default mirrors the production face's
    * observable effect: the id leaves the list state's archive set.
    * @param sessionId - session to unarchive.

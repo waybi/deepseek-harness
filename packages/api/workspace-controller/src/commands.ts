@@ -18,6 +18,8 @@ import type {
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
+  WorkspaceDeleteSessionRequest,
+  WorkspaceDeleteSessionValue,
   WorkspaceDeleteValue,
   WorkspaceInsertBeforeRequest,
   WorkspaceInsertSessionBeforeRequest,
@@ -180,6 +182,39 @@ export class WorkspaceCommands {
       throw error
     }
     return { archivedSessionIds: [...this.ctx.workspaceRegistry.archivedSessionIds] }
+  }
+
+  /**
+   * Permanently delete one Session's stored log. Without `stopActivity` a
+   * Session with running work is refused as `workspace/session-active` with the
+   * activity that must stop first; with it the Host stops that work, disposes
+   * the live Agent to release its write handle, and removes the log. The
+   * registry's own index/accounting cleanup follows the backend's delete event.
+   * Deletion is irreversible.
+   * @param request - Session identity and whether to stop its running work.
+   * @returns deletion confirmation.
+   */
+  async deleteSession(request: WorkspaceDeleteSessionRequest): Promise<WorkspaceDeleteSessionValue> {
+    try {
+      await this.ctx.workspaceRegistry.deleteSession(
+        request.sessionId,
+        request.stopActivity === true ? { stopActivity: true } : {},
+      )
+    } catch (error) {
+      if (error instanceof WorkspaceUnknownSessionError) {
+        throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId }, { cause: error })
+      }
+      if (error instanceof WorkspaceActiveSessionError) {
+        throw new RemoteError(
+          'workspace/session-active',
+          error.message,
+          { sessionId: request.sessionId, activity: error.activity },
+          { cause: error },
+        )
+      }
+      throw error
+    }
+    return { deleted: true }
   }
 
   /**

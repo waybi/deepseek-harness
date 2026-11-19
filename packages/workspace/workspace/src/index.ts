@@ -49,24 +49,29 @@ export class WorkspaceUnknownSessionError extends Error {
    * @param sessionId - The unknown session id.
    * @param verb - The registry operation that named the session.
    */
-  constructor(readonly sessionId: SessionId, verb: 'archive' | 'pin') {
+  constructor(readonly sessionId: SessionId, verb: 'archive' | 'pin' | 'delete') {
     super(`cannot ${verb} session '${sessionId}': live sessions and session persistence hold no such session`)
     this.name = 'WorkspaceUnknownSessionError'
   }
 }
 
 /**
- * An archiveSession request named a session that at least one
+ * An archiveSession or deleteSession request named a session that at least one
  * `workspace/session-activity` listener reported active. Nothing was written;
- * `activity` names what must stop before the session can be archived.
+ * `activity` names what must stop before the session can be archived or deleted.
  */
 export class WorkspaceActiveSessionError extends Error {
   /**
    * @param sessionId - The active session id.
    * @param activity - The reported activity, in listener order.
+   * @param action - The operation that was refused, for the diagnostic message.
    */
-  constructor(readonly sessionId: SessionId, readonly activity: readonly SessionActivity[]) {
-    super(`cannot archive session '${sessionId}': the session is active (${activity.map(entry => entry.kind).join(', ')})`)
+  constructor(
+    readonly sessionId: SessionId,
+    readonly activity: readonly SessionActivity[],
+    readonly action: 'archive' | 'delete' = 'archive',
+  ) {
+    super(`cannot ${action} session '${sessionId}': the session is active (${activity.map(entry => entry.kind).join(', ')})`)
     this.name = 'WorkspaceActiveSessionError'
   }
 }
@@ -110,6 +115,17 @@ export interface ArchiveSessionOptions {
   readonly stopActivity?: boolean
 }
 
+/** Caller choices for {@link WorkspaceRegistry.deleteSession}. */
+export interface DeleteSessionOptions {
+  /**
+   * Ask the composed providers to stop the session's running work and dispose
+   * its live Agent before deleting. Without it, active work refuses the delete.
+   * The stops are fire-and-forget; disposal is awaited because it releases the
+   * in-process write handle that persistence delete must claim.
+   */
+  readonly stopActivity?: boolean
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     workspaceRegistry: WorkspaceRegistry
@@ -145,6 +161,18 @@ declare module '@deepseek-ai/cordis' {
      * @mode parallel
      */
     'workspace/session-stop'(request: SessionActivityRequest): Promise<void> | void
+    /**
+     * Dispose the live Agent of a session that is about to be permanently
+     * deleted, releasing its in-process write handle so `sessionPersistence.delete`
+     * can claim write ownership. Dispatched only from `deleteSession` with
+     * `stopActivity`, after the stop event. A provider disposes the owned
+     * handle it captured at create/resume; a session with no live Agent needs
+     * no provider. Listener failures reject the delete rather than leaving a
+     * half-deleted session behind.
+     * @param request - the session being deleted.
+     * @mode parallel
+     */
+    'workspace/session-dispose'(request: SessionActivityRequest): Promise<void> | void
   }
 }
 
@@ -418,6 +446,38 @@ export class WorkspaceRegistry extends Service {
   }
 
   /**
+   * Permanently delete one session's stored log. The session must exist (live
+   * or in session persistence); its workspace accounting is irrelevant.
+   * Without `stopActivity` the session must also be inactive: the
+   * `workspace/session-activity` waterfall is asked once and any reported
+   * activity rejects with {@link WorkspaceActiveSessionError} before anything
+   * is removed. With `stopActivity` the running work is stopped, the session's
+   * live Agent is disposed to release its write handle, and the stored log is
+   * removed. Deletion is irreversible; the `session-persistence/deleted` event
+   * the backend emits drives this registry's own index/account/archive cleanup.
+   * @param sessionId - The session to delete.
+   * @param options - Whether running work is stopped and the Agent disposed.
+   * @returns resolution after the stored log is gone.
+   */
+  deleteSession(sessionId: SessionId, options: DeleteSessionOptions = {}): Promise<void> {
+    return this.enqueueOperation(async () => {
+      if (!(await this.sessionKnown(sessionId))) {
+        throw new WorkspaceUnknownSessionError(sessionId, 'delete')
+      }
+      if (options.stopActivity !== true) {
+        const activity = await this.ctx.waterfall(
+          'workspace/session-activity', { sessionId }, () => Promise.resolve([]),
+        )
+        if (activity.length > 0) throw new WorkspaceActiveSessionError(sessionId, activity, 'delete')
+      } else {
+        await this.stopSessionActivity(sessionId)
+        await this.disposeSessionAgent(sessionId)
+      }
+      await this.ctx.sessionPersistence.delete(sessionId)
+    })
+  }
+
+  /**
    * The registry-global pin set: sessions surfaced ahead of every unpinned
    * session on grouping surfaces. Pinning never touches workspace accounting.
    * @returns Session ids in pin order (most recently pinned first).
@@ -521,6 +581,16 @@ export class WorkspaceRegistry extends Service {
         this.ctx.logger.warn(`workspace: stopping session '${sessionId}' for archive failed: ${String(failure)}`)
       }
     }
+  }
+
+  /**
+   * Ask the owning provider to dispose the session's live Agent so its write
+   * handle is released before delete. Unlike the stop event, a failure rejects:
+   * deleting while a handle is still held would either be refused by the
+   * backend or leave an orphan, so the caller must see the refusal.
+   */
+  private async disposeSessionAgent(sessionId: SessionId): Promise<void> {
+    await this.ctx.parallel('workspace/session-dispose', { sessionId })
   }
 
   /**

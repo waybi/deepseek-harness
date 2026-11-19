@@ -10,6 +10,8 @@ import type {
   WorkspaceBaseline,
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
+  WorkspaceDeleteSessionRequest,
+  WorkspaceDeleteSessionValue,
   WorkspaceDeleteValue,
   WorkspaceInsertSessionBeforeRequest,
   WorkspaceOrderValue,
@@ -133,6 +135,24 @@ export class ClientWorkspaceModel implements WorkspaceFollowSink {
     const result = await this.remote.delete({ workspaceId })
     if (result.ok) this.remove(workspaceId, true)
     return result
+  }
+
+  /**
+   * Permanently delete one Session's stored log. The removal is echoed by the
+   * backend's delete event through the follow streams; the unary result only
+   * confirms durability.
+   * @param sessionId - Session to delete.
+   * @param options - Whether the Host stops the Session's running work and disposes its Agent.
+   * @returns generated Remote result.
+   */
+  async deleteSession(
+    sessionId: WorkspaceDeleteSessionRequest['sessionId'],
+    options: Pick<WorkspaceDeleteSessionRequest, 'stopActivity'> = {},
+  ): Promise<RemoteResult<WorkspaceDeleteSessionValue>> {
+    return await this.remote.deleteSession({
+      sessionId,
+      ...(options.stopActivity === true ? { stopActivity: true } : {}),
+    })
   }
 
   /**

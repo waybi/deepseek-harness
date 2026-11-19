@@ -124,6 +124,23 @@ export interface WorkspaceArchiveSessionRequest {
   readonly stopActivity?: boolean
 }
 
+/**
+ * Session requested for permanent deletion. `stopActivity` asks the Host to
+ * stop the Session's running work and dispose its live Agent before removing
+ * the stored log, instead of refusing the delete as `workspace/session-active`.
+ * Without it, a Session with running work is refused with details naming what
+ * must stop first. Deletion is irreversible.
+ */
+export interface WorkspaceDeleteSessionRequest {
+  readonly sessionId: SessionId
+  readonly stopActivity?: boolean
+}
+
+/** Receipt after one Session's stored log was permanently removed. */
+export interface WorkspaceDeleteSessionValue {
+  readonly deleted: true
+}
+
 /** Session requested for restoration from the archived Session list. */
 export interface WorkspaceUnarchiveSessionRequest {
   readonly sessionId: SessionId

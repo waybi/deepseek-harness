@@ -387,6 +387,16 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     if (this.mainReference?.sessionId === sessionId) this.clearMain()
   }
 
+  /**
+   * Permanently delete a Session's stored log.
+   * @param sessionId - Session to delete.
+   * @param options - `stopActivity` asks the Host to stop running work and dispose the live Agent first.
+   */
+  async deleteSession(sessionId: SessionId, options: { readonly stopActivity?: boolean } = {}): Promise<void> {
+    await this.workspaces.deleteSession(sessionId, options)
+    if (this.mainReference?.sessionId === sessionId) this.clearMain()
+  }
+
   async unarchiveSession(sessionId: SessionId): Promise<void> {
     await this.workspaces.unarchiveSession(sessionId)
   }
