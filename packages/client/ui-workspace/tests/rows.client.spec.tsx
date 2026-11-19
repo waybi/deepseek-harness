@@ -1312,7 +1312,8 @@ describe('workspace browser rows', () => {
     const row = screen.getByRole('treeitem')
     // Reorderable within the pinned block; the browser gates the targets.
     expect(row.getAttribute('draggable')).toBe('true')
-    expect(screen.getByRole('img', { name: '已置顶' })).toBeTruthy()
+    // The pin marker sits in the leading cell, before the title.
+    expect(screen.getByRole('img', { name: '已置顶' }).parentElement).toBe(row.firstElementChild)
 
     view.rerender(<SessionNodeItem node={{ ...node, pinned: false }} currentId={undefined} now={0} onOpen={vi.fn()}
       drag={dragProps()} t={t} />)
@@ -1445,7 +1446,10 @@ describe('session row decoration seats', () => {
     expect(renderSlot).toHaveBeenCalledWith('sidebar.session.row.trailing', { sessionId: idle.id })
     expect(icon.previousElementSibling?.textContent).toBe('刚刚')
     expect(icon.parentElement?.className).toContain('rowResting')
-    expect(icon.nextElementSibling?.getAttribute('aria-label') ?? null).toBe(archived ? null : '已置顶')
+    expect(icon.nextElementSibling).toBeNull()
+    const pin = archived ? null : screen.getByRole('img', { name: '已置顶' })
+    if (archived) expect(pin).toBeNull()
+    else expect(pin?.parentElement).toBe(screen.getByRole('treeitem').firstElementChild)
     view.rerender(<SessionNodeItem node={{ ...idle, blank: true }} currentId={undefined} now={0}
       onOpen={vi.fn()} renderSlot={renderSlot} t={t} />)
     expect(view.container.querySelector('[data-seat="sidebar.session.row.trailing"]')).toBeNull()

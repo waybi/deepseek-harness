@@ -115,9 +115,9 @@ The package is one composition: both target slots are declared by other plugins,
 
 The browser entry declares three root-scoped `list` child seats on each Session row: `sidebar.session.row.leading`, `sidebar.session.row.trailing`, and `sidebar.session.row.hover`. All receive only `sessionId`, which occupants use to address their own data without creating a Session binding. A Session-scoped seat would activate and retain every listed Session.
 
-The leading seat occupies the status cell only while the row's primary status is idle and leaves archived rows blank. The trailing seat accepts non-interactive icons in ascending `order`, after the time label and before the pin marker. Blank rows omit the trailing seat; an empty seat adds no spacing. The hover seat mounts only while the row's hover card is open.
+The leading seat occupies the status cell only while the row's primary status is idle and leaves archived rows blank; a pinned row keeps its pin marker in the same cell. The trailing seat accepts non-interactive icons in ascending `order`, after the time label. Blank rows omit the trailing seat; an empty seat adds no spacing. The hover seat mounts only while the row's hover card is open.
 
-On hover-capable devices, hovering a Session row, giving keyboard focus to the row or its actions, or opening its menu replaces the time, trailing icons, and pin marker with action buttons. A pointer click does not keep the buttons visible after the pointer leaves. Built-in Session and Workspace row action buttons use 24px click targets with compensated margins that retain their compact layout footprint and icon positions.
+On hover-capable devices, hovering a Session row, giving keyboard focus to the row or its actions, or opening its menu replaces the time and trailing icons with action buttons; the leading pin marker stays visible. A pointer click does not keep the buttons visible after the pointer leaves. Built-in Session and Workspace row action buttons use 24px click targets with compensated margins that retain their compact layout footprint and icon positions.
 
 Session rows accept Tab focus and open with unmodified Enter or Space; Tab also reaches their action buttons, while modified keys remain available to global shortcuts.
 

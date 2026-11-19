@@ -807,11 +807,13 @@ export const SessionNodeItem = memo(function SessionNodeItem({
           drag.drop(rowHalf(e))
         }}
     >
-      {/* The leading 16px cell holds only the leading seat: a row's own state
-          rides its trailing edge (pill, dot, or update time) so the title
-          never shifts when a Session starts or stops working. Archived rows
-          render no seat, and their live status stays on the hover card only. */}
+      {/* The leading 16px cell holds the pin marker and the leading seat: a
+          row's live state rides its trailing edge (pill, dot, or update time)
+          so the title never shifts when a Session starts or stops working.
+          Archived rows render neither, and their live status stays on the
+          hover card only. */}
       <span className={css.slot}>
+        {!row.archived && !row.blank && row.pinned && <PinnedIndicator t={t} />}
         {!row.archived && !row.blank && renderSlot('sidebar.session.row.leading', { sessionId: node.id })}
         {/* The trailing marker is presentational, so its status text reads from
             the row's leading cell in the order it always has; a settled row
@@ -851,7 +853,6 @@ export const SessionNodeItem = memo(function SessionNodeItem({
             t={t}
           />
           {renderSlot('sidebar.session.row.trailing', { sessionId: node.id })}
-          {row.pinned && !row.archived && <PinnedIndicator t={t} />}
         </span>
       )}
       {/* The strip's clicks stay in the strip: the trigger and every

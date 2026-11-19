@@ -314,8 +314,7 @@
   height: 20px;
   align-items: center;
   justify-content: center;
-  margin-left: 6px;
-  color: var(--dsw-alias-label-caption);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 /* Archived rows stay in place but read as inactive: titles drop to
@@ -370,10 +369,6 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.rowResting .pinIndicator {
-  margin-left: 0;
-}
-
 /* The unclipped hover state drops the ellipsis, which would otherwise cover
    the characters the marquee reached. Guarded because a touch tap
    latches `:hover` on the row after the title has already returned: an
@@ -413,7 +408,6 @@
 
   /* Only update timestamps disappear; pending-interaction labels remain visible. */
   .sessionRow .timestamp,
-  .sessionRow:has(.pinnedAction) .pinIndicator,
   .sessionRow .rowQuickActions > :global([data-slot]) > :not(.pinnedAction),
   .projectRow[aria-expanded='false'] .rowActions {
     display: none;
