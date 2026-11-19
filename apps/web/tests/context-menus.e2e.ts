@@ -70,12 +70,13 @@ describe.each(['MacIntel', 'Win32', 'Linux x86_64'])('web context menus on %s', 
     const menu = page.getByRole('menu')
     await menu.getByRole('menuitem', { name: /Copy.*[Ii][Dd]/ }).waitFor()
     const names = await menuLabels(menu)
-    expect(names.slice(0, 5)).toEqual(['Pin session', 'Rename', 'Fork session', 'Copy Session ID', 'Show in folder'])
-    expect(names.at(-1)).toBe('Archive session')
-    expect(await menu.getByRole('menuitem').evaluateAll(rows => rows.every(row => row.querySelector('svg[data-icon]')))).toBe(true)
+    expect(names).toEqual(['Pin session', 'Rename', 'Copy Session ID', 'Archive session', 'Delete session', 'Show in folder', 'More'])
+    expect(await menu.getByRole('menuitem').evaluateAll(rows => rows
+      .filter(row => row.getAttribute('aria-haspopup') !== 'menu')
+      .every(row => row.querySelector('svg[data-icon]')))).toBe(true)
     expect(await menu.getByRole('separator').count()).toBe(2)
-    expect(await menu.getByRole('menuitem', { name: 'Archive session', exact: true }).evaluate(row =>
-      getComputedStyle(row.parentElement!.parentElement!).borderTopWidth)).toBe('0px')
+    const more = menu.getByRole('menuitem', { name: 'More', exact: true })
+    expect(await more.getAttribute('aria-haspopup')).toBe('menu')
     const alignedSeparators = async () => {
       const bounds = await menu.evaluate((node) => {
         const row = node.querySelector<HTMLElement>('[role="menuitem"]')!
@@ -99,7 +100,20 @@ describe.each(['MacIntel', 'Win32', 'Linux x86_64'])('web context menus on %s', 
     await expect(names.join('\n') + '\n').toMatchFileSnapshot(join(import.meta.dirname, 'expected/context-menus/session.txt'))
     expect(names.some(name => name.includes('Rename'))).toBe(true)
     expect(await background.getAttribute('aria-selected')).toBe('false')
+    await more.hover()
+    const submenu = page.getByRole('menu').last()
+    await submenu.getByRole('menuitem', { name: 'Continue in new session', exact: true }).waitFor()
+    expect(await submenu.getByRole('menuitem').evaluateAll(rows => rows.map(row => row.textContent?.trim() ?? '')))
+      .toEqual(['Continue in new session', 'Copy working directory'])
+    const copyDirectory = submenu.getByRole('menuitem', { name: 'Copy working directory', exact: true })
+    expect(await copyDirectory.isDisabled()).toBe(false)
+    const moreBox = (await more.boundingBox())!
+    const submenuBox = (await submenu.boundingBox())!
+    expect(Math.abs((submenuBox.y + submenuBox.height) - (moreBox.y + moreBox.height))).toBeLessThan(12)
+    await copyDirectory.click()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(scaffold.workspaceCwd)
     await page.keyboard.press('Escape')
+    await background.hover()
     await background.getByRole('button', { name: /actions/i }).click()
     await menu.getByRole('menuitem', { name: /Copy.*[Ii][Dd]/ }).waitFor()
     expect(await menuLabels(menu)).toEqual(names)
@@ -361,9 +375,12 @@ describe.each(['MacIntel', 'Win32', 'Linux x86_64'])('web context menus on %s', 
     const cdp = await page.context().newCDPSession(page)
     try {
       await page.setViewportSize({ width: 1291, height: 480 })
-      await page.locator('[data-row-key="session:context-menu-first"]').click({ button: 'right' })
+      // A More submenu opts the shared menu out of the viewport height cap, so
+      // cover zoomed scrolling with a submenu-free menu instead.
+      const file = page.getByRole('button', { name: 'First file', exact: true })
+      await file.click({ button: 'right' })
       const menu = page.getByRole('menu')
-      await menu.waitFor()
+      await menu.getByRole('menuitem', { name: 'Copy file path', exact: true }).waitFor()
       // Desktop Chromium caps page scale at three; the short window makes the rows overflow at that scale.
       await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 3 })
       await expect.poll(() => page.evaluate(() => window.visualViewport!.scale)).toBe(3)

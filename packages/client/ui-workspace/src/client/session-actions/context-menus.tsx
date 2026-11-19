@@ -3,6 +3,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteEndpoint } from '@deepseek-ai/dsh-api-remote-access/client'
 import type { ShortcutCommandId } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { MenuContribution, ContextMenuTargetMap } from '@deepseek-ai/dsh-client-ui-context-menu/client'
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {
   ArchiveSessionInjected, DeleteSessionInjected, ForkSessionInjected, PinSessionInjected, RenameSessionInjected, SessionIdInjected,
 } from '../contract/slots.ts'
@@ -26,7 +28,7 @@ export function registerSessionMenus(ctx: Context, actions: Actions): void {
     ctx.effect(() => ctx.contextMenus.register({
       id: `session.${id}`, target: 'session', order,
       observe: ({ sessionId }) => [
-        ctx.workspaces.list, ctx.locale,
+        ctx.workspaces.list, ctx.sessions.list, ctx.locale,
         ...endpoints.map(action => ctx.remoteAccess.source('session', sessionId, action)),
       ],
       resolve,
@@ -51,26 +53,39 @@ export function registerSessionMenus(ctx: Context, actions: Actions): void {
     id: 'rename', label: t('rename'), icon: { key: 'workspace.rename' }, commandId: 'session.rename' as ShortcutCommandId,
     run: () => { actions.requestSessionRename(target.sessionId, target.displayTitle) },
   }] : [])
-  register('fork', 300, ['session/fork'], target => allowed(target, 'session/fork') ? [{
-    id: 'fork', label: t('menu.fork'), icon: { key: 'workspace.fork' }, commandId: 'session.fork' as ShortcutCommandId,
-    run: () => { actions.forkSession(target.sessionId) },
-  }] : [])
   register('id', 450, [], target => [{
-    id: 'copy', label: t('menu.sessionId'), icon: { key: 'workspace.copy' }, separatorBefore: true,
+    id: 'copy', label: t('menu.sessionId'), icon: { key: 'workspace.copy' },
     run: () => actions.copySessionId(target.sessionId),
   }])
-  register('archive', 600, ['workspace/archiveSession', 'workspace/unarchiveSession'], (target) => {
+  register('archive', 460, ['workspace/archiveSession', 'workspace/unarchiveSession'], (target) => {
     const restoring = archived(target)
     if (!allowed(target, restoring ? 'workspace/unarchiveSession' : 'workspace/archiveSession')) return []
     return [{
       id: 'archive', label: t(restoring ? 'menu.unarchiveSession' : 'menu.archiveSession'),
-      icon: { key: restoring ? 'workspace.unarchive' : 'workspace.archive' }, separatorBefore: true, afterContent: true,
+      icon: { key: restoring ? 'workspace.unarchive' : 'workspace.archive' }, separatorBefore: true,
       ...restoring ? {} : { commandId: 'session.archive' as ShortcutCommandId },
       run: () => { (restoring ? actions.unarchiveSession : actions.archiveSession)(target.sessionId) },
     }]
   })
-  register('delete', 700, ['workspace/deleteSession'], target => allowed(target, 'workspace/deleteSession') ? [{
-    id: 'delete', label: t('menu.deleteSession'), icon: { key: 'workspace.delete' }, danger: true, separatorBefore: true, afterContent: true,
+  register('delete', 470, ['workspace/deleteSession'], target => allowed(target, 'workspace/deleteSession') ? [{
+    id: 'delete', label: t('menu.deleteSession'), icon: { key: 'workspace.delete' }, danger: true,
     run: () => { actions.deleteSession(target.sessionId) },
   }] : [])
+  register('more', 600, ['session/fork'], (target) => {
+    const cwd = ctx.sessions.list.getSnapshot().byId[target.sessionId]?.cwd
+    return [{
+      id: 'more', label: t('menu.more'), separatorBefore: true,
+      children: [
+        ...(allowed(target, 'session/fork') ? [{
+          id: 'continueInNew', label: t('menu.continueInNew'), icon: { key: 'workspace.fork' },
+          run: () => { actions.forkSession(target.sessionId) },
+        }] : []),
+        {
+          id: 'copyWorkingDirectory', label: t('menu.copyWorkingDirectory'), icon: { key: 'workspace.copy' },
+          disabled: !cwd,
+          ...cwd ? { run: () => { void writeClipboard(cwd) } } : {},
+        },
+      ],
+    }]
+  })
 }
