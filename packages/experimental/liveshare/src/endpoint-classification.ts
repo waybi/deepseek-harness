@@ -126,6 +126,7 @@ export const VIEWER_ENDPOINT_CLASSES = {
   'workspace/archiveSession': 'owner-only', // owner archives a Session
   'workspace/create': 'owner-only', // owner creates a Workspace
   'workspace/delete': 'owner-only', // owner deletes a Workspace
+  'workspace/deleteSession': 'owner-only', // owner permanently deletes a Session log
   'workspace/initializeDefault': 'owner-only', // owner initializes the default Workspace
   'workspace/insertBefore': 'owner-only', // owner reorders Workspaces
   'workspace/insertSessionBefore': 'owner-only', // owner reorders Sessions

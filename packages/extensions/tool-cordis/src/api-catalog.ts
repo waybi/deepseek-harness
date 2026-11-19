@@ -1763,6 +1763,37 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'imageRehydrate',
+    summary: 'Round-age replacement of old conversation images on the request face.',
+    description: 'Round-age replacement of old conversation images on the request face.',
+    methods: [
+      {
+        signature: 'readonly config: ResolvedConfig',
+        description: 'Resolved and immutable hydration policy.',
+        parameters: [],
+      },
+      {
+        signature: 'isOld(producedTurn: number, currentTurn: number): boolean',
+        description: 'Whether an image produced in `producedTurn` is older than the retained rounds.',
+        parameters: [{ name: 'producedTurn', description: 'turn that produced the image.' }, { name: 'currentTurn', description: 'turn whose request is being prepared.' }],
+        returns: 'true once `retainRounds` or more turns have started since `producedTurn`.',
+      },
+      {
+        signature: 'imagePath(ref: ImageAttachmentRef): string | undefined',
+        description: 'Resolve the read-only stored copy of one durable image reference for the current tool execution world. Without an attachment store and a filesystem provider, no path exists and the image stays in the request.',
+        parameters: [{ name: 'ref', description: 'durable normalized attachment.' }],
+        returns: 'an absolute read-only path, or undefined when this composition has none.',
+      },
+      {
+        signature: 'rehydrateSession(session: Session, currentTurn: number): RehydrateResult',
+        description: 'Replace every image older than the retained rounds with its placeholder on the request face. One durable `image/rehydrate` decision names the exact occurrences; occurrences that are already offloaded, or whose stored copy has no readable path in this composition, keep their images and are reported once per pass.',
+        parameters: [{ name: 'session', description: 'session whose request face may change.' }, { name: 'currentTurn', description: 'turn whose request is being prepared.' }],
+        returns: 'the landed replacements and the encoded bytes released.',
+        throws: ['when the session rejects the decision; earlier replacements inside the same decision are not durable on their own.'],
+      },
+    ],
+  },
+  {
     key: 'inspector',
     summary: 'Shared Host/Client service façade over the realm\'s source publisher.',
     description: 'Shared Host/Client service façade over the realm\'s source publisher.',
@@ -4104,7 +4135,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'expireSession(session: Session, currentTurn: number): ExpiryResult',
-        description: 'Stub every cold over-threshold tool result on one stable current-surface snapshot. Each replacement preserves the complete event data except for `content`, cites the shadowed node so replay can recover it, and is immediately preceded by a `compaction/prune` shadow-price event pricing the shadowed node through the injected token meter. A candidate is rewritten only while its seq is a current node of `session.surface`, checked before the `compaction/prune` is appended, so a projection node the Session no longer shows never leaves a prune without its replacement; such a node is skipped with a warning.',
+        description: 'Stub every cold over-threshold tool result on one stable current-surface snapshot. The complete content comes from `session.deriveMessages()`, which the projection no longer stores; each replacement preserves the node\'s logged `tool/result` fields other than `content`, cites the shadowed node so replay can recover it, and is immediately preceded by a `compaction/prune` shadow-price event pricing the shadowed node through the injected token meter. A candidate is rewritten only while its seq is a current node of `session.surface`, checked before the `compaction/prune` is appended, so a projection node the Session no longer shows never leaves a prune without its replacement; such a node is skipped with a warning. Two more checks skip a node before any prune is appended: its `messageId` is absent from the derived messages, or the derived text hashes differently from the projection\'s recorded digest. Those skips happen once per reason per pass, so one unusable node never suppresses the other candidates.',
         parameters: [{ name: 'session', description: 'session whose current surface is rewritten.' }, { name: 'currentTurn', description: 'turn whose request is being prepared.' }],
         returns: 'landed replacements and aggregate Unicode-code-point savings.',
         throws: ['when the session rejects a replacement; replacements committed earlier in the pass remain durable.'],
@@ -4617,6 +4648,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the complete resulting archive set.',
       },
       {
+        signature: '@Remote(\'deleteSession\') deleteSession(request: WorkspaceDeleteSessionRequest): Promise<WorkspaceDeleteSessionValue>',
+        description: 'Permanently delete one Session\'s stored log. With `stopActivity` the Host stops the Session\'s running work and disposes its live Agent before the irreversible removal; otherwise a Session with running work is refused.',
+        parameters: [{ name: 'request', description: 'Session identity and whether to stop its running work.' }],
+        returns: 'deletion confirmation.',
+      },
+      {
         signature: '@Remote(\'unarchiveSession\') unarchiveSession(request: WorkspaceUnarchiveSessionRequest): Promise<WorkspaceArchiveValue>',
         description: 'Restore one archived Session to Workspace grouping surfaces.',
         parameters: [{ name: 'request', description: 'Session identity to unarchive.' }],
@@ -4732,6 +4769,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Unarchive one session durably by dropping it from the registry-global archive set; the accounting slot was never touched, so the session returns to its recorded position. Unarchiving runs no session-existence check because removing an id cannot introduce an unknown one, so an entry whose session is gone still resolves. An id that is not archived resolves without writing.',
         parameters: [{ name: 'sessionId', description: 'The session to unarchive.' }],
         returns: 'resolution after durability.',
+      },
+      {
+        signature: 'deleteSession(sessionId: SessionId, options: DeleteSessionOptions = {}): Promise<void>',
+        description: 'Permanently delete one session\'s stored log. The session must exist (live or in session persistence); its workspace accounting is irrelevant. Without `stopActivity` the session must also be inactive: the `workspace/session-activity` waterfall is asked once and any reported activity rejects with WorkspaceActiveSessionError before anything is removed. With `stopActivity` the running work is stopped, the session\'s live Agent is disposed to release its write handle, and the stored log is removed. Deletion is irreversible; the `session-persistence/deleted` event the backend emits drives this registry\'s own index/account/archive cleanup.',
+        parameters: [{ name: 'sessionId', description: 'The session to delete.' }, { name: 'options', description: 'Whether running work is stopped and the Agent disposed.' }],
+        returns: 'resolution after the stored log is gone.',
       },
       {
         signature: 'pinSession(sessionId: SessionId): Promise<void>',
@@ -5479,6 +5522,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Ask the composed providers what still runs for a session before it is archived.',
     description: 'Ask the composed providers what still runs for a session before it is archived. A listener prepends its own SessionActivity entries to the result of `next()`; the registry\'s innermost callback returns an empty list, so a composition without providers archives freely. Any non-empty result refuses the archive without a write.',
     parameters: [{ name: 'request', description: 'the session about to be archived.' }, { name: 'next', description: 'delegate to the remaining providers.' }],
+  },
+  {
+    name: 'workspace/session-dispose',
+    mode: 'parallel',
+    signature: '\'workspace/session-dispose\'(request: SessionActivityRequest): Promise<void> | void',
+    summary: 'Dispose the live Agent of a session that is about to be permanently deleted, releasing its in-process write handle so `sessionPersistence.delete` can claim write ownership.',
+    description: 'Dispose the live Agent of a session that is about to be permanently deleted, releasing its in-process write handle so `sessionPersistence.delete` can claim write ownership. Dispatched only from `deleteSession` with `stopActivity`, after the stop event. A provider disposes the owned handle it captured at create/resume; a session with no live Agent needs no provider. Listener failures reject the delete rather than leaving a half-deleted session behind.',
+    parameters: [{ name: 'request', description: 'the session being deleted.' }],
   },
   {
     name: 'workspace/session-stop',
@@ -6287,6 +6338,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'DeepSeekLlmApiJson',
     declaration: 'export type DeepSeekLlmApiJson = null | boolean | number | string | DeepSeekLlmApiJson[] | {\n    [key: string]: DeepSeekLlmApiJson;\n};',
+  },
+  {
+    name: 'DeleteSessionOptions',
+    declaration: 'export interface DeleteSessionOptions {\n    readonly stopActivity?: boolean;\n}',
   },
   {
     name: 'DeliveryRetentionBounds',
@@ -7903,6 +7958,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RegistryAttempt',
     declaration: 'export interface RegistryAttempt {\n    readonly registry: Registry;\n    readonly problem?: \'not-found\' | \'network\' | \'unknown\';\n    readonly reason?: string;\n}',
+  },
+  {
+    name: 'RehydratedImage',
+    declaration: 'export interface RehydratedImage {\n    readonly seq: SessionSeq;\n    readonly imageIndex: number;\n    readonly path: string;\n    readonly bytes: number;\n}',
+  },
+  {
+    name: 'RehydrateResult',
+    declaration: 'export interface RehydrateResult {\n    readonly replaced: readonly RehydratedImage[];\n    readonly bytesReleased: number;\n}',
   },
   {
     name: 'RelayConnectivityView',
@@ -10239,6 +10302,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkspaceDeleteRequest',
     declaration: 'export interface WorkspaceDeleteRequest {\n    readonly workspaceId: WorkspaceId;\n}',
+  },
+  {
+    name: 'WorkspaceDeleteSessionRequest',
+    declaration: 'export interface WorkspaceDeleteSessionRequest {\n    readonly sessionId: SessionId;\n    readonly stopActivity?: boolean;\n}',
+  },
+  {
+    name: 'WorkspaceDeleteSessionValue',
+    declaration: 'export interface WorkspaceDeleteSessionValue {\n    readonly deleted: true;\n}',
   },
   {
     name: 'WorkspaceDeleteValue',

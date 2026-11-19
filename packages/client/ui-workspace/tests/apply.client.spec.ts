@@ -23,6 +23,7 @@ import {
 } from '../src/client/contract/slots.ts'
 import { WorkspaceBrowser } from '../src/client/rows/WorkspaceBrowser.tsx'
 import { ArchiveSessionRowButton, SessionArchiveConfirmDialog } from '../src/client/session-actions/ArchiveSession.tsx'
+import { SessionDeleteConfirmDialog } from '../src/client/session-actions/DeleteSession.tsx'
 import { PinSessionRowButton } from '../src/client/session-actions/PinSession.tsx'
 import { SessionRenameDialog } from '../src/client/session-actions/RenameSession.tsx'
 import { RowActionToast } from '../src/client/session-actions/RowActionToast.tsx'
@@ -337,7 +338,7 @@ describe('ui-workspace apply', () => {
     // The row actions follow the browser's own declaration, whenever it lands.
     expect(after.slots.entries(MENU_ITEM)).toHaveLength(0)
     expect(after.slots.entries(ROW_ACTION)).toHaveLength(2)
-    expect(after.slots.entries('shell.overlay')).toHaveLength(3)
+    expect(after.slots.entries('shell.overlay')).toHaveLength(4)
   })
 
   it('declares the two Session row lists and registers the shipped actions and overlay surfaces into them', async () => {
@@ -363,6 +364,7 @@ describe('ui-workspace apply', () => {
     expect(rows('shell.overlay')).toEqual([
       ['workspace.session-rename', undefined, SessionRenameDialog, 'workspace'],
       ['workspace.session-archive', undefined, SessionArchiveConfirmDialog, 'workspace'],
+      ['workspace.session-delete', undefined, SessionDeleteConfirmDialog, 'workspace'],
       ['workspace.row-toast', undefined, RowActionToast, undefined],
     ])
     // Only archive notice entries share the browser's viewing store.
@@ -373,7 +375,8 @@ describe('ui-workspace apply', () => {
     expect(rowToastEntry.store).toBeUndefined()
     expect(b.slots.entries('workspace.toast').map(row => row.options.key)).toEqual([
       'sessionIdCopied', 'sessionIdCopyFailed', 'pinFailed', 'unpinFailed', 'archivedNotOpenable',
-      'defaultWorkspaceFailed', 'shortcutForkFailed', 'createFailed', 'forkRequiresOpen', 'archived', 'stoppedAndArchived',
+      'defaultWorkspaceFailed', 'shortcutForkFailed', 'createFailed', 'deleted', 'stoppedAndDeleted',
+      'forkRequiresOpen', 'archived', 'stoppedAndArchived',
     ])
     for (const registration of b.slots.entries('workspace.toast')) {
       expect(registration.locale).toBe('workspace')
@@ -945,7 +948,7 @@ describe('ui-workspace apply', () => {
     await fiber.await()
     expect(b.slots.entries(MENU_ITEM)).toHaveLength(0)
     expect(b.slots.entries(ROW_ACTION)).toHaveLength(2)
-    expect(b.slots.entries('shell.overlay')).toHaveLength(3)
+    expect(b.slots.entries('shell.overlay')).toHaveLength(4)
     await fiber.dispose()
     expect(b.slots.entries('sidebar.workspaces')).toHaveLength(0)
     expect(b.slots.entries('conversation.hero.workspace')).toHaveLength(0)

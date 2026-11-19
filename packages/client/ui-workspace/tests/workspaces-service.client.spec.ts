@@ -213,6 +213,13 @@ class FakeWorkspaces implements IWorkspaces {
     this.list = new MutableSource(initial)
   }
 
+  readonly deleteCalls: { sessionId: SessionId; options?: { readonly stopActivity?: boolean } }[] = []
+  onDelete: IWorkspaces['deleteSession'] = async () => {}
+  deleteSession(sessionId: SessionId, options?: { readonly stopActivity?: boolean }): Promise<void> {
+    this.deleteCalls.push({ sessionId, ...(options === undefined ? {} : { options }) })
+    return this.onDelete(sessionId, options)
+  }
+
   archiveSession(sessionId: SessionId): Promise<void> {
     this.archiveCalls.push(sessionId)
     return this.onArchive(sessionId)

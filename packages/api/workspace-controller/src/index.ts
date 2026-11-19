@@ -16,6 +16,8 @@ import type {
   WorkspaceCreateRequest,
   WorkspaceCreateValue,
   WorkspaceDeleteRequest,
+  WorkspaceDeleteSessionRequest,
+  WorkspaceDeleteSessionValue,
   WorkspaceDeleteValue,
   WorkspaceFollowFrame,
   WorkspaceId,
@@ -159,6 +161,18 @@ export class WorkspaceController extends TypertRemoteService {
   @Remote('archiveSession')
   archiveSession(request: WorkspaceArchiveSessionRequest): Promise<WorkspaceArchiveValue> {
     return this.commands.archiveSession(request)
+  }
+
+  /**
+   * Permanently delete one Session's stored log. With `stopActivity` the Host
+   * stops the Session's running work and disposes its live Agent before the
+   * irreversible removal; otherwise a Session with running work is refused.
+   * @param request - Session identity and whether to stop its running work.
+   * @returns deletion confirmation.
+   */
+  @Remote('deleteSession')
+  deleteSession(request: WorkspaceDeleteSessionRequest): Promise<WorkspaceDeleteSessionValue> {
+    return this.commands.deleteSession(request)
   }
 
   /**

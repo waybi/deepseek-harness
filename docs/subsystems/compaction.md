@@ -241,6 +241,49 @@ Types: [CommandId](commands.md) · [SessionSeq](session.md)
 
 Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
 
+<a id="ctximagerehydrate--imagerehydrate"></a>
+
+### `ctx.imageRehydrate` — `ImageRehydrate`
+
+Round-age replacement of old conversation images on the request face.
+
+```ts cordis-catalog
+/**
+ * Whether an image produced in `producedTurn` is older than the retained rounds.
+ * @param producedTurn - turn that produced the image.
+ * @param currentTurn - turn whose request is being prepared.
+ * @returns true once `retainRounds` or more turns have started since `producedTurn`.
+ */
+isOld(producedTurn: number, currentTurn: number): boolean
+
+/**
+ * Resolve the read-only stored copy of one durable image reference for the
+ * current tool execution world. Without an attachment store and a filesystem
+ * provider, no path exists and the image stays in the request.
+ * @param ref - durable normalized attachment.
+ * @returns an absolute read-only path, or undefined when this composition has none.
+ */
+imagePath(ref: ImageAttachmentRef): string | undefined
+
+/**
+ * Replace every image older than the retained rounds with its placeholder on
+ * the request face. One durable `image/rehydrate` decision names the exact
+ * occurrences; occurrences that are already offloaded, or whose stored copy
+ * has no readable path in this composition, keep their images and are
+ * reported once per pass.
+ * @param session - session whose request face may change.
+ * @param currentTurn - turn whose request is being prepared.
+ * @returns the landed replacements and the encoded bytes released.
+ * @throws when the session rejects the decision; earlier replacements inside
+ * the same decision are not durable on their own.
+ */
+rehydrateSession(session: Session, currentTurn: number): RehydrateResult
+```
+
+Types: [ImageAttachmentRef](attachment.md) · [Session](session.md)
+
+Source: [`packages/compaction/compaction-image-rehydrate/src/index.ts`](../../packages/compaction/compaction-image-rehydrate/src/index.ts)
+
 <a id="ctxtoolresultexpiry--toolresultexpiry"></a>
 
 ### `ctx.toolResultExpiry` — `ToolResultExpiry`
@@ -314,14 +357,21 @@ expireContent(blocks: readonly ContentBlock[], toolName: string): ContentBlock[]
 
 /**
  * Stub every cold over-threshold tool result on one stable current-surface
- * snapshot. Each replacement preserves the complete event data except for
- * `content`, cites the shadowed node so replay can recover it, and is
- * immediately preceded by a `compaction/prune` shadow-price event pricing
- * the shadowed node through the injected token meter.
+ * snapshot. The complete content comes from `session.deriveMessages()`,
+ * which the projection no longer stores; each replacement preserves the
+ * node's logged `tool/result` fields other than `content`, cites the
+ * shadowed node so replay can recover it, and is immediately preceded by a
+ * `compaction/prune` shadow-price event pricing the shadowed node through
+ * the injected token meter.
  * A candidate is rewritten only while its seq is a current node of
  * `session.surface`, checked before the `compaction/prune` is
  * appended, so a projection node the Session no longer shows never leaves
  * a prune without its replacement; such a node is skipped with a warning.
+ * Two more checks skip a node before any prune is appended: its
+ * `messageId` is absent from the derived messages, or the derived text
+ * hashes differently from the projection's recorded digest. Those skips
+ * happen once per reason per pass, so one unusable node never suppresses
+ * the other candidates.
  * @param session - session whose current surface is rewritten.
  * @param currentTurn - turn whose request is being prepared.
  * @returns landed replacements and aggregate Unicode-code-point savings.

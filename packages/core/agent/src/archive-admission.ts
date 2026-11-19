@@ -36,3 +36,22 @@ export function installTurnArchiveAdmission(ctx: Context, lookup: (sessionId: Se
     if (agent?.status === 'running') agent.cancel({ kind: 'user' })
   })
 }
+
+/**
+ * Answer `workspace/session-dispose` for permanent Session deletion: hand the
+ * owning consumer's retained {@link AgentHandle} to the caller so it can be
+ * disposed, releasing the in-process write handle before persistence delete.
+ * Dispose is a consumer capability, so the registry never exposes it as a
+ * public look-up; it only answers this authorized Host event. A Session with
+ * no live owned Agent needs no disposal. The listener lives as long as `ctx`'s fiber.
+ * @param ctx - the registry's registration context.
+ * @param handleFor - look-up of the live handle by Session id.
+ */
+export function installSessionDisposal(
+  ctx: Context,
+  handleFor: (sessionId: SessionId) => { dispose(): Promise<void> } | undefined,
+): void {
+  ctx.on('workspace/session-dispose', async ({ sessionId }) => {
+    await handleFor(sessionId)?.dispose()
+  })
+}

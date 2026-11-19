@@ -22,7 +22,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { RemoteHostFacts } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ISessions, SessionForkError } from '@deepseek-ai/dsh-api-session-controller/client'
 import type {
-  IWorkspaces, SessionActivity, WorkspaceArchiveError, WorkspaceId, WorkspaceSnapshot,
+  IWorkspaces, SessionActivity, WorkspaceArchiveError, WorkspaceDeleteError, WorkspaceId, WorkspaceSnapshot,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { RemoteEndpoint } from '@deepseek-ai/dsh-api-remote-access/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -40,8 +40,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // Type-only: pulls the Session root standard-hook merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import {
-  type ArchiveSessionInjected, type ForkSessionInjected, menuOpenStateFactory, type PinSessionInjected,
+  type ArchiveSessionInjected, type DeleteSessionInjected, type ForkSessionInjected, menuOpenStateFactory, type PinSessionInjected,
   type SessionArchiveConfirmInjected, type SessionArchiveConfirmRequest,
+  type SessionDeleteConfirmInjected, type SessionDeleteConfirmRequest,
   type RenameSessionInjected, type RowToast, type RowToastInjected, type RowToastState, type SessionRenameDialogInjected,
   type WorkspaceActionRequest, type SessionIdInjected, type WorkspaceBrowserInjected, type WorkspacePickerInjected,
 } from './contract/slots.ts'
@@ -51,6 +52,7 @@ import { createRecentVisitsStore } from './recent-visits.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
 import { ArchiveSessionRowButton, SessionArchiveConfirmDialog } from './session-actions/ArchiveSession.tsx'
+import { SessionDeleteConfirmDialog } from './session-actions/DeleteSession.tsx'
 import { derive } from './session-actions/derived.ts'
 import { registerSessionMenus } from './session-actions/context-menus.tsx'
 import { PinSessionRowButton } from './session-actions/PinSession.tsx'
@@ -172,6 +174,7 @@ export function apply(ctx: Context): void {
   // its bound hook.
   const renameRequest = derive(shortcutControls.state, state => state.renameTarget)
   const archiveRequest = createSnapshotStore<SessionArchiveConfirmRequest | null>(null)
+  const deleteRequest = createSnapshotStore<SessionDeleteConfirmRequest | null>(null)
   const requestSessionRename = shortcutControls.rename
   const unarchiveSession = (sessionId: SessionId): void => {
     uiWorkspace.unarchiveSession(sessionId).catch((reason: unknown) => {
@@ -219,6 +222,24 @@ export function apply(ctx: Context): void {
     },
     unarchiveSession,
   })
+  const deleteInjected = (): DeleteSessionInjected => ({
+    // Deletion is irreversible, but a quiet Session needs no stop: the Host
+    // removes it at once. A running Session is refused with its activity, so
+    // the confirmation names exactly what will be stopped before deletion.
+    deleteSession: (sessionId) => {
+      uiWorkspace.deleteSession(sessionId).then(() => {
+        notify({ kind: 'deleted', sessionId })
+      }).catch((reason: unknown) => {
+        const activity = activeDeleteRefusal(reason)
+        if (activity === undefined) {
+          console.warn('session delete rejected:', reason)
+          return
+        }
+        const displayTitle = sessions.list.getSnapshot().byId[sessionId]?.displayTitle ?? sessionId
+        deleteRequest.set({ sessionId, displayTitle, activity })
+      })
+    },
+  })
   installWorkspaceShortcuts(ctx, uiWorkspace, shortcutControls, archiveInjected().archiveSession,
     (reason) => { notify({ kind: 'shortcutForkFailed', reason }) },
     pinActions.pinSession, pinActions.unpinSession, () => pinnedSet.getSnapshot())
@@ -228,6 +249,14 @@ export function apply(ctx: Context): void {
     stopAndArchiveSession: async (sessionId) => {
       await uiWorkspace.archiveSession(sessionId, { stopActivity: true })
       notify({ kind: 'stoppedAndArchived', sessionId })
+    },
+  })
+  const deleteConfirmInjected = (): SessionDeleteConfirmInjected => ({
+    hooks: { deleteRequest },
+    settleSessionDelete: () => { deleteRequest.set(null) },
+    stopAndDeleteSession: async (sessionId) => {
+      await uiWorkspace.deleteSession(sessionId, { stopActivity: true })
+      notify({ kind: 'stoppedAndDeleted', sessionId })
     },
   })
   const forkInjected = (): ForkSessionInjected => ({
@@ -368,7 +397,7 @@ export function apply(ctx: Context): void {
     } },
   }, SessionMenu))
   registerSessionMenus(ctx, {
-    ...pinInjected(), ...archiveInjected(), ...renameInjected(), ...forkInjected(), ...sessionIdInjected(),
+    ...pinInjected(), ...archiveInjected(), ...renameInjected(), ...forkInjected(), ...sessionIdInjected(), ...deleteInjected(),
   })
   ctx.slots.inject('sidebar.workspaces.session.row.action', function* () {
     yield ctx.slots.register({ name: 'sidebar.workspaces.session.row.action', id: 'archive', order: 100, locale: NS, inject: archiveInjected }, ArchiveSessionRowButton)
@@ -383,6 +412,9 @@ export function apply(ctx: Context): void {
     yield ctx.slots.register({
       name: 'shell.overlay', id: 'workspace.session-archive', locale: NS, inject: archiveConfirmInjected,
     }, SessionArchiveConfirmDialog)
+    yield ctx.slots.register({
+      name: 'shell.overlay', id: 'workspace.session-delete', locale: NS, inject: deleteConfirmInjected,
+    }, SessionDeleteConfirmDialog)
     yield ctx.slots.register({
       name: 'shell.overlay', id: 'workspace.row-toast', inject: rowToastInjected,
       children: { 'workspace.toast': { kind: 'keyed', scope: 'root' } },
@@ -407,5 +439,15 @@ export function apply(ctx: Context): void {
 function activeSessionRefusal(reason: unknown): readonly SessionActivity[] | undefined {
   if (!(reason instanceof Error) || reason.name !== 'WorkspaceArchiveError') return undefined
   const { rpcError } = reason as WorkspaceArchiveError
+  return rpcError.code === 'workspace/session-active' ? rpcError.details.activity : undefined
+}
+
+/**
+ * The activity a Host `workspace/session-active` delete refusal reported, or
+ * nothing for any other failure.
+ */
+function activeDeleteRefusal(reason: unknown): readonly SessionActivity[] | undefined {
+  if (!(reason instanceof Error) || reason.name !== 'WorkspaceDeleteError') return undefined
+  const { rpcError } = reason as WorkspaceDeleteError
   return rpcError.code === 'workspace/session-active' ? rpcError.details.activity : undefined
 }

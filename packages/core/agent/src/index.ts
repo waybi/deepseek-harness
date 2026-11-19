@@ -13,7 +13,7 @@ import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { Session, SessionEvent, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
-import { installTurnArchiveAdmission } from './archive-admission.ts'
+import { installSessionDisposal, installTurnArchiveAdmission } from './archive-admission.ts'
 import type { Agent, TurnBoundaryProjection } from './types.ts'
 import type { AgentOptions, SessionStartSource } from './runtime-types.ts'
 import { turnBoundaryProjectionDefinition } from './projection.ts'
@@ -257,6 +257,14 @@ export class AgentRegistry extends Service {
   private factory: FactorySlot | undefined
   private readonly initiators = new AsyncLocalStorage<Agent | undefined>()
   private readonly initiatorRuns = new AsyncLocalStorage<InitiatorRun>()
+  /**
+   * Live handles this registry minted through its factory. Retained so the
+   * `workspace/session-dispose` seam can release a Session's write handle for
+   * permanent deletion. Entries leave on `agent/disposed`, so this holds only
+   * live handles. The handle stays a consumer capability; no public look-up
+   * exposes it.
+   */
+  private readonly handles = new Map<SessionId, AgentHandle>()
   private initiatorState: 'active' | 'closing' | 'disposed' = 'active'
   private activeInitiatorRuns = 0
   private initiatorDrain: PromiseWithResolvers<void> | undefined
@@ -292,6 +300,12 @@ export class AgentRegistry extends Service {
     // Archive admission: the Workspace registry asks what still runs for a
     // Session before hiding it; a running turn answers here, for every Agent.
     installTurnArchiveAdmission(ctx, sessionId => this.get(sessionId))
+    // Permanent deletion: dispose the retained handle so its write handle is
+    // released before sessionPersistence.delete claims write ownership.
+    installSessionDisposal(ctx, sessionId => this.handles.get(sessionId))
+    ctx.on('agent/disposed', ({ agent }) => {
+      if (this.handles.get(agent.id)?.agent === agent) this.handles.delete(agent.id)
+    })
   }
 
   protected async [Service.init](): Promise<void> {
@@ -422,7 +436,9 @@ export class AgentRegistry extends Service {
     const { target } = this.requireFactory()
     const receiver = getTraceable(ownerCtx, target)
     // oxlint-disable-next-line typescript/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
-    return Reflect.apply(target.createAgent, receiver, [ownerCtx, options])
+    const handle: AgentHandle = await Reflect.apply(target.createAgent, receiver, [ownerCtx, options])
+    this.handles.set(handle.agent.id, handle)
+    return handle
   }
 
   /**
@@ -437,7 +453,9 @@ export class AgentRegistry extends Service {
     const { target } = this.requireFactory()
     const receiver = getTraceable(ownerCtx, target)
     // oxlint-disable-next-line typescript/unbound-method -- Reflect.apply intentionally supplies the caller-traced receiver
-    return Reflect.apply(target.resume, receiver, [ownerCtx, options])
+    const handle: AgentHandle = await Reflect.apply(target.resume, receiver, [ownerCtx, options])
+    this.handles.set(handle.agent.id, handle)
+    return handle
   }
 
   /**
