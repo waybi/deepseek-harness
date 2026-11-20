@@ -316,10 +316,6 @@ it('overlays the conversation and closes after navigation without losing its sid
       const unpin = selectedRow.getByRole('button', { name: 'Unpin session', exact: true })
       await expect.poll(() => selectedRow.getByLabel('Pinned', { exact: true }).count()).toBe(1)
       expect(await unpin.isVisible()).toBe(true)
-      const timestamp = selectedRow.getByText(/^(?:now|\d+min)$/, { exact: true })
-      expect(await timestamp.count()).toBe(1)
-      expect(await timestamp.textContent()).toMatch(/^(?:now|\d+min)$/)
-      expect(await timestamp.isVisible()).toBe(false)
       const unpinBox = (await unpin.boundingBox())!
       const moreBox = (await more.boundingBox())!
       const folderMoreBox = (await workspaceButtons.nth(0).boundingBox())!

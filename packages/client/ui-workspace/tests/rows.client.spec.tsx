@@ -1213,7 +1213,7 @@ describe('workspace browser rows', () => {
       fireEvent.pointerEnter(screen.getByRole('treeitem').parentElement as HTMLElement)
       act(() => { vi.advanceTimersByTime(800) })
       expect(screen.getByText('空闲').parentElement?.querySelector('[data-state="idle"]')).not.toBeNull()
-      expect(screen.getAllByText('刚刚')).toHaveLength(2)
+      expect(screen.getByText('刚刚')).toBeTruthy()
     } finally {
       vi.useRealTimers()
     }
@@ -1439,12 +1439,12 @@ describe('session row decoration seats', () => {
       renderSlot={renderSlot} t={t} />)
   }
 
-  it.each([false, true])('offers trailing icons after the time label on archived=%s rows', (archived) => {
+  it.each([false, true])('offers trailing icons on a settled archived=%s row', (archived) => {
     const renderSlot = seatSpy()
     const view = renderRow({ ...idle, archived, pinned: !archived }, renderSlot)
     const icon = view.container.querySelector('[data-seat="sidebar.session.row.trailing"]')!
     expect(renderSlot).toHaveBeenCalledWith('sidebar.session.row.trailing', { sessionId: idle.id })
-    expect(icon.previousElementSibling?.textContent).toBe('刚刚')
+    expect(icon.previousElementSibling).toBeNull()
     expect(icon.parentElement?.className).toContain('rowResting')
     expect(icon.nextElementSibling).toBeNull()
     const pin = archived ? null : screen.getByRole('img', { name: '已置顶' })
@@ -1497,7 +1497,8 @@ describe('session row decoration seats', () => {
         .querySelector('[data-seat="sidebar.session.row.leading"]')?.parentElement
       expect(cell?.previousElementSibling ?? null).toBeNull()
       expect(cell?.nextElementSibling?.textContent).toBe('Idle Session')
-      expect(cell?.nextElementSibling?.nextElementSibling?.textContent).toBe('刚刚')
+      // The trailing cell still holds the seat, but carries no time label.
+      expect(cell?.nextElementSibling?.nextElementSibling?.textContent).toBe('')
     }
     assertPlacement()
     // Rerender through the same row: the seat stays leading without the flat

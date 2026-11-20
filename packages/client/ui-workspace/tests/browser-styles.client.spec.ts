@@ -34,20 +34,6 @@ const declarations = (selector: string): Map<string, string> | undefined => decl
 const rowDeclarations = (selector: string): Map<string, string> | undefined => declarationsFrom(rowsCss, selector)
 
 describe('WorkspaceBrowser.module.css list', () => {
-  it('keeps the trailing marker visible under the pointer', () => {
-    // Only the update time yields to the action strip: hiding the whole
-    // trailing cell would take a pending pill or a live dot with it.
-    expect(rowsCss).toContain('.sessionRow:hover .rowResting .timestamp')
-    expect(rowsCss).not.toContain('.sessionRow:hover .rowResting,')
-  })
-
-  it('hides touch timestamps without hiding pending-interaction labels', () => {
-    const touch = /@media \(hover: none\) \{([\s\S]*?)\n\}/.exec(rowsCss)?.[1]
-    expect(touch).toContain('.sessionRow .timestamp')
-    expect(touch).not.toMatch(/\.sessionRow(?:\.selected)? \.time[\s,{]/)
-    expect(rowDeclarations('.sessionRow .pinnedAction')?.get('order')).toBe('-1')
-  })
-
   const root = declarations('.root')
   const listArea = declarations('.listArea')
   const list = declarations('.list')
@@ -124,10 +110,11 @@ describe('WorkspaceBrowser.module.css list', () => {
     expect(rowDeclarations('.sessionRow')?.get('height')).toBe('32px')
     // One leading status cell for every session row, grouped or flat: the cell
     // hosts either the row's status dot or the leading seat, and it reserves its
-    // own box, so the title's one shared margin below needs no per-view override.
+    // own box. The title pulls 2px into that cell so the text column sits closer
+    // to the rail for the many rows whose status cell is empty.
     expect(rowDeclarations('.slot')?.get('width')).toBe('16px')
     expect(rowDeclarations('.slot')?.get('height')).toBe('20px')
-    expect(rowDeclarations('.sessionRow .title')?.get('margin')).toBe('0 6px 0 var(--dsh-sidebar-label-gap)')
+    expect(rowDeclarations('.sessionRow .title')?.get('margin')).toBe('0 6px 0 2px')
     expect(rowDeclarations('.searchResultRow')?.get('min-height')).toBe('48px')
     expect(rowDeclarations('.searchResultTitle')?.get('margin')).toBe('0 var(--dsh-sidebar-label-gap)')
     expect(rowDeclarations('.sessionRow.selected')?.get('background-color'))

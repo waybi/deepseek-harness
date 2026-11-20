@@ -132,7 +132,9 @@
 }
 
 .sessionRow .title {
-  margin: 0 6px 0 var(--dsh-sidebar-label-gap);
+  /* The leading status cell is empty for most rows; pull the title 4px over
+     it so the text column sits closer to the rail. */
+  margin: 0 6px 0 2px;
 }
 
 .slot {
@@ -384,15 +386,6 @@
     display: inline-flex;
   }
 
-  /* Only the update time yields to the action strip: a row that is waiting on
-     the user keeps its pill (and its live dot) visible while the pointer is on
-     it, so hovering never hides the reason the row needs attention. */
-  .sessionRow:hover .rowResting .timestamp,
-  .sessionRow.menuOpen .rowResting .timestamp,
-  :global(html[data-input-modality='keyboard']) .sessionRow:focus-within .rowResting .timestamp {
-    display: none;
-  }
-
   .sessionRow:hover .title,
   .sessionRow.menuOpen .title {
     text-overflow: clip;
@@ -406,8 +399,6 @@
     display: inline-flex;
   }
 
-  /* Only update timestamps disappear; pending-interaction labels remain visible. */
-  .sessionRow .timestamp,
   .sessionRow .rowQuickActions > :global([data-slot]) > :not(.pinnedAction),
   .projectRow[aria-expanded='false'] .rowActions {
     display: none;

@@ -149,12 +149,6 @@ function useTitleMarquee(title: RefObject<HTMLSpanElement | null>): {
   }), [title])
 }
 
-/** Localized compact relative time ("刚刚"/"5分钟" in zh, "now"/"5min" in en). */
-function timeLabel(updatedAt: number, now: number, t: RowTranslate): string {
-  const { unit, n } = relativeTime(updatedAt, now)
-  return unit === 'now' ? t('time.now') : t(`time.${unit}`, { n })
-}
-
 /** Hover-card variant: distances wrap in the ago template; the now bucket stays bare (no "now ago"). */
 function hoverTimeLabel(updatedAt: number, now: number, t: RowTranslate): string {
   const { unit, n } = relativeTime(updatedAt, now)
@@ -475,30 +469,25 @@ function SessionPendingPill({ label }: { label: string }) {
 
 /**
  * A row's single trailing marker: a pending interaction owns the pill, live or
- * unviewed activity its dot, and only a settled row falls back to the update
- * time. Archived rows carry no live marker, so they keep the time.
+ * unviewed activity its dot. A settled row shows no time; relative time lives
+ * only on the hover card, so it never narrows the title. Archived rows carry
+ * no live marker, so they keep the blank trailing cell.
  * @param props.archived - whether the row is archived.
  * @param props.statuses - every status of the row, primary first.
  * @param props.showStatus - whether the primary status deserves a marker.
- * @param props.updatedAt - the Session's last update, for the time fallback.
- * @param props.now - epoch ms for relative-time formatting.
- * @param props.t - the browser root's locale seat.
- * @returns the marker element.
+ * @returns the marker element, or null for a settled row.
  */
-function SessionTrailingMarker({ archived, statuses, showStatus, updatedAt, now, t }: {
+function SessionTrailingMarker({ archived, statuses, showStatus }: {
   archived: boolean
   statuses: readonly [SessionStatus, ...SessionStatus[]]
   showStatus: boolean
-  updatedAt: number
-  now: number
-  t: RowTranslate
 }) {
   const primary = statuses[0]
   if (!archived && primary.trailingLabel !== undefined) {
     return <SessionPendingPill label={primary.trailingLabel} />
   }
   if (!archived && showStatus) return <StateDot state={primary.state} />
-  return <span className={clsx(css.time, css.timestamp)}>{timeLabel(updatedAt, now, t)}</span>
+  return null
 }
 
 /** Non-interactive pinned-row marker; the enclosing row remains the only action. */
@@ -848,9 +837,6 @@ export const SessionNodeItem = memo(function SessionNodeItem({
             archived={row.archived}
             statuses={statuses}
             showStatus={showStatus}
-            updatedAt={row.updatedAt}
-            now={now}
-            t={t}
           />
           {renderSlot('sidebar.session.row.trailing', { sessionId: node.id })}
         </span>
