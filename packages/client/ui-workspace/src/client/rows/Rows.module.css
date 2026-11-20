@@ -281,16 +281,6 @@
 /* The Pinned header borrows the group-header row but reads as a plain section
    label: no pin glyph, a slightly larger title, and a bare count instead of the
    parenthesised group count. */
-[data-section='pinned'] .projectRow {
-  cursor: default;
-}
-
-@media (hover: hover) {
-  [data-section='pinned'] .projectRow:hover {
-    background-color: transparent;
-  }
-}
-
 [data-section='pinned'] .projectRow .title {
   font-size: 15px;
   line-height: 22px;

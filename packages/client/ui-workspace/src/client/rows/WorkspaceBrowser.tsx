@@ -1334,11 +1334,12 @@ function SearchResults({
  * nothing while no pin is listable.
  * @param props.list - sessions list snapshot.
  * @param props.rowState - registry-global pin/archive sets.
- * @param props.setCollapsed - persist whether the section shows every pinned row.
+ * @param props.setCollapsed - persist whether the section is folded shut.
+ * @param props.setExpanded - persist whether the section shows every pinned row.
  * @returns the Pinned section, or null when empty.
  */
 function PinnedSectionSeat({
-  list, rowState, usePinnedSection, setCollapsed, usePanelInfo, useSessionStatus, open,
+  list, rowState, usePinnedSection, setCollapsed, setExpanded, usePanelInfo, useSessionStatus, open,
   onSessionRenameRequest, renderSlot, openSessionMenu, useContextMenuTarget, useContextMenu, useSessionAccess, home, t,
 }: Pick<
   WorkspaceBrowserProps,
@@ -1353,7 +1354,8 @@ function PinnedSectionSeat({
   home?: string | undefined
   list: SessionListState
   rowState: SessionRowState
-  setCollapsed: (expanded: boolean) => void
+  setCollapsed: (collapsed: boolean) => void
+  setExpanded: (expanded: boolean) => void
   onSessionRenameRequest: WorkspaceBrowserProps['requestSessionRename']
 }) {
   const section = usePinnedSection(state => state)
@@ -1371,8 +1373,10 @@ function PinnedSectionSeat({
     <HoverCardGroup>
       <PinnedSection
         rows={rows}
+        collapsed={section.collapsed}
         expanded={section.expanded}
-        onToggle={() => { setCollapsed(!section.expanded) }}
+        onToggleCollapsed={() => { setCollapsed(!section.collapsed) }}
+        onToggleExpanded={() => { setExpanded(!section.expanded) }}
         currentId={currentId}
         now={minuteNow()}
         onOpen={open}
@@ -1421,6 +1425,7 @@ export function WorkspaceBrowser({
   useDirectoryFlow,
   useHostInfo,
   usePinnedSection,
+  setPinnedCollapsed,
   setPinnedExpanded,
   useShortcuts,
   useWorkspaceShortcuts,
@@ -1870,7 +1875,8 @@ export function WorkspaceBrowser({
             list={list}
             rowState={rowState}
             usePinnedSection={usePinnedSection}
-            setCollapsed={setPinnedExpanded}
+            setCollapsed={setPinnedCollapsed}
+            setExpanded={setPinnedExpanded}
             usePanelInfo={usePanelInfo}
             useSessionStatus={useSessionStatus}
             open={guardedOpen}

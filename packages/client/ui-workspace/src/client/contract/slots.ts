@@ -259,11 +259,13 @@ export type WorkspaceBrowserInjected = {
      * saw. Select the field the surface needs (`info => info.home`).
      */
     hostInfo: HostObservable<RemoteHostFacts>
-    /** Persisted Pinned section state (whether it shows every pinned row). */
+    /** Persisted Pinned section state (folded shut, and fully expanded). */
     pinnedSection: HostObservable<PinnedSectionState>
     workspaceShortcuts: HostObservable<WorkspaceShortcutState>
     shortcuts: HostObservable<readonly ShortcutCatalogEntry[]>
   }
+  /** Fold the Pinned section shut or open it again (persisted). */
+  setPinnedCollapsed: (collapsed: boolean) => void
   /** Show every pinned row, or return to the first few (persisted). */
   setPinnedExpanded: (expanded: boolean) => void
   /** Open the browser search and focus its input. */

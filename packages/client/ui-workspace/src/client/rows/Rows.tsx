@@ -892,8 +892,10 @@ const PINNED_ROW_LIMIT = 5
  * place. It is a separate `group`, not part of the session tree, so tree
  * keyboard navigation and `session:<id>` row lookups never reach it.
  * @param props.rows - listable pinned rows in pin order.
+ * @param props.collapsed - whether the whole section is folded shut.
  * @param props.expanded - whether every pinned row renders.
- * @param props.onToggle - flip the expanded flag.
+ * @param props.onToggleCollapsed - fold the section shut or open it again.
+ * @param props.onToggleExpanded - flip between the first page and every row.
  * @param props.currentId - selected session id (row highlight).
  * @param props.now - epoch ms for relative-time formatting.
  * @param props.onOpen - open a session by id.
@@ -903,12 +905,14 @@ const PINNED_ROW_LIMIT = 5
  * @returns the section.
  */
 export function PinnedSection({
-  rows, expanded, onToggle, currentId, now, onOpen, onRenameRequest, renderSlot,
+  rows, collapsed, expanded, onToggleCollapsed, onToggleExpanded, currentId, now, onOpen, onRenameRequest, renderSlot,
   openSessionMenu, useContextMenuTarget, useContextMenu, useSessionAccess, home, t,
 }: {
   rows: readonly SessionNode[]
+  collapsed: boolean
   expanded: boolean
-  onToggle: () => void
+  onToggleCollapsed: () => void
+  onToggleExpanded: () => void
   currentId: string | undefined
   now: number
   onOpen: (id: SessionNode['id']) => void
@@ -930,42 +934,59 @@ export function PinnedSection({
       role="group"
       aria-label={t('section.pinned.aria', { n: rows.length })}
     >
-      <div className={css.projectRow} data-row-key="pinned-header">
+      <div
+        className={css.projectRow}
+        data-row-key="pinned-header"
+        role="button"
+        tabIndex={0}
+        aria-expanded={!collapsed}
+        aria-label={t('section.pinned.aria', { n: rows.length })}
+        onClick={onToggleCollapsed}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          onToggleCollapsed()
+        }}
+      >
         <span className={css.projectText}>
           <span className={css.title}>{t('section.pinned')}</span>
         </span>
         <span className={css.time} aria-hidden>{rows.length}</span>
       </div>
-      <div role="listbox" aria-label={t('section.pinned')} className={css.recentRows}>
-        {visible.map(node => (
-          <SessionNodeItem
-            key={node.id}
-            node={node}
-            currentId={currentId}
-            now={now}
-            onOpen={onOpen}
-            onRenameRequest={onRenameRequest}
-            renderSlot={renderSlot}
-            openSessionMenu={openSessionMenu} useContextMenu={useContextMenu}
-            useContextMenuTarget={useContextMenuTarget}
-            useSessionAccess={useSessionAccess}
-            home={home}
-            rowKeyPrefix="pinned-session"
-            rowRole="option"
-            t={t}
-          />
-        ))}
-      </div>
-      {rows.length > PINNED_ROW_LIMIT && (
-        <button
-          type="button"
-          className={css.pinnedMore}
-          data-row-key="pinned-more"
-          aria-expanded={expanded}
-          onClick={onToggle}
-        >
-          {expanded ? t('section.pinned.less') : t('section.pinned.more')}
-        </button>
+      {!collapsed && (
+        <>
+          <div role="listbox" aria-label={t('section.pinned')} className={css.recentRows}>
+            {visible.map(node => (
+              <SessionNodeItem
+                key={node.id}
+                node={node}
+                currentId={currentId}
+                now={now}
+                onOpen={onOpen}
+                onRenameRequest={onRenameRequest}
+                renderSlot={renderSlot}
+                openSessionMenu={openSessionMenu} useContextMenu={useContextMenu}
+                useContextMenuTarget={useContextMenuTarget}
+                useSessionAccess={useSessionAccess}
+                home={home}
+                rowKeyPrefix="pinned-session"
+                rowRole="option"
+                t={t}
+              />
+            ))}
+          </div>
+          {rows.length > PINNED_ROW_LIMIT && (
+            <button
+              type="button"
+              className={css.pinnedMore}
+              data-row-key="pinned-more"
+              aria-expanded={expanded}
+              onClick={onToggleExpanded}
+            >
+              {expanded ? t('section.pinned.less') : t('section.pinned.more')}
+            </button>
+          )}
+        </>
       )}
     </div>
   )

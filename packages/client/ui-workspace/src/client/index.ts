@@ -357,6 +357,7 @@ export function apply(ctx: Context): void {
     requestAddWorkspace: shortcutControls.add,
     closeAddWorkspace: shortcutControls.closeAdd,
     setDirectoryBusy: shortcutControls.directoryBusy,
+    setPinnedCollapsed: (collapsed) => { pinnedInstance.actions.setCollapsed(collapsed) },
     setPinnedExpanded: (expanded) => { pinnedInstance.actions.setExpanded(expanded) },
     hooks: {
       workspaceActionRequest,

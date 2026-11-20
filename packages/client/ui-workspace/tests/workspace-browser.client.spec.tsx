@@ -153,6 +153,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
     usePinnedSection: bindSnapshotSelector(pinned),
+    setPinnedCollapsed: pinned.actions.setCollapsed,
     setPinnedExpanded: pinned.actions.setExpanded,
     renderSlot: renderDirectoryFlowOnly,
     t,
@@ -3391,8 +3392,8 @@ describe('WorkspaceBrowser Pinned section', () => {
       expect(section).not.toBeNull()
       expect(section?.getAttribute('role')).toBe('group')
       expect(pinnedTitles()).toEqual(['c', 'a'])
-      const header = section!.querySelector<HTMLElement>('[data-row-key="pinned-header"]')!
-      expect(header.getAttribute('role')).toBeNull()
+      const header = within(section!).getByRole('button', { name: '置顶，2 个会话' })
+      expect(header.getAttribute('aria-expanded')).toBe('true')
       expect(header.querySelector('svg')).toBeNull()
       expect(header.textContent).toContain('置顶')
       expect(header.textContent).toContain('2')
@@ -3447,7 +3448,7 @@ describe('WorkspaceBrowser Pinned section', () => {
     expect(pinnedSection()).not.toBeNull()
   })
 
-  it('shows five pinned rows first, expands in place, and remembers the expansion', () => {
+  it('shows five pinned rows first, expands in place, folds the whole section, and remembers both', () => {
     const seven = Array.from({ length: 7 }, (_, index) => summary(`p${index + 1}`, 100 - index))
     const props = (pinned: readonly string[]) => ({
       useSessions: hook(sessionState(seven)),
@@ -3459,16 +3460,26 @@ describe('WorkspaceBrowser Pinned section', () => {
     })
     const b = mount(props(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']))
     expect(pinnedTitles()).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
+    const header = within(pinnedSection()!).getByRole('button', { name: '置顶，7 个会话' })
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+    expect(header.textContent).toContain('7')
+    fireEvent.click(header)
+    expect(pinnedTitles()).toEqual([])
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+    expect(document.querySelector('[data-row-key="pinned-more"]')).toBeNull()
+    fireEvent.click(header)
+    expect(pinnedTitles()).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
     const more = screen.getByRole('button', { name: '展开更多置顶' })
     expect(more.getAttribute('aria-expanded')).toBe('false')
-    const header = pinnedSection()!.querySelector('[data-row-key="pinned-header"]')!
-    expect(header.textContent).toContain('7')
-    expect(header.textContent).not.toContain('(7)')
     fireEvent.click(more)
     expect(pinnedTitles()).toHaveLength(7)
     expect(screen.getByRole('button', { name: '收起置顶' }).getAttribute('aria-expanded')).toBe('true')
+    fireEvent.click(header)
+    expect(pinnedTitles()).toEqual([])
     b.view.unmount()
     mount(props(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']))
+    expect(pinnedTitles()).toEqual([])
+    fireEvent.click(within(pinnedSection()!).getByRole('button', { name: '置顶，7 个会话' }))
     expect(pinnedTitles()).toHaveLength(7)
     fireEvent.click(screen.getByRole('button', { name: '收起置顶' }))
     expect(pinnedTitles()).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
