@@ -51,7 +51,7 @@ import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/cli
 import type { WorkspaceShortcutState } from '../shortcuts.ts'
 import type { StartSessionOptions } from '../navigation.ts'
 import type {} from './toast.ts'
-import type { RecentVisitsState } from '../recent-visits.ts'
+import type { PinnedSectionState } from '../pinned-section.ts'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-context-menu/client' {
@@ -259,13 +259,13 @@ export type WorkspaceBrowserInjected = {
      * saw. Select the field the surface needs (`info => info.home`).
      */
     hostInfo: HostObservable<RemoteHostFacts>
-    /** Persisted Recent visits account and the section's collapsed flag. */
-    recentVisits: HostObservable<RecentVisitsState>
+    /** Persisted Pinned section state (its collapsed flag). */
+    pinnedSection: HostObservable<PinnedSectionState>
     workspaceShortcuts: HostObservable<WorkspaceShortcutState>
     shortcuts: HostObservable<readonly ShortcutCatalogEntry[]>
   }
-  /** Collapse or expand the Recent section (persisted). */
-  setRecentCollapsed: (collapsed: boolean) => void
+  /** Collapse or expand the Pinned section (persisted). */
+  setPinnedCollapsed: (collapsed: boolean) => void
   /** Open the browser search and focus its input. */
   requestSearch: () => void
   /** Request the existing directory picker. */

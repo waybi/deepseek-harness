@@ -48,7 +48,7 @@ import {
 } from './contract/slots.ts'
 import { createWorkspaceShortcutControls, installWorkspaceShortcuts } from './shortcuts.ts'
 import { UiWorkspaceService } from './navigation.ts'
-import { createRecentVisitsStore } from './recent-visits.ts'
+import { createPinnedSectionStore } from './pinned-section.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
 import { ArchiveSessionRowButton, SessionArchiveConfirmDialog } from './session-actions/ArchiveSession.tsx'
@@ -125,13 +125,13 @@ export function apply(ctx: Context): void {
   const viewHandle = createWorkspaceViewStore()
   const viewInstance = viewHandle.create()
   const viewStore: typeof viewHandle = { ...viewHandle, create: () => viewInstance }
-  // The Recent visits account: written by navigation, read by the browser through a hook.
-  const recentInstance = createRecentVisitsStore().create()
+  // The Pinned section's fold state: the browser reads it, the toggle writes it.
+  const pinnedInstance = createPinnedSectionStore().create()
   const rowToast = createSnapshotStore<RowToastState | null>(null)
   let toastSeq = 0
   const notify = (toast: RowToast): void => { rowToast.set({ ...toast, seq: ++toastSeq }) }
   const uiWorkspace = new UiWorkspaceService(
-    ctx, ctx.remote.directoryPicker, workspaces, sessions, viewInstance.actions, notify, recentInstance.actions,
+    ctx, ctx.remote.directoryPicker, workspaces, sessions, viewInstance.actions, notify,
   )
   ctx.slots.provideRoot({
     hooks: { workspaces: workspaces.list },
@@ -357,13 +357,13 @@ export function apply(ctx: Context): void {
     requestAddWorkspace: shortcutControls.add,
     closeAddWorkspace: shortcutControls.closeAdd,
     setDirectoryBusy: shortcutControls.directoryBusy,
-    setRecentCollapsed: (collapsed) => { recentInstance.actions.setCollapsed(collapsed) },
+    setPinnedCollapsed: (collapsed) => { pinnedInstance.actions.setCollapsed(collapsed) },
     hooks: {
       workspaceActionRequest,
       contextMenuTarget: ctx.contextMenus.active,
       directoryFlow: browserFlowSource,
       hostInfo,
-      recentVisits: recentInstance,
+      pinnedSection: pinnedInstance,
       workspaceShortcuts: shortcutControls.state,
       shortcuts: ctx.shortcuts.catalog,
     },

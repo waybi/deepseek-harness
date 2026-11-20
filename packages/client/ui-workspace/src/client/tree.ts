@@ -413,12 +413,15 @@ function orderedUngrouped(
  * Group Sessions by Workspace: one group per caller-ordered entity, with
  * members resolved from caller-ordered sessionIds. Sessions outside every
  * Workspace trail in the browser-local Ungrouped order, which falls back to
- * recency before that order is initialized.
+ * recency before that order is initialized. Unarchived pinned Sessions are
+ * left out: the Pinned section above the groups owns them, so each row has
+ * exactly one home.
  */
 function groupByWorkspace(
   list: SessionListState,
   workspaces: readonly WorkspaceView[],
   archived: ReadonlySet<SessionId>,
+  pinned: ReadonlySet<SessionId>,
   rowState: SessionRowState,
   statuses: SessionStatuses,
   ungroupedOrder: readonly string[] | undefined,
@@ -429,6 +432,7 @@ function groupByWorkspace(
   const accounted = new Set<SessionId>()
   const listed = (summary: SessionSummary): boolean =>
     sessionVisible(summary, current, archived, archivedFilter)
+    && !(pinned.has(summary.id) && !archived.has(summary.id))
   for (const workspace of workspaces) {
     const members: SessionSummary[] = []
     let backgroundHidden = false
@@ -513,16 +517,18 @@ function sessionNode(
 }
 
 /**
- * Derive the Recent section rows: the given Session ids in the given order,
- * minus archived, subagent, blank, unknown and background-hidden Sessions.
- * Archived Sessions are hidden whatever the archived filter says.
+ * Derive the Pinned section rows: the given Session ids in the given order,
+ * minus archived, subagent, blank and unknown Sessions. The lookup walks only
+ * the pin account, so the section costs one map read per pinned Session
+ * however long the full list grows; background hiding does not apply, because
+ * a pin is an explicit request to keep the row in reach.
  * @param list - sessions list snapshot; ids it does not know are skipped.
- * @param sessionIds - candidate Session ids in display order.
- * @param rowState - registry-global pin and archive sets plus background hiding.
- * @param statuses - unified UI status by Session; running rows escape background hiding.
- * @returns the visible rows in the given order.
+ * @param sessionIds - pinned Session ids in pin order.
+ * @param rowState - registry-global pin and archive sets.
+ * @param statuses - unified UI status by Session.
+ * @returns the visible pinned rows in the given order.
  */
-export function deriveRecent(
+export function derivePinned(
   list: SessionListState,
   sessionIds: readonly SessionId[],
   rowState: SessionRowState,
@@ -530,14 +536,11 @@ export function deriveRecent(
 ): SessionNode[] {
   const archived = new Set(rowState.archivedSessionIds)
   const pinned = new Set(rowState.pinnedSessionIds)
-  const current = mainSessionId(list)
   return sessionIds.flatMap((id) => {
     const session = list.byId[id]
-    return session !== undefined && !session.blank
-      && sessionVisible(session, current, archived, 'default')
-      && !hiddenAsBackground(session, current, rowState, statuses)
-      ? [sessionNode(session, list, statuses, pinned, archived)]
-      : []
+    if (session === undefined || session.blank || session.origin === 'subagent') return []
+    if (archived.has(id)) return []
+    return [sessionNode(session, list, statuses, pinned, archived)]
   })
 }
 
@@ -575,7 +578,7 @@ export function deriveGroups(
     ? undefined
     : owningGroupKey(workspaces, current)
   const groups: GroupNode[] = []
-  for (const g of groupByWorkspace(list, workspaces, archived, rowState, statuses, view.ungroupedOrder)) {
+  for (const g of groupByWorkspace(list, workspaces, archived, pinned, rowState, statuses, view.ungroupedOrder)) {
     const expanded = expandedGroups.has(g.key)
     groups.push({
       key: g.key,
@@ -625,9 +628,10 @@ export function visibleSessionIds(
 
 /**
  * Derive flat rows from the browser's complete ordered Session ids, with
- * pinned rows, then active rows ({@link sessionActive}), fronted ahead of the
- * supplied order. Archive and background hiding apply before the caller
- * virtualizes the rows.
+ * active rows ({@link sessionActive}) fronted ahead of the supplied order.
+ * Unarchived pinned rows are left out for the same reason the groups leave
+ * them out: the Pinned section owns them. Archive and background hiding also
+ * apply before the caller virtualizes the rows.
  * @param list - sessions list snapshot used to select the ids.
  * @param sessionIds - complete account members in the selected order, including hidden archives.
  * @param rowState - registry-global pin and archive sets, the archived filter, and background hiding.
@@ -646,6 +650,7 @@ export function deriveFlat(
   const members = sessionIds.flatMap((id) => {
     const session = list.byId[id]
     return session !== undefined && sessionVisible(session, current, archived, rowState.archivedFilter)
+      && !(pinned.has(id) && !archived.has(id))
       && !hiddenAsBackground(session, current, rowState, statuses)
       ? [session]
       : []

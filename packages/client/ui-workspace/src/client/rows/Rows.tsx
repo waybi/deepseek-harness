@@ -15,7 +15,7 @@ import type { PointerEvent, RefObject } from 'react'
 import clsx from 'clsx'
 import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  HoverCard, IconArchiveOutlineRegular, IconClockOutlineRegular,
+  HoverCard, IconArchiveOutlineRegular,
   IconEllipsisOutlineRegular, IconFolderCloseRegular, IconFolderOpenRegular,
   IconNewChatOutlineRegular, IconPinFillRegular,
   IconTriangleRightFillRegular, IconUnarchiveOutlineRegular, relativeTime, StateDot, Tooltip, useRowDragPreview,
@@ -898,7 +898,7 @@ export const SessionNodeItem = memo(function SessionNodeItem({
  * @param props.t - the browser root's locale seat.
  * @returns the section.
  */
-export function RecentSection({
+export function PinnedSection({
   rows, collapsed, onToggle, currentId, now, onOpen, onRenameRequest, renderSlot,
   openSessionMenu, useContextMenuTarget, useContextMenu, useSessionAccess, home, t,
 }: {
@@ -922,17 +922,17 @@ export function RecentSection({
   return (
     <div
       className={css.recentSection}
-      data-section="recent"
+      data-section="pinned"
       role="group"
-      aria-label={t('section.recent.aria', { n: rows.length })}
+      aria-label={t('section.pinned.aria', { n: rows.length })}
     >
       <div
         className={css.projectRow}
-        data-row-key="recent-header"
+        data-row-key="pinned-header"
         role="button"
         tabIndex={0}
         aria-expanded={expanded}
-        aria-label={t('section.recent.aria', { n: rows.length })}
+        aria-label={t('section.pinned.aria', { n: rows.length })}
         onClick={onToggle}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' && event.key !== ' ') return
@@ -941,18 +941,18 @@ export function RecentSection({
         }}
       >
         <span className={clsx(css.slot, css.folder)}>
-          <IconClockOutlineRegular />
+          <IconPinFillRegular />
         </span>
         <span className={clsx(css.slot, css.chevron)}>
           <IconTriangleRightFillRegular className={clsx(css.arrow, expanded && css.arrowOpen)} />
         </span>
         <span className={css.projectText}>
-          <span className={css.title}>{t('section.recent')}</span>
+          <span className={css.title}>{t('section.pinned')}</span>
         </span>
         <span className={css.time} aria-hidden>{rows.length}</span>
       </div>
       {expanded && (
-        <div role="listbox" aria-label={t('section.recent')} className={css.recentRows}>
+        <div role="listbox" aria-label={t('section.pinned')} className={css.recentRows}>
           {rows.map(node => (
             <SessionNodeItem
               key={node.id}
@@ -966,7 +966,7 @@ export function RecentSection({
               useContextMenuTarget={useContextMenuTarget}
               useSessionAccess={useSessionAccess}
               home={home}
-              rowKeyPrefix="recent-session"
+              rowKeyPrefix="pinned-session"
               rowRole="option"
               t={t}
             />

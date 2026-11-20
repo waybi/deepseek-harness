@@ -38,12 +38,11 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { ArchivedFilter, GroupNode, SessionNode, SessionOrderBy, SessionRowState } from '../tree.ts'
 import {
-  deriveFlat, deriveGroups, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder, resolveHiddenCwdPrefixes,
+  deriveFlat, deriveGroups, derivePinned, deriveSearchResults, orderByRecency, owningGroupKey, owningParentFolder, resolveHiddenCwdPrefixes,
   pinCurrentBlank, reconcileManualOrder, reuseSessionNodes, sessionActive, sessionMemberIds, UNGROUPED_KEY,
 } from '../tree.ts'
 import { compileHiddenSessionIdPatterns } from '../../config.ts'
-import { selectRecentRows } from '../recent-visits.ts'
-import { PrefixGroupHeader, ProjectRowItem, RecentSection, type RowDragProps, SearchResultItem, SessionNodeItem } from './Rows.tsx'
+import { PinnedSection, PrefixGroupHeader, ProjectRowItem, type RowDragProps, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { minuteNow } from './minute-clock.ts'
 import { FLAT_SESSION_ORDER_KEY, normalizeGroupBy, type SessionGroupBy } from '../stores.ts'
 import { groupSessionsByPrefix, prefixGroupExpanded } from './prefix-groups.ts'
@@ -1330,19 +1329,20 @@ function SearchResults({
 }
 
 /**
- * Recent section seat: reads the visit account, filters it against the live
- * session list, and renders nothing while no visit is listable.
+ * Pinned section seat: derives rows from the registry-global pin account, so
+ * the cost follows the pin count rather than the Session count, and renders
+ * nothing while no pin is listable.
  * @param props.list - sessions list snapshot.
- * @param props.rowState - registry-global pin/archive sets and background hiding.
+ * @param props.rowState - registry-global pin/archive sets.
  * @param props.setCollapsed - persist the section's collapsed flag.
- * @returns the Recent section, or null when empty.
+ * @returns the Pinned section, or null when empty.
  */
-function RecentVisitsSection({
-  list, rowState, useRecentVisits, setCollapsed, usePanelInfo, useSessionStatus, open,
+function PinnedSectionSeat({
+  list, rowState, usePinnedSection, setCollapsed, usePanelInfo, useSessionStatus, open,
   onSessionRenameRequest, renderSlot, openSessionMenu, useContextMenuTarget, useContextMenu, useSessionAccess, home, t,
 }: Pick<
   WorkspaceBrowserProps,
-  | 'useRecentVisits'
+  | 'usePinnedSection'
   | 'usePanelInfo'
   | 'useSessionStatus'
   | 'open'
@@ -1356,12 +1356,12 @@ function RecentVisitsSection({
   setCollapsed: (collapsed: boolean) => void
   onSessionRenameRequest: WorkspaceBrowserProps['requestSessionRename']
 }) {
-  const recent = useRecentVisits(state => state)
+  const section = usePinnedSection(state => state)
   const statuses = useSessionStatus(s => s)
   const panelActive = usePanelInfo(info => info.activePanelId !== null)
   const rows = useMemo(
-    () => selectRecentRows(recent.visits, list, rowState, statuses),
-    [recent.visits, list, rowState, statuses],
+    () => derivePinned(list, rowState.pinnedSessionIds, rowState, statuses),
+    [list, rowState, statuses],
   )
   if (rows.length === 0) return null
   const currentId = panelActive
@@ -1369,10 +1369,10 @@ function RecentVisitsSection({
     : Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
   return (
     <HoverCardGroup>
-      <RecentSection
+      <PinnedSection
         rows={rows}
-        collapsed={recent.collapsed}
-        onToggle={() => { setCollapsed(!recent.collapsed) }}
+        collapsed={section.collapsed}
+        onToggle={() => { setCollapsed(!section.collapsed) }}
         currentId={currentId}
         now={minuteNow()}
         onOpen={open}
@@ -1420,8 +1420,8 @@ export function WorkspaceBrowser({
   hiddenSessionIdPatterns,
   useDirectoryFlow,
   useHostInfo,
-  useRecentVisits,
-  setRecentCollapsed,
+  usePinnedSection,
+  setPinnedCollapsed,
   useShortcuts,
   useWorkspaceShortcuts,
   requestSearch,
@@ -1866,11 +1866,11 @@ export function WorkspaceBrowser({
           itself is wide-only. */}
       <div className={css.listArea}>
         {wide && normalizedQuery === '' && (
-          <RecentVisitsSection
+          <PinnedSectionSeat
             list={list}
             rowState={rowState}
-            useRecentVisits={useRecentVisits}
-            setCollapsed={setRecentCollapsed}
+            usePinnedSection={usePinnedSection}
+            setCollapsed={setPinnedCollapsed}
             usePanelInfo={usePanelInfo}
             useSessionStatus={useSessionStatus}
             open={guardedOpen}
