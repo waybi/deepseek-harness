@@ -882,14 +882,18 @@ export const SessionNodeItem = memo(function SessionNodeItem({
   )
 })
 
+/** Rows shown before the Pinned section offers to expand, mirroring Doubao's first page. */
+const PINNED_ROW_LIMIT = 5
+
 /**
- * The Recent section above the Workspace list: a collapsible header with the
- * row count, then the rows through {@link SessionNodeItem}. It is a separate
- * `group`, not part of the session tree, so tree keyboard navigation and
- * `session:<id>` row lookups never reach it.
- * @param props.rows - the Recent rows, already filtered and ordered.
- * @param props.collapsed - whether the rows are hidden.
- * @param props.onToggle - flip the collapsed flag.
+ * The Pinned section above the Workspace list: a plain section label with the
+ * bare count, the first {@link PINNED_ROW_LIMIT} rows through
+ * {@link SessionNodeItem}, and an overflow button that reveals the rest in
+ * place. It is a separate `group`, not part of the session tree, so tree
+ * keyboard navigation and `session:<id>` row lookups never reach it.
+ * @param props.rows - listable pinned rows in pin order.
+ * @param props.expanded - whether every pinned row renders.
+ * @param props.onToggle - flip the expanded flag.
  * @param props.currentId - selected session id (row highlight).
  * @param props.now - epoch ms for relative-time formatting.
  * @param props.onOpen - open a session by id.
@@ -899,11 +903,11 @@ export const SessionNodeItem = memo(function SessionNodeItem({
  * @returns the section.
  */
 export function PinnedSection({
-  rows, collapsed, onToggle, currentId, now, onOpen, onRenameRequest, renderSlot,
+  rows, expanded, onToggle, currentId, now, onOpen, onRenameRequest, renderSlot,
   openSessionMenu, useContextMenuTarget, useContextMenu, useSessionAccess, home, t,
 }: {
   rows: readonly SessionNode[]
-  collapsed: boolean
+  expanded: boolean
   onToggle: () => void
   currentId: string | undefined
   now: number
@@ -918,7 +922,7 @@ export function PinnedSection({
   | 'sidebar.session.row.leading'
   | 'sidebar.session.row.hover'
 >) {
-  const expanded = !collapsed
+  const visible = expanded ? rows : rows.slice(0, PINNED_ROW_LIMIT)
   return (
     <div
       className={css.recentSection}
@@ -926,52 +930,42 @@ export function PinnedSection({
       role="group"
       aria-label={t('section.pinned.aria', { n: rows.length })}
     >
-      <div
-        className={css.projectRow}
-        data-row-key="pinned-header"
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        aria-label={t('section.pinned.aria', { n: rows.length })}
-        onClick={onToggle}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return
-          event.preventDefault()
-          onToggle()
-        }}
-      >
-        <span className={clsx(css.slot, css.folder)}>
-          <IconPinFillRegular />
-        </span>
-        <span className={clsx(css.slot, css.chevron)}>
-          <IconTriangleRightFillRegular className={clsx(css.arrow, expanded && css.arrowOpen)} />
-        </span>
+      <div className={css.projectRow} data-row-key="pinned-header">
         <span className={css.projectText}>
           <span className={css.title}>{t('section.pinned')}</span>
         </span>
         <span className={css.time} aria-hidden>{rows.length}</span>
       </div>
-      {expanded && (
-        <div role="listbox" aria-label={t('section.pinned')} className={css.recentRows}>
-          {rows.map(node => (
-            <SessionNodeItem
-              key={node.id}
-              node={node}
-              currentId={currentId}
-              now={now}
-              onOpen={onOpen}
-              onRenameRequest={onRenameRequest}
-              renderSlot={renderSlot}
-              openSessionMenu={openSessionMenu} useContextMenu={useContextMenu}
-              useContextMenuTarget={useContextMenuTarget}
-              useSessionAccess={useSessionAccess}
-              home={home}
-              rowKeyPrefix="pinned-session"
-              rowRole="option"
-              t={t}
-            />
-          ))}
-        </div>
+      <div role="listbox" aria-label={t('section.pinned')} className={css.recentRows}>
+        {visible.map(node => (
+          <SessionNodeItem
+            key={node.id}
+            node={node}
+            currentId={currentId}
+            now={now}
+            onOpen={onOpen}
+            onRenameRequest={onRenameRequest}
+            renderSlot={renderSlot}
+            openSessionMenu={openSessionMenu} useContextMenu={useContextMenu}
+            useContextMenuTarget={useContextMenuTarget}
+            useSessionAccess={useSessionAccess}
+            home={home}
+            rowKeyPrefix="pinned-session"
+            rowRole="option"
+            t={t}
+          />
+        ))}
+      </div>
+      {rows.length > PINNED_ROW_LIMIT && (
+        <button
+          type="button"
+          className={css.pinnedMore}
+          data-row-key="pinned-more"
+          aria-expanded={expanded}
+          onClick={onToggle}
+        >
+          {expanded ? t('section.pinned.less') : t('section.pinned.more')}
+        </button>
       )}
     </div>
   )

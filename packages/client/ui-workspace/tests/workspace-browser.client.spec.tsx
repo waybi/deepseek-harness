@@ -153,7 +153,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
     useHostInfo: selector => selector({ home: undefined, isLoopback: true }),
     usePinnedSection: bindSnapshotSelector(pinned),
-    setPinnedCollapsed: pinned.actions.setCollapsed,
+    setPinnedExpanded: pinned.actions.setExpanded,
     renderSlot: renderDirectoryFlowOnly,
     t,
     ...overrides,
@@ -3383,7 +3383,7 @@ describe('WorkspaceBrowser Pinned section', () => {
   })
 
   it.each(['workspace', 'workspace-tree', 'flat', 'prefix'] as const)(
-    'shows the section above the %s list, newest pin first, with a count and an expanded arrow',
+    'shows the section above the %s list, newest pin first, with a bare count and no glyph',
     (mode) => {
       createWorkspaceViewStore().create().actions.setGroupBy(mode)
       mount(base())
@@ -3391,9 +3391,12 @@ describe('WorkspaceBrowser Pinned section', () => {
       expect(section).not.toBeNull()
       expect(section?.getAttribute('role')).toBe('group')
       expect(pinnedTitles()).toEqual(['c', 'a'])
-      const header = within(section!).getByRole('button', { name: '置顶，2 个会话' })
-      expect(header.getAttribute('aria-expanded')).toBe('true')
+      const header = section!.querySelector<HTMLElement>('[data-row-key="pinned-header"]')!
+      expect(header.getAttribute('role')).toBeNull()
+      expect(header.querySelector('svg')).toBeNull()
+      expect(header.textContent).toContain('置顶')
       expect(header.textContent).toContain('2')
+      expect(header.textContent).not.toContain('(2)')
       const lowerList = document.querySelector('[data-row-key^="session:"], [data-row-key^="workspace:"], [data-row-key^="prefix-group:"]')
       expect(lowerList).not.toBeNull()
       expect(section!.compareDocumentPosition(lowerList!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -3444,18 +3447,31 @@ describe('WorkspaceBrowser Pinned section', () => {
     expect(pinnedSection()).not.toBeNull()
   })
 
-  it('keeps the collapsed state across a remount', () => {
-    const first = mount(base())
-    fireEvent.click(screen.getByRole('button', { name: '置顶，2 个会话' }))
-    expect(pinnedTitles()).toEqual([])
-    expect(screen.getByRole('button', { name: '置顶，2 个会话' }).getAttribute('aria-expanded')).toBe('false')
-    first.view.unmount()
-    mount(base())
-    expect(pinnedTitles()).toEqual([])
-    const header = screen.getByRole('button', { name: '置顶，2 个会话' })
-    expect(header.getAttribute('aria-expanded')).toBe('false')
-    fireEvent.click(header)
-    expect(pinnedTitles()).toEqual(['c', 'a'])
+  it('shows five pinned rows first, expands in place, and remembers the expansion', () => {
+    const seven = Array.from({ length: 7 }, (_, index) => summary(`p${index + 1}`, 100 - index))
+    const props = (pinned: readonly string[]) => ({
+      useSessions: hook(sessionState(seven)),
+      useWorkspaces: hook(workspaceState(
+        [workspace('alpha', seven.map(item => item.id))],
+        [],
+        pinned.map(sid),
+      )),
+    })
+    const b = mount(props(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']))
+    expect(pinnedTitles()).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
+    const more = screen.getByRole('button', { name: '展开更多置顶' })
+    expect(more.getAttribute('aria-expanded')).toBe('false')
+    const header = pinnedSection()!.querySelector('[data-row-key="pinned-header"]')!
+    expect(header.textContent).toContain('7')
+    expect(header.textContent).not.toContain('(7)')
+    fireEvent.click(more)
+    expect(pinnedTitles()).toHaveLength(7)
+    expect(screen.getByRole('button', { name: '收起置顶' }).getAttribute('aria-expanded')).toBe('true')
+    b.view.unmount()
+    mount(props(['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7']))
+    expect(pinnedTitles()).toHaveLength(7)
+    fireEvent.click(screen.getByRole('button', { name: '收起置顶' }))
+    expect(pinnedTitles()).toEqual(['p1', 'p2', 'p3', 'p4', 'p5'])
   })
 
   it('opens the clicked Session and highlights the current one', () => {

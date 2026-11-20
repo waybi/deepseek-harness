@@ -1334,7 +1334,7 @@ function SearchResults({
  * nothing while no pin is listable.
  * @param props.list - sessions list snapshot.
  * @param props.rowState - registry-global pin/archive sets.
- * @param props.setCollapsed - persist the section's collapsed flag.
+ * @param props.setCollapsed - persist whether the section shows every pinned row.
  * @returns the Pinned section, or null when empty.
  */
 function PinnedSectionSeat({
@@ -1353,7 +1353,7 @@ function PinnedSectionSeat({
   home?: string | undefined
   list: SessionListState
   rowState: SessionRowState
-  setCollapsed: (collapsed: boolean) => void
+  setCollapsed: (expanded: boolean) => void
   onSessionRenameRequest: WorkspaceBrowserProps['requestSessionRename']
 }) {
   const section = usePinnedSection(state => state)
@@ -1371,8 +1371,8 @@ function PinnedSectionSeat({
     <HoverCardGroup>
       <PinnedSection
         rows={rows}
-        collapsed={section.collapsed}
-        onToggle={() => { setCollapsed(!section.collapsed) }}
+        expanded={section.expanded}
+        onToggle={() => { setCollapsed(!section.expanded) }}
         currentId={currentId}
         now={minuteNow()}
         onOpen={open}
@@ -1421,7 +1421,7 @@ export function WorkspaceBrowser({
   useDirectoryFlow,
   useHostInfo,
   usePinnedSection,
-  setPinnedCollapsed,
+  setPinnedExpanded,
   useShortcuts,
   useWorkspaceShortcuts,
   requestSearch,
@@ -1870,7 +1870,7 @@ export function WorkspaceBrowser({
             list={list}
             rowState={rowState}
             usePinnedSection={usePinnedSection}
-            setCollapsed={setPinnedCollapsed}
+            setCollapsed={setPinnedExpanded}
             usePanelInfo={usePanelInfo}
             useSessionStatus={useSessionStatus}
             open={guardedOpen}

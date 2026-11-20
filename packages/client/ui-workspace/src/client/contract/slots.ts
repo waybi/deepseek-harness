@@ -259,13 +259,13 @@ export type WorkspaceBrowserInjected = {
      * saw. Select the field the surface needs (`info => info.home`).
      */
     hostInfo: HostObservable<RemoteHostFacts>
-    /** Persisted Pinned section state (its collapsed flag). */
+    /** Persisted Pinned section state (whether it shows every pinned row). */
     pinnedSection: HostObservable<PinnedSectionState>
     workspaceShortcuts: HostObservable<WorkspaceShortcutState>
     shortcuts: HostObservable<readonly ShortcutCatalogEntry[]>
   }
-  /** Collapse or expand the Pinned section (persisted). */
-  setPinnedCollapsed: (collapsed: boolean) => void
+  /** Show every pinned row, or return to the first few (persisted). */
+  setPinnedExpanded: (expanded: boolean) => void
   /** Open the browser search and focus its input. */
   requestSearch: () => void
   /** Request the existing directory picker. */

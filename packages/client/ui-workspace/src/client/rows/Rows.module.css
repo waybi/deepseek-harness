@@ -278,6 +278,51 @@
   content: ')';
 }
 
+/* The Pinned header borrows the group-header row but reads as a plain section
+   label: no pin glyph, a slightly larger title, and a bare count instead of the
+   parenthesised group count. */
+[data-section='pinned'] .projectRow {
+  cursor: default;
+}
+
+@media (hover: hover) {
+  [data-section='pinned'] .projectRow:hover {
+    background-color: transparent;
+  }
+}
+
+[data-section='pinned'] .projectRow .title {
+  font-size: 15px;
+  line-height: 22px;
+}
+
+[data-section='pinned'] .projectRow .time::before,
+[data-section='pinned'] .projectRow .time::after {
+  content: none;
+}
+
+/* Doubao-style overflow link: the first five pinned rows render, and this seat
+   asks for the rest in place instead of opening every row at once. */
+.pinnedMore {
+  align-self: flex-start;
+  margin: 2px 0 0 2px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--dsw-radius-md);
+  background: none;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .pinnedMore:hover {
+    background-color: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
 /* Pending interaction on the trailing edge: an inverted chip standing where
    the update time would sit, painted from the same label/foreground pair as
    the composer's send control so it flips with the theme. */
