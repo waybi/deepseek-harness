@@ -295,15 +295,17 @@
    asks for the rest in place instead of opening every row at once. */
 .pinnedMore {
   align-self: flex-start;
-  margin: 2px 0 0 2px;
+  /* Align the label with the row titles: the leading status cell plus the
+     row gap, minus this button's own inset. */
+  margin: 2px 0 0 calc(12px + var(--dsh-sidebar-label-gap));
   padding: 4px 6px;
   border: 0;
   border-radius: var(--dsw-radius-md);
   background: none;
   color: var(--dsw-alias-label-tertiary);
   font: inherit;
-  font-size: 13px;
-  line-height: 20px;
+  font-size: 12px;
+  line-height: 18px;
   cursor: pointer;
 }
 
