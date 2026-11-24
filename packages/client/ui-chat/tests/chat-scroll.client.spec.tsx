@@ -492,6 +492,33 @@ it('keeps one active fold when the local echo becomes its durable input', async 
   expect(h.scrollTo.mock.calls.some(([options]) => options.behavior === 'smooth')).toBe(false)
 })
 
+describe('Chat scroll: session switch landing', () => {
+  const savedMidPosition = { anchorKey: 'unmounted-anchor', anchorTop: 0, scrollTop: 300 }
+
+  it.each([false, true])('follows the tail on open of a still-generating session (deferCompletedTurns=%s)', (deferred) => {
+    const save = vi.fn()
+    const h = mountScroll(deferred, {
+      ready: false, running: true,
+      chatScroll: { read: () => savedMidPosition, save },
+    })
+    h.update({ ready: true })
+    expect(h.scroller.dataset.initialized).toBe('true')
+    // The saved mid-content anchor must be ignored while the session streams.
+    expect(h.scroller.scrollTop).toBe(600)
+    // Following the tail clears the stale saved position.
+    expect(save).toHaveBeenCalledWith(null)
+  })
+
+  it('restores the saved reading position on open of a completed session', () => {
+    const h = mountScroll(true, {
+      ready: false, running: false,
+      chatScroll: { read: () => savedMidPosition, save: vi.fn() },
+    })
+    h.update({ ready: true })
+    expect(h.scroller.scrollTop).toBe(300)
+  })
+})
+
 describe('Chat scroll collapse timing', () => {
   it.each(['resize', 'scroll', 'history', 'input', 'preference'] as const)(
     'waits for initial history before initializing a running view after %s', (change) => {
