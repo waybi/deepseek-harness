@@ -76,11 +76,10 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     if (current.ready && !content.current.opened) {
       content.current.opened = true
       navigation.reset()
-      // A still-generating Session keeps streaming below any saved anchor, so a restored
-      // mid-content position would strand the reader above the growing tail. Follow the
-      // tail on return; completed Sessions still restore their saved reading position.
-      if (current.running) reading.followTail()
-      else reading.restore()
+      // Opening a Session always lands on the newest content, whether it is still generating
+      // or already completed. A restored mid-content anchor strands the reader above the
+      // latest answer, so ignore the saved position and follow the tail on every open.
+      reading.followTail()
       return
     }
     if (ownInput) {

@@ -509,13 +509,16 @@ describe('Chat scroll: session switch landing', () => {
     expect(save).toHaveBeenCalledWith(null)
   })
 
-  it('restores the saved reading position on open of a completed session', () => {
+  it('follows the tail on open of a completed session, ignoring the saved reading position', () => {
+    const save = vi.fn()
     const h = mountScroll(true, {
       ready: false, running: false,
-      chatScroll: { read: () => savedMidPosition, save: vi.fn() },
+      chatScroll: { read: () => savedMidPosition, save },
     })
     h.update({ ready: true })
-    expect(h.scroller.scrollTop).toBe(300)
+    expect(h.scroller.scrollTop).toBe(600)
+    // Following the tail clears the stale saved position.
+    expect(save).toHaveBeenCalledWith(null)
   })
 })
 
