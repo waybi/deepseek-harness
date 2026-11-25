@@ -11,6 +11,10 @@ import type { FlowMotionRows } from './flow-motion.ts'
 /** Committed content and Session operations used to reconcile scroll ownership. */
 export interface ChatScrollInput extends ChatNavigationInput {
   readonly chatScroll: ChatViewSlotProps['chatScroll']
+  /** The Session whose transcript this scroll state drives; distinguishes a Session
+      switch (open lands on the newest content) from a same-Session view remount
+      (Chat ↔ Trajectory tab switch restores the saved reading spot). */
+  readonly sessionId: string
   readonly ready: boolean
   readonly order: readonly string[]
   readonly lastKey: string | null
@@ -37,6 +41,17 @@ interface ChatScrollState extends ChatReadingState {
   readonly motion: FlowMotionRows
 }
 
+/** The Session whose Chat view was mounted last, across mounts. A remount of the
+    same Session's view is a view-tab switch (Chat ↔ Trajectory) and restores the
+    saved reading spot; a different Session is a Session switch and lands on the
+    newest content. Module state because the comparison spans unmount/remount. */
+let lastOpenSessionId: string | null = null
+
+/** Clear the cross-mount Session tracking (test isolation). */
+export function resetChatSessionSwitchTracking(): void {
+  lastOpenSessionId = null
+}
+
 /**
  * Coordinate scroll policy after Chat content commits. Initial history must be ready
  * before automatic scroll or resize handling can initialize reading state and fold motion.
@@ -48,6 +63,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
   const {
     ready, order, firstSeq, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running,
     deferCompletedTurns, loadedTurns, chatScroll, hasMore, loadingOlder, loadOlder, loadThrough, transcriptView,
+    sessionId,
   } = input
   const { viewport, listRef, columnRef } = useChatViewport()
   const { reading, state } = useChatReading(viewport, chatScroll, loadedTurns.at(-1)?.turn ?? null)
@@ -76,10 +92,14 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     if (current.ready && !content.current.opened) {
       content.current.opened = true
       navigation.reset()
-      // Opening a Session always lands on the newest content, whether it is still generating
-      // or already completed. A restored mid-content anchor strands the reader above the
-      // latest answer, so ignore the saved position and follow the tail on every open.
-      reading.followTail()
+      // A Session switch always lands on the newest content, whether it is still
+      // generating or already completed: a restored mid-content anchor strands the
+      // reader above the latest answer. Remounting the same Session's view (Chat ↔
+      // Trajectory tab switch) is not a switch; it restores the saved reading spot.
+      const switched = lastOpenSessionId !== current.sessionId
+      lastOpenSessionId = current.sessionId
+      if (switched) reading.followTail()
+      else reading.restore()
       return
     }
     if (ownInput) {
@@ -145,7 +165,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
     const previous = content.current.input
     content.current.input = {
       ready, order, lastKey, lastIsUser, steeringId, submissionId, submissionSteers, running, loadedTurns,
-      chatScroll, deferCompletedTurns, transcriptView, ...navigationInput,
+      chatScroll, deferCompletedTurns, transcriptView, sessionId, ...navigationInput,
     }
     if (!deferCompletedTurns) {
       cancelPendingFollow()

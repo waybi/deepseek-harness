@@ -37,8 +37,15 @@
   container-type: inline-size;
 }
 
-.root[data-chat-following-tail] .scroll,
-:global([data-conversation-scroll]):has(.root[data-chat-following-tail]) {
+/* The chat controller owns every scroll write, so native scroll anchoring is
+   disabled unconditionally — not only while following the tail. While the
+   gate still depended on the following attribute, image and row growth
+   between the tail landing and the next React render let the browser's
+   anchoring compensation move the scroller behind the controller's back; the
+   positional movement attribution then read that compensation as reader
+   input, flipped tail follow off, and stranded the reader mid-conversation. */
+.root .scroll,
+:global([data-conversation-scroll]) {
   overflow-anchor: none;
 }
 

@@ -296,6 +296,15 @@ function scrollGeometry(page: Page): Promise<ScrollGeometry> {
   }))
 }
 
+/** The scroll controller owns every scroll write, so native anchoring must stay
+    off in both follow states: anchoring compensation reads as reader movement
+    and drops tail follow mid-conversation. */
+async function expectAnchoringDisabled(page: Page): Promise<void> {
+  await expect.poll(async () => page.locator('[data-conversation-scroll]').evaluate(
+    host => getComputedStyle(host).overflowAnchor,
+  )).toBe('none')
+}
+
 /**
  * Rendered transcript rows in the loaded window. The stats strip cannot serve
  * as this probe: its turn/step counts ride the whole-log sessionStats
@@ -1694,10 +1703,12 @@ describe('web e2e: long Chat scroll contract', () => {
         RESTORE_FIXTURE_A,
         RESTORE_FIXTURE_A.markers.assistant(RESTORE_FIXTURE_A.turns),
       )
+      await expectAnchoringDisabled(world.page)
       await loadEarlierWithAnchor(world.page)
       await loadEarlierWithAnchor(world.page)
       await wheelToHistoryStart(world.page)
       await wheelTranscript(world.page, 1_300)
+      await expectAnchoringDisabled(world.page)
       const sessionAnchor = await visibleFlowAnchor(world.page)
 
       await world.page.getByRole('tab', { name: 'Trajectory', exact: true }).click()
@@ -1716,12 +1727,10 @@ describe('web e2e: long Chat scroll contract', () => {
         world.page,
         RESTORE_FIXTURE_A,
       )
-
-      const backToBottom = world.page.getByRole('button', { name: 'Back to bottom', exact: true })
-      await backToBottom.waitFor({ timeout: 15_000 })
-      await backToBottom.evaluate((button) => {
-        if (!(button instanceof HTMLElement)) throw new Error('Back-to-bottom control is not an HTML element')
-        button.click()
+      // A Session switch lands on the newest content, so no Back-to-bottom control
+      // appears; the pinned remount below keeps the floor across the view-tab swap.
+      await expectBottom(world.page)
+      await world.page.evaluate(() => {
         const trajectory = [...document.querySelectorAll<HTMLElement>('[role="tab"]')]
           .find(tab => tab.textContent?.trim() === 'Trajectory')
         if (!(trajectory instanceof HTMLElement)) {

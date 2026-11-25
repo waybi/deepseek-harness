@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { useLayoutEffect } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FlowMotionRows } from '../src/client/chat/flow-motion.ts'
-import { useChatScroll, type ChatScrollInput } from '../src/client/chat/use-chat-scroll.ts'
+import { useChatScroll, resetChatSessionSwitchTracking, type ChatScrollInput } from '../src/client/chat/use-chat-scroll.ts'
 
 beforeEach(() => { vi.useFakeTimers() })
 afterEach(async () => {
@@ -37,6 +37,7 @@ function ScrollHarness({ input, onMotion }: {
 function mountScroll(deferCompletedTurns = true, initial: Partial<ChatScrollInput> = {}) {
   let input: ChatScrollInput = {
     ready: true,
+    sessionId: 'session-a',
     order: [],
     firstSeq: null,
     lastKey: null,
@@ -116,7 +117,7 @@ function mountRows(heights: readonly number[]) {
   }
   vi.stubGlobal('ResizeObserver', Observer)
   const input: ChatScrollInput = {
-    ready: true, order: [], firstSeq: null, lastKey: null, lastIsUser: false,
+    ready: true, sessionId: 'session-a', order: [], firstSeq: null, lastKey: null, lastIsUser: false,
     steeringId: null, submissionId: null, submissionSteers: false, running: false, deferCompletedTurns: false,
     transcriptView: 'standard', loadedTurns: [], hasMore: false, loadingOlder: false,
     loadOlder: vi.fn(), loadThrough: vi.fn(async () => {}), chatScroll: { read: () => null, save: vi.fn() },
@@ -168,7 +169,7 @@ function mountRows(heights: readonly number[]) {
     return found
   }
   return {
-    scroller, row, room, resize,
+    scroller, row, room, resize, view,
     top: () => top,
     screenTop: (row: HTMLElement) => docTop(row) - top,
     grow: (row: HTMLElement, by: number) => { sizes.set(row, (sizes.get(row) ?? 0) + by) },
@@ -287,7 +288,7 @@ function mountVisibleFold(test: typeof visibleFoldCases[number], reduced: boolea
   let motion: FlowMotionRows | undefined
   const onMotion = (value: FlowMotionRows): void => { motion = value }
   let input: ChatScrollInput = {
-    ready: false, order: [], firstSeq: null, lastKey: null, lastIsUser: false,
+    ready: false, sessionId: 'session-a', order: [], firstSeq: null, lastKey: null, lastIsUser: false,
     steeringId: null, submissionId: null, submissionSteers: false, running: false, deferCompletedTurns: true,
     transcriptView: 'detailed', loadedTurns: [], hasMore: false, loadingOlder: false,
     loadOlder: vi.fn(), loadThrough: vi.fn(async () => {}), chatScroll: { read: () => null, save: vi.fn() },
@@ -495,10 +496,12 @@ it('keeps one active fold when the local echo becomes its durable input', async 
 describe('Chat scroll: session switch landing', () => {
   const savedMidPosition = { anchorKey: 'unmounted-anchor', anchorTop: 0, scrollTop: 300 }
 
+  beforeEach(() => { resetChatSessionSwitchTracking() })
+
   it.each([false, true])('follows the tail on open of a still-generating session (deferCompletedTurns=%s)', (deferred) => {
     const save = vi.fn()
     const h = mountScroll(deferred, {
-      ready: false, running: true,
+      ready: false, running: true, sessionId: 'session-a',
       chatScroll: { read: () => savedMidPosition, save },
     })
     h.update({ ready: true })
@@ -512,12 +515,54 @@ describe('Chat scroll: session switch landing', () => {
   it('follows the tail on open of a completed session, ignoring the saved reading position', () => {
     const save = vi.fn()
     const h = mountScroll(true, {
-      ready: false, running: false,
+      ready: false, running: false, sessionId: 'session-a',
       chatScroll: { read: () => savedMidPosition, save },
     })
     h.update({ ready: true })
     expect(h.scroller.scrollTop).toBe(600)
     // Following the tail clears the stale saved position.
+    expect(save).toHaveBeenCalledWith(null)
+  })
+
+  it('restores the saved reading position when the same Session view remounts (view-tab switch)', () => {
+    const first = mountScroll(true, {
+      ready: false, running: false, sessionId: 'session-a',
+      chatScroll: { read: () => savedMidPosition, save: vi.fn() },
+    })
+    first.update({ ready: true })
+    act(() => { first.view.unmount() })
+    const save = vi.fn()
+    // Remounting the same Session's view is a Chat ↔ Trajectory tab switch, not a
+    // Session switch: the saved mid-content anchor comes back.
+    const second = mountScroll(true, {
+      ready: false, running: false, sessionId: 'session-a',
+      chatScroll: { read: () => savedMidPosition, save },
+    })
+    second.update({ ready: true })
+    expect(second.scroller.scrollTop).toBe(300)
+    expect(save).not.toHaveBeenCalledWith(null)
+  })
+
+  it('follows the tail again when a different Session opens after a same-Session remount', () => {
+    const first = mountScroll(true, {
+      ready: false, running: false, sessionId: 'session-a',
+      chatScroll: { read: () => savedMidPosition, save: vi.fn() },
+    })
+    first.update({ ready: true })
+    act(() => { first.view.unmount() })
+    const second = mountScroll(true, {
+      ready: false, running: false, sessionId: 'session-a',
+      chatScroll: { read: () => savedMidPosition, save: vi.fn() },
+    })
+    second.update({ ready: true })
+    act(() => { second.view.unmount() })
+    const save = vi.fn()
+    const third = mountScroll(true, {
+      ready: false, running: false, sessionId: 'session-b',
+      chatScroll: { read: () => savedMidPosition, save },
+    })
+    third.update({ ready: true })
+    expect(third.scroller.scrollTop).toBe(600)
     expect(save).toHaveBeenCalledWith(null)
   })
 })
