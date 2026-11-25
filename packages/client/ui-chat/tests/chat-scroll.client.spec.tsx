@@ -607,6 +607,20 @@ describe('Chat scroll: session switch landing', () => {
     expect(h.scroller.scrollTop).toBe(300)
   })
 
+  it('does not release the Session-switch guard when a layout change repositions the reader', () => {
+    const h = mountScroll(true, { ready: false, running: false, sessionId: 'session-b' })
+    h.update({ ready: true })
+    expect(h.scroller.scrollTop).toBe(600)
+    // Late content expands, then the browser anchors the viewport elsewhere in the
+    // same layout pass. That is not reader movement and must be pulled back.
+    h.grow(1_500)
+    h.resize()
+    h.scroller.scrollTop = 300
+    fireEvent.scroll(h.scroller)
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(h.scroller.scrollTop).toBe(1_100)
+  })
+
   it('releases the Session-switch guard on a real reading gesture', () => {
     const h = mountScroll(true, { ready: false, running: false, sessionId: 'session-a' })
     h.update({ ready: true })

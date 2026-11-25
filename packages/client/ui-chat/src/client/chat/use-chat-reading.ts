@@ -10,6 +10,8 @@ const SCROLL_SAMPLE_INTERVAL_MS = 500
     A real reading gesture releases the guard at once, so the long window does
     not hold the reader against their will. */
 const SESSION_SWITCH_TAIL_GUARD_MS = 10_000
+/** A scroll observed this soon after a layout change is anchor movement, not a reader gesture. */
+const LAYOUT_SETTLE_MS = 300
 
 /** Reading facts that affect Chat chrome and initial rail placement. */
 export interface ChatReadingState {
@@ -36,6 +38,10 @@ export class ChatReading {
   /** Floor last delivered by the Session-switch guard; content growth or a
       reader gesture outside the tail releases the guard early. */
   private sessionGuardFloor: number | null = null
+  /** When the last resize/anchor pass reported a layout change. */
+  private lastLayoutAt = 0
+  /** Highest position seen while the guard was active and the reader was above the tail. */
+  private guardAwayTop: number | null = null
 
   constructor(
     private readonly viewport: ChatViewport,
@@ -78,6 +84,8 @@ export class ChatReading {
     if (this.sessionTailGuard !== null) clearTimeout(this.sessionTailGuard)
     this.sessionTailGuard = null
     this.sessionGuardFloor = null
+    this.lastLayoutAt = 0
+    this.guardAwayTop = null
     this.sampled = null
   }
 
@@ -93,7 +101,7 @@ export class ChatReading {
    * Widget iframes, images, and completion folds resize the transcript after the
    * first landing; re-assert the floor on a short clock so no single dropped
    * scroll/size delivery can strand the reader. Growth renews the deadline once
-   * settled; a reading gesture or a position clearly above the floor releases it.
+   * settled; a gesture, or sustained upward scrolling without one, releases it.
    */
   holdSessionTail(): void {
     this.releaseSessionTailGuard()
@@ -103,16 +111,6 @@ export class ChatReading {
     let deadline = Date.now() + SESSION_SWITCH_TAIL_GUARD_MS
     const tick = (): void => {
       if (this.sessionTailGuard === null) return
-      // Gesture events can be swallowed by embedded content or a scrollbar drag;
-      // fall back to geometry. A reader is above the delivered floor only when
-      // the viewport is clearly above both the last floor and the current one,
-      // which excludes content growth and its clamping shrink.
-      const delivered = this.viewport.readScroll()
-      if (delivered !== null && delivered.movedByReader && this.sessionGuardFloor !== null
-        && delivered.metrics.top < Math.min(this.sessionGuardFloor, delivered.metrics.floor) - FOLLOW_THRESHOLD) {
-        this.releaseSessionTailGuard()
-        return
-      }
       // A fold batch owns its own scroll writes; its finish commits the tail.
       if (!this.viewport.motion.foldActive()) this.followTail()
       // Content resized by an iframe, image, or fold: hold through the new floor.
@@ -136,6 +134,8 @@ export class ChatReading {
     if (this.sessionTailGuard !== null) clearTimeout(this.sessionTailGuard)
     this.sessionTailGuard = null
     this.sessionGuardFloor = null
+    this.lastLayoutAt = 0
+    this.guardAwayTop = null
   }
 
   /**
@@ -219,6 +219,21 @@ export class ChatReading {
    * @param scroll - attributed scroll delivery; other reader movement remains pending until sampled.
    */
   readonly onScroll = (scroll: ViewportScroll): void => {
+    // Pointer gestures release at once. Embedded content and scrollbar drags can
+    // swallow them, so a scroll that keeps moving up across two events is a
+    // reader too. A single jump during a layout pass is an anchor adjustment.
+    if (this.sessionTailGuard !== null && scroll.movedByReader) {
+      const away = scroll.metrics.floor - scroll.metrics.top > FOLLOW_THRESHOLD
+      if (away) {
+        const previous = this.guardAwayTop
+        this.guardAwayTop = scroll.metrics.top
+        const movingUp = previous !== null && scroll.metrics.top < previous - 0.5
+        if (movingUp || Date.now() - this.lastLayoutAt >= LAYOUT_SETTLE_MS) {
+          this.releaseSessionTailGuard()
+          this.publish({ ...this.state, followingTail: false })
+        }
+      } else this.guardAwayTop = null
+    }
     // Native follow animation progress is not reader movement; scrollend settles it.
     if (this.follow.animating) return
     if ((!scroll.movedByReader && this.state.followingTail)
@@ -253,6 +268,7 @@ export class ChatReading {
 
   /** Reconcile a layout change without overriding unsampled reader input. */
   onResize(): void {
+    this.lastLayoutAt = Date.now()
     if (this.pending) return
     if (this.state.followingTail) this.followTail()
     else this.refreshActiveTurn()
