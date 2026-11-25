@@ -574,6 +574,23 @@ describe('Chat scroll: session switch landing', () => {
     expect(h.scroller.scrollTop).toBe(1_600)
   })
 
+  it('does not release the Session-switch guard on a layout clamp without reader input', () => {
+    const h = mountScroll(true, { ready: false, running: false, sessionId: 'session-b' })
+    h.update({ ready: true })
+    expect(h.scroller.scrollTop).toBe(600)
+    // Browser clamps the pinned position when async content contracts; this is
+    // not reader movement and must not end the guard.
+    h.grow(500)
+    h.scroller.scrollTop = 0
+    fireEvent.scroll(h.scroller)
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(h.scroller.scrollTop).toBe(100)
+    // A later growth still renews the guard and lands on the new floor.
+    h.grow(1_500)
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(h.scroller.scrollTop).toBe(1_100)
+  })
+
   it('releases the Session-switch guard on a real reading gesture', () => {
     const h = mountScroll(true, { ready: false, running: false, sessionId: 'session-a' })
     h.update({ ready: true })
