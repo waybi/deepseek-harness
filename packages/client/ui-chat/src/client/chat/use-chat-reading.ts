@@ -93,7 +93,7 @@ export class ChatReading {
    * Widget iframes, images, and completion folds resize the transcript after the
    * first landing; re-assert the floor on a short clock so no single dropped
    * scroll/size delivery can strand the reader. Growth renews the deadline once
-   * settled; only a real reading gesture releases it.
+   * settled; a reading gesture or a position clearly above the floor releases it.
    */
   holdSessionTail(): void {
     this.releaseSessionTailGuard()
@@ -103,6 +103,16 @@ export class ChatReading {
     let deadline = Date.now() + SESSION_SWITCH_TAIL_GUARD_MS
     const tick = (): void => {
       if (this.sessionTailGuard === null) return
+      // Gesture events can be swallowed by embedded content or a scrollbar drag;
+      // fall back to geometry. A reader is above the delivered floor only when
+      // the viewport is clearly above both the last floor and the current one,
+      // which excludes content growth and its clamping shrink.
+      const delivered = this.viewport.readScroll()
+      if (delivered !== null && delivered.movedByReader && this.sessionGuardFloor !== null
+        && delivered.metrics.top < Math.min(this.sessionGuardFloor, delivered.metrics.floor) - FOLLOW_THRESHOLD) {
+        this.releaseSessionTailGuard()
+        return
+      }
       // A fold batch owns its own scroll writes; its finish commits the tail.
       if (!this.viewport.motion.foldActive()) this.followTail()
       // Content resized by an iframe, image, or fold: hold through the new floor.

@@ -579,9 +579,10 @@ describe('Chat scroll: session switch landing', () => {
     h.update({ ready: true })
     expect(h.scroller.scrollTop).toBe(600)
     // Browser clamps the pinned position when async content contracts; this is
-    // not reader movement and must not end the guard.
+    // not reader movement and must not end the guard. A real clamp lands on the
+    // new floor, not above it.
     h.grow(500)
-    h.scroller.scrollTop = 0
+    h.scroller.scrollTop = 100
     fireEvent.scroll(h.scroller)
     act(() => { vi.advanceTimersByTime(150) })
     expect(h.scroller.scrollTop).toBe(100)
@@ -589,6 +590,21 @@ describe('Chat scroll: session switch landing', () => {
     h.grow(1_500)
     act(() => { vi.advanceTimersByTime(150) })
     expect(h.scroller.scrollTop).toBe(1_100)
+  })
+
+  it('releases the Session-switch guard when the reader scrolls above the floor without a parent gesture', () => {
+    const h = mountScroll(true, { ready: false, running: false, sessionId: 'session-b' })
+    h.update({ ready: true })
+    // Embedded content and scrollbar drags can move the scroller without a wheel
+    // event reaching the parent. The guard must yield on the observed geometry.
+    h.scroller.scrollTop = 300
+    fireEvent.scroll(h.scroller)
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(h.scroller.scrollTop).toBe(300)
+    h.grow(1_600)
+    h.resize()
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(h.scroller.scrollTop).toBe(300)
   })
 
   it('releases the Session-switch guard on a real reading gesture', () => {
