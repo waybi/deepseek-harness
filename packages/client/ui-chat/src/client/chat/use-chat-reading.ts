@@ -6,6 +6,10 @@ import { useScrollFollow, type ScrollFollow } from './use-scroll-follow.ts'
 
 const FOLLOW_THRESHOLD = 24
 const SCROLL_SAMPLE_INTERVAL_MS = 500
+/** A Session switch owns the tail while images, widget iframes, and folds land.
+    A real reading gesture releases the guard at once, so the long window does
+    not hold the reader against their will. */
+const SESSION_SWITCH_TAIL_GUARD_MS = 10_000
 
 /** Reading facts that affect Chat chrome and initial rail placement. */
 export interface ChatReadingState {
@@ -28,6 +32,10 @@ export class ChatReading {
   private sampleTimer: number | null = null
   private probeFrame: number | null = null
   private sampled: ((sample: ReadingSample) => void) | null = null
+  private sessionTailGuard: number | null = null
+  /** Floor last delivered by the Session-switch guard; content growth or a
+      reader gesture outside the tail releases the guard early. */
+  private sessionGuardFloor: number | null = null
 
   constructor(
     private readonly viewport: ChatViewport,
@@ -67,13 +75,66 @@ export class ChatReading {
   /** Cancel timers and animation frames and detach the sample listener. */
   dispose(): void {
     this.cancelPending()
+    if (this.sessionTailGuard !== null) clearTimeout(this.sessionTailGuard)
+    this.sessionTailGuard = null
+    this.sessionGuardFloor = null
     this.sampled = null
   }
 
   /** Release bottom follow and pending sampling for an explicit navigation. */
   pauseFollowing(): void {
+    this.releaseSessionTailGuard()
     this.cancelPending()
     this.publish({ ...this.state, followingTail: false })
+  }
+
+  /**
+   * Guard a fresh Session switch until late content stops growing.
+   * Widget iframes, images, and completion folds resize the transcript after the
+   * first landing; re-assert the floor on a short clock so no single dropped
+   * scroll/size delivery can strand the reader. Growth renews the deadline once
+   * settled; a reading gesture or explicit reader movement releases it.
+   */
+  holdSessionTail(): void {
+    this.releaseSessionTailGuard()
+    this.cancelPending()
+    const metrics = this.viewport.readScroll()
+    this.sessionGuardFloor = metrics?.metrics.floor ?? null
+    let deadline = Date.now() + SESSION_SWITCH_TAIL_GUARD_MS
+    const tick = (): void => {
+      if (this.sessionTailGuard === null) return
+      // Reader movement away from the delivered floor ends the guard: the
+      // reader is deliberately reading older content, not waiting for tail.
+      const scroll = this.viewport.readScroll()
+      if (scroll !== null && scroll.movedByReader
+        && this.sessionGuardFloor !== null
+        && scroll.metrics.top < this.sessionGuardFloor - FOLLOW_THRESHOLD) {
+        this.releaseSessionTailGuard()
+        return
+      }
+      // A fold batch owns its own scroll writes; its finish commits the tail.
+      if (!this.viewport.motion.foldActive()) this.followTail()
+      // Content resized by an iframe, image, or fold: hold through the new floor.
+      const floor = this.viewport.readScroll()?.metrics.floor
+      if (floor !== undefined && this.sessionGuardFloor !== null && floor > this.sessionGuardFloor + 0.5) {
+        deadline = Date.now() + SESSION_SWITCH_TAIL_GUARD_MS
+      }
+      if (floor !== undefined) this.sessionGuardFloor = floor
+      if (Date.now() < deadline) this.sessionTailGuard = window.setTimeout(tick, 150)
+      else this.releaseSessionTailGuard()
+    }
+    this.sessionTailGuard = window.setTimeout(tick, 0)
+  }
+
+  /** A real reading gesture ends the guard before its timer. */
+  onIntent(): void {
+    this.releaseSessionTailGuard()
+  }
+
+  private releaseSessionTailGuard(): void {
+    if (this.sessionTailGuard !== null) clearTimeout(this.sessionTailGuard)
+    this.sessionTailGuard = null
+    this.sessionGuardFloor = null
   }
 
   /**

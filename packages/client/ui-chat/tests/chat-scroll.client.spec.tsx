@@ -553,6 +553,40 @@ describe('Chat scroll: session switch landing', () => {
     expect(save).not.toHaveBeenCalledWith(null)
   })
 
+  it('keeps the tail through late content growth after a Session switch', () => {
+    const save = vi.fn()
+    const h = mountScroll(true, {
+      ready: false, running: false, sessionId: 'session-b',
+      chatScroll: { read: () => savedMidPosition, save },
+    })
+    h.update({ ready: true })
+    expect(h.scroller.scrollTop).toBe(600)
+    // A widget iframe grows the transcript after the first landing. The guard
+    // re-asserts the floor on its clock instead of trusting one scroll/size event.
+    h.grow(1_500)
+    fireEvent.scroll(h.scroller)
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(h.scroller.scrollTop).toBe(1_100)
+    expect(save).not.toHaveBeenCalledWith(savedMidPosition)
+    // Growth renews the guard so a later iframe resize still lands on the floor.
+    h.grow(2_000)
+    act(() => { vi.advanceTimersByTime(150) })
+    expect(h.scroller.scrollTop).toBe(1_600)
+  })
+
+  it('releases the Session-switch guard on a real reading gesture', () => {
+    const h = mountScroll(true, { ready: false, running: false, sessionId: 'session-a' })
+    h.update({ ready: true })
+    fireEvent.wheel(h.scroller)
+    h.scroller.scrollTop = 200
+    fireEvent.scroll(h.scroller)
+    act(() => { vi.advanceTimersByTime(500) })
+    // A later size change must not pull a reader who deliberately moved away.
+    h.grow(1_600)
+    h.resize()
+    expect(h.scroller.scrollTop).toBe(200)
+  })
+
   it('follows the tail again when a different Session opens after a same-Session remount', () => {
     const first = mountScroll(true, {
       ready: false, running: false, sessionId: 'session-a',

@@ -98,8 +98,12 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
       // Trajectory tab switch) is not a switch; it restores the saved reading spot.
       const switched = lastOpenSessionId !== current.sessionId
       lastOpenSessionId = current.sessionId
-      if (switched) reading.followTail()
-      else reading.restore()
+      if (switched) {
+        // Hold the tail through late-arriving content: widget iframes resize,
+        // images load, and completion folds land after the initial floor.
+        reading.holdSessionTail()
+        reading.followTail()
+      } else reading.restore()
       return
     }
     if (ownInput) {
@@ -138,7 +142,7 @@ export function useChatScroll(input: ChatScrollInput): ChatScrollState {
         navigation.readerSettled()
       },
       interact: () => { navigation.cancel() },
-      intent: () => { cancelPendingFollow(); reading.interruptFollow() },
+      intent: () => { reading.onIntent(); cancelPendingFollow(); reading.interruptFollow() },
       resize: () => {
         if (!content.current.opened) return
         if (navigation.contentCommitted()) {
