@@ -47,17 +47,8 @@ export interface FoldReader {
   readonly pending: () => boolean
 }
 
-/** A top-level row a closing shrink may keep still, measured before the rows close. */
-interface ShrinkAnchor {
-  readonly element: HTMLElement
-  /** Distance from the row's top to the end of the content last painted. */
-  readonly fromEnd: number
-}
-
 /** Layout measured at the first instant hide of a commit; only the size observation of that frame uses it. */
 interface ClosingLayout {
-  /** The first visible row, then the rows above it within one scrollport. */
-  readonly rows: readonly ShrinkAnchor[]
   /** Content height without fold room when the rows were measured. */
   readonly content: number
 }
@@ -456,14 +447,9 @@ export class ChatViewport {
   }
 
   /**
-   * Measure, before the first row of a commit closes at once, the rows a following reader's shrink keeps
-   * still: the first row visible in the last painted layout, the rows after it that were on screen, and the
-   * rows above it within one scrollport.
-   * Rows above the closing rows keep their painted screen positions, which the commit did not move; the same
-   * commit can add rows between them and the closing rows, as a Turn's duration control does, so rows from
-   * the closing rows on are placed against the current end. Reads happen only when rows close, never on the
-   * following path's size observations. A measurement the same frame's size observation does not use is
-   * discarded after that frame.
+   * Measure content before the first instant close of a commit. A following reader stays at the tail after
+   * the shrink, so no row anchor is retained; only the pre-commit height is needed to distinguish a real
+   * shrink from same-frame growth. A measurement the same frame's size observation does not use is discarded.
    * @param element - the first row of this commit to close.
    */
   private measureClosing(element: HTMLElement): void {
@@ -472,52 +458,7 @@ export class ChatViewport {
     if (elements === null || reader === null || this.closing !== null || !element.isConnected) return
     if (!reader.follow.active || reader.follow.animating || reader.pending()) return
     if (this.paging !== null || this.motion.foldActive() || this.motion.inputActive()) return
-    const scroller = elements.scroller
-    const scrollHeight = scroller.scrollHeight
-    const height = scroller.clientHeight
-    // The commit has not moved the scroll position, so it is the painted one, within the follow threshold too.
-    const painted = scroller.scrollTop + height
-    const origin = scroller.getBoundingClientRect().top - scroller.scrollTop
-    const rows = (elements.column.querySelector(':scope > [data-slot="conversation.chat.flow"]') ?? elements.column).children
-    // End is the content end each row is placed against: painted for rows above the closing rows.
-    const end = (row: Element): number => row !== element && !row.contains(element)
-      && (element.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_PRECEDING) !== 0 ? painted : scrollHeight
-    const screen = (row: Element, offset: number): number => offset - origin - (end(row) - height)
-    let low = 0
-    let high = rows.length
-    while (low < high) {
-      const middle = (low + high) >>> 1
-      const row = rows[middle] as Element
-      if (screen(row, row.getBoundingClientRect().bottom) > 0) high = middle
-      else low = middle + 1
-    }
-    let first = -1
-    for (let index = low; index < rows.length && first < 0; index++) {
-      const row = rows[index] as HTMLElement
-      const rect = row.getBoundingClientRect()
-      if (screen(row, rect.top) >= height) break
-      if (rect.height > 0 && !row.hasAttribute('hidden')) first = index
-    }
-    if (first < 0) return
-    const anchors: ShrinkAnchor[] = []
-    const add = (row: HTMLElement, rect: DOMRect): void => {
-      if (rect.height > 0 && !row.hasAttribute('hidden')) anchors.push({ element: row, fromEnd: end(row) - (rect.top - origin) })
-    }
-    add(rows[first] as HTMLElement, (rows[first] as HTMLElement).getBoundingClientRect())
-    // When the first visible row closes, the reader's eyes are on the rows that follow it on screen.
-    for (let index = first + 1; index < rows.length; index++) {
-      const row = rows[index] as HTMLElement
-      const rect = row.getBoundingClientRect()
-      if (screen(row, rect.top) >= height) break
-      add(row, rect)
-    }
-    for (let index = first - 1; index >= 0; index--) {
-      const row = rows[index] as HTMLElement
-      const rect = row.getBoundingClientRect()
-      if (screen(row, rect.bottom) <= -height) break
-      add(row, rect)
-    }
-    this.closing = { rows: anchors, content: scrollHeight - this.spacerHeight() }
+    this.closing = { content: elements.scroller.scrollHeight - this.spacerHeight() }
     if (typeof requestAnimationFrame === 'function') {
       // This frame's size observation runs before the second callback; nothing later may use the measurement.
       this.closingFrame = requestAnimationFrame(() => {
@@ -536,13 +477,9 @@ export class ChatViewport {
   }
 
   /**
-   * Keep a following reader's content still after rows closed at once, for example work details at Turn
-   * completion: the first visible row keeps its screen position, or, when it closed, the first surviving row
-   * that followed it on screen, else the nearest surviving row above it. Room below fills the gap, at most half
-   * the scrollport; beyond that the content end stops at the scrollport's middle. Called from the size
-   * observation, after layout and before paint; only the observation of the frame that closed the rows uses
-   * the measurement, and only while the reader still follows the tail with no fold batch, native animation,
-   * unsampled movement, or paging writing positions.
+   * Keep a following reader at the physical tail after rows close at once, for example work details at Turn
+   * completion. Fold room from an earlier landing is removed before the regular resize path re-measures the
+   * floor; retaining that room would leave the reader artificially above the newest answer.
    */
   private keepAboveClosing(): void {
     const closing = this.closing
@@ -552,27 +489,11 @@ export class ChatViewport {
     this.dropClosing()
     if (elements === null || reader === null || !reader.follow.active || reader.follow.animating || reader.pending()) return
     if (this.paging !== null || this.motion.foldActive() || this.motion.inputActive()) return
-    const scroller = elements.scroller
-    const content = scroller.scrollHeight - this.spacerHeight()
+    const content = elements.scroller.scrollHeight - this.spacerHeight()
     // Growth in the same commit can outweigh the closed rows; nothing then shrank to compensate.
     if (content >= closing.content - 0.5) return
-    const height = scroller.clientHeight
-    const origin = scroller.getBoundingClientRect().top - scroller.scrollTop
-    const cap = height / 2
-    let top = content + cap - height
-    for (const row of closing.rows) {
-      if (!row.element.isConnected || row.element.closest('[hidden]') !== null) continue
-      const rect = row.element.getBoundingClientRect()
-      if (rect.height === 0) continue
-      top = rect.top - origin - (height - row.fromEnd)
-      break
-    }
-    if (top + height - content > cap) top = content + cap - height
-    top = Math.max(0, top)
-    this.setSpacer(top === 0 ? 0 : Math.max(0, top + height - content))
-    if (scroller.scrollTop !== top) scroller.scrollTop = top
-    const metrics = scrollMetrics(scroller)
-    this.observation = { top: metrics.top, landing: { metrics, position: null, turn: this.latestTurn } }
+    this.setSpacer(0)
+    this.invalidate()
   }
 
   /** Clear fold reservations after a display-mode change, allowing the scroll range to shrink. */

@@ -193,15 +193,26 @@ function mountRows(heights: readonly number[]) {
   }
 }
 
-describe('Chat scroll: a closing shrink keeps the content above still', () => {
-  it('keeps the first visible row still and fills the gap below with room', () => {
+describe('Chat scroll: completion folding keeps a following reader at the tail', () => {
+  it('keeps a following reader at the tail when completion folding shrinks the transcript', () => {
+    const h = mountRows([500, 900])
+    const [earlier, steps] = [h.row(0), h.row(1)]
+    expect(h.top()).toBe(1_000)
+    h.close(steps)
+    expect(h.top()).toBe(100)
+    expect(h.room()).toBe(0)
+    expect(h.screenTop(earlier)).toBe(-100)
+  })
+
+  it('re-measures the floor after a visible row closes', () => {
     const h = mountRows([700, 100, 200])
     expect(h.top()).toBe(600)
     const [first, step, answer] = [h.row(0), h.row(1), h.row(2)]
     h.close(step)
-    expect(h.screenTop(first)).toBe(-600)
-    expect(h.screenTop(answer)).toBe(100)
-    expect(h.room()).toBe(100)
+    expect(h.top()).toBe(500)
+    expect(h.screenTop(first)).toBe(-500)
+    expect(h.screenTop(answer)).toBe(200)
+    expect(h.room()).toBe(0)
   })
 
   it('moves nothing on screen when the closing rows are above the scrollport', () => {
@@ -220,23 +231,22 @@ describe('Chat scroll: a closing shrink keeps the content above still', () => {
     expect(h.room()).toBe(0)
   })
 
-  it('keeps the nearest surviving row above when no row followed a closed first row on screen', () => {
+  it('keeps the tail when no row follows the closed first row on screen', () => {
     const h = mountRows([500, 900])
     const [earlier, steps] = [h.row(0), h.row(1)]
     h.close(steps)
-    // The earlier row would need more room than half the scrollport; the content end stops at the middle.
-    expect(h.screenTop(earlier)).toBe(-300)
-    expect(h.room()).toBe(200)
+    expect(h.screenTop(earlier)).toBe(-100)
+    expect(h.room()).toBe(0)
   })
 
-  it('lets later growth take the room before following scrolls', () => {
+  it('lets later growth move the followed tail without reserving old fold room', () => {
     const h = mountRows([700, 100, 200])
     const [step, answer] = [h.row(1), h.row(2)]
     h.close(step)
     h.grow(answer, 60)
     h.resize()
-    expect(h.room()).toBe(40)
-    expect(h.top()).toBe(600)
+    expect(h.room()).toBe(0)
+    expect(h.top()).toBe(560)
   })
 
   it('leaves a reader away from the tail to the browser', () => {
